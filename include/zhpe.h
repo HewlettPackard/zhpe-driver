@@ -288,7 +288,6 @@ struct zhpe_rsp_HELPER_NOP {
 struct zhpe_req_UUID_IMPORT {
     struct zhpe_common_hdr  hdr;
     uuid_t                  uuid;
-    struct sockaddr_storage sa;
 };
 
 struct zhpe_rsp_UUID_IMPORT {
