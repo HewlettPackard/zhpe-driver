@@ -94,9 +94,6 @@ enum {
     ZHPE_OP_RMR_FREE,
     ZHPE_OP_ZMMU_REG,
     ZHPE_OP_ZMMU_FREE,
-    ZHPE_OP_HELPER_INIT,
-    ZHPE_OP_HELPER_NOP,
-    ZHPE_OP_HELPER_EXIT,
     ZHPE_OP_UUID_IMPORT,
     ZHPE_OP_UUID_FREE,
     ZHPE_OP_XQALLOC,
@@ -112,7 +109,7 @@ enum {
     DEBUG_MEM           = 0x00000002,
     DEBUG_COUNT         = 0x00000004,
     DEBUG_IO            = 0x00000008,
-    DEBUG_RELEASE       = 0x00000018,
+    DEBUG_RELEASE       = 0x00000010,
     DEBUG_PCI           = 0x00000020,
     DEBUG_ZMMU          = 0x00000040,
     DEBUG_MEMREG        = 0x00000080,
@@ -122,9 +119,8 @@ enum {
     DEBUG_RQUEUE        = 0x00000800,
     DEBUG_RKEYS         = 0x00001000,
     DEBUG_MSG           = 0x00002000,
+    DEBUG_INTR          = 0x00004000,
 };
-
-#define ZHPE_HELPER_OPEN_SLEEP (1)
 
 /* ZHPE_MAGIC == 'ZHPE' */
 #define ZHPE_MAGIC      (0x47454E5A)
@@ -153,9 +149,11 @@ struct zhpe_req_INIT {
 
 struct zhpe_rsp_INIT {
     struct zhpe_common_hdr hdr;
-    uint64_t            shared_offset;
-    uint32_t            shared_size;
     uuid_t              uuid;
+    uint64_t            global_shared_offset; /* triggered counters */
+    uint32_t            global_shared_size;
+    uint64_t            local_shared_offset;  /* handled counters */
+    uint32_t            local_shared_size;
 };
 
 struct zhpe_req_MR_REG {
@@ -257,34 +255,6 @@ struct zhpe_rsp_ZMMU_FREE {
     struct zhpe_common_hdr hdr;
 };
 
-struct zhpe_req_HELPER_EXIT {
-    struct zhpe_common_hdr hdr;
-};
-
-struct zhpe_rsp_HELPER_EXIT {
-    struct zhpe_common_hdr hdr;
-};
-
-struct zhpe_req_HELPER_INIT {
-    struct zhpe_common_hdr hdr;
-    uint64_t            shared_offset;
-    uint64_t            shared_size;
-};
-
-struct zhpe_rsp_HELPER_INIT {
-    struct zhpe_common_hdr hdr;
-};
-
-struct zhpe_req_HELPER_NOP {
-    struct zhpe_common_hdr hdr;
-    uint64_t            seq;
-};
-
-struct zhpe_rsp_HELPER_NOP {
-    struct zhpe_common_hdr hdr;
-    uint64_t            seq;
-};
-
 struct zhpe_req_UUID_IMPORT {
     struct zhpe_common_hdr  hdr;
     uuid_t                  uuid;
@@ -379,6 +349,7 @@ struct zhpe_rqinfo {
     uint8_t             slice; /* HW slice number which allocated the queues */
     uint8_t             queue; /* HW queue number */
     uint32_t            rspctxid; /* RSPCTXID to use with EnqA */
+    uint32_t            irq_vector; /* interrupt vector that maps to poll dev */
 };
 
 struct zhpe_req_RQALLOC {
@@ -414,9 +385,6 @@ union zhpe_req {
     struct zhpe_req_QFREE       qfree;
     struct zhpe_req_ZMMU_REG    zmmu_reg;
     struct zhpe_req_ZMMU_FREE   zmmu_free;
-    struct zhpe_req_HELPER_EXIT helper_exit;
-    struct zhpe_req_HELPER_INIT helper_init;
-    struct zhpe_req_HELPER_NOP  helper_nop;
     struct zhpe_req_UUID_IMPORT uuid_import;
     struct zhpe_req_UUID_FREE   uuid_free;
     struct zhpe_req_XQALLOC     xqalloc;
@@ -437,9 +405,6 @@ union zhpe_rsp {
     struct zhpe_rsp_QFREE       qfree;
     struct zhpe_rsp_ZMMU_REG    zmmu_reg;
     struct zhpe_rsp_ZMMU_FREE   zmmu_free;
-    struct zhpe_rsp_HELPER_EXIT helper_exit;
-    struct zhpe_rsp_HELPER_INIT helper_init;
-    struct zhpe_rsp_HELPER_NOP  helper_nop;
     struct zhpe_rsp_UUID_IMPORT uuid_import;
     struct zhpe_rsp_UUID_FREE   uuid_free;
     struct zhpe_rsp_XQALLOC     xqalloc;
@@ -454,13 +419,24 @@ union zhpe_op {
     union zhpe_rsp     rsp;
 };
 
-#define ZHPE_SHARED_VERSION    (1)
+#define ZHPE_GLOBAL_SHARED_VERSION    (1)
+#define SLICES                        4
+#define VECTORS_PER_SLICE             32
+#define MAX_IRQ_VECTORS               (VECTORS_PER_SLICE * SLICES)
 
-struct zhpe_shared_data {
+struct zhpe_global_shared_data {
     uint                magic;
     uint                version;
     uint                debug_flags;
     struct zhpe_attr    default_attr;
+    uint32_t            triggered_counter[MAX_IRQ_VECTORS];
+};
+
+#define ZHPE_LOCAL_SHARED_VERSION    (1)
+struct zhpe_local_shared_data {
+    uint                magic;
+    uint                version;
+    uint32_t            handled_counter[MAX_IRQ_VECTORS];
 };
 
 /* XDM QCM access macros and structures. Reads and writes must be 64 bits */
