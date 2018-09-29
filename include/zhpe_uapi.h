@@ -65,26 +65,26 @@ struct zhpe_timing_stamp {
     uint32_t		cpu;
 } __attribute__ ((packed));
 
-#define ZHPE_IMM_MAX            (32)
-#define ZHPE_ENQA_MAX           (52)
+#define ZHPE_IMM_MAX           (32)
+#define ZHPE_ENQA_MAX          (52)
 
-#define ZHPE_MR_GET             ((uint32_t)1 << 0)
-#define ZHPE_MR_PUT             ((uint32_t)1 << 1)
-#define ZHPE_MR_SEND            ZHPE_MR_PUT
-#define ZHPE_MR_RECV            ZHPE_MR_GET
-#define ZHPE_MR_GET_REMOTE      ((uint32_t)1 << 2)
-#define ZHPE_MR_PUT_REMOTE      ((uint32_t)1 << 3)
-#define ZHPE_MR_FLAG0           ((uint32_t)1 << 4) /* Usable by zhpeq */
-#define ZHPE_MR_FLAG1           ((uint32_t)1 << 5)
-#define ZHPE_MR_FLAG2           ((uint32_t)1 << 6)
-#define ZHPE_MR_FLAG3           ((uint32_t)1 << 7)
-#define ZHPE_MR_REQ_CPU         ((uint32_t)1 << 27) /* CPU visible mapping */
-#define ZHPE_MR_REQ_CPU_CACHE   ((uint32_t)3 << 28) /* CPU cache mode */
-#define ZHPE_MR_REQ_CPU_WB      ((uint32_t)0 << 28)
-#define ZHPE_MR_REQ_CPU_WC      ((uint32_t)1 << 28)
-#define ZHPE_MR_REQ_CPU_WT      ((uint32_t)2 << 28)
-#define ZHPE_MR_REQ_CPU_UC      ((uint32_t)3 << 28)
-#define ZHPE_MR_INDIVIDUAL      ((uint32_t)1 << 30) /* individual rsp ZMMU */
+#define ZHPE_MR_GET            ((uint32_t)1 << 0)
+#define ZHPE_MR_PUT            ((uint32_t)1 << 1)
+#define ZHPE_MR_SEND           ZHPE_MR_PUT
+#define ZHPE_MR_RECV           ZHPE_MR_GET
+#define ZHPE_MR_GET_REMOTE     ((uint32_t)1 << 2)
+#define ZHPE_MR_PUT_REMOTE     ((uint32_t)1 << 3)
+#define ZHPE_MR_FLAG0          ((uint32_t)1 << 4) /* Usable by zhpeq */
+#define ZHPE_MR_FLAG1          ((uint32_t)1 << 5)
+#define ZHPE_MR_FLAG2          ((uint32_t)1 << 6)
+#define ZHPE_MR_FLAG3          ((uint32_t)1 << 7)
+#define ZHPE_MR_REQ_CPU        ((uint32_t)1 << 27) /* CPU visible mapping */
+#define ZHPE_MR_REQ_CPU_CACHE  ((uint32_t)3 << 28) /* CPU cache mode */
+#define ZHPE_MR_REQ_CPU_WB     ((uint32_t)0 << 28)
+#define ZHPE_MR_REQ_CPU_WC     ((uint32_t)1 << 28)
+#define ZHPE_MR_REQ_CPU_WT     ((uint32_t)2 << 28)
+#define ZHPE_MR_REQ_CPU_UC     ((uint32_t)3 << 28)
+#define ZHPE_MR_INDIVIDUAL     ((uint32_t)1 << 30) /* individual rsp ZMMU */
 
 enum zhpe_hw_atomic {
     ZHPE_HW_ATOMIC_RETURN 	= 0x01,
@@ -117,7 +117,9 @@ struct zhpe_result {
 };
 
 struct zhpe_cq_entry {
-    uint8_t             valid;
+    uint8_t             valid : 1;
+    uint8_t             rv1   : 4;
+    uint8_t             qd    : 3;  /* EnqA only */
     uint8_t             status;
     uint16_t            index;
     uint8_t             filler1[4];
@@ -189,17 +191,46 @@ struct zhpe_hw_wq_atomic {
     union zhpe_atomic  operands[2];
 };
 
+struct zhpe_hw_wq_enqa {
+    struct zhpe_hw_wq_hdr hdr;
+    uint32_t            rv1      :  4;
+    uint32_t            dgcid    : 28;
+    uint32_t            rspctxid : 24;
+    uint32_t            rv2      :  8;
+    uint8_t             payload[ZHPE_ENQA_MAX];
+};
+
 union zhpe_hw_wq_entry {
     struct zhpe_hw_wq_hdr hdr;
     struct zhpe_hw_wq_nop nop;
     struct zhpe_hw_wq_dma dma;
     struct zhpe_hw_wq_imm imm;
     struct zhpe_hw_wq_atomic atm;
+    struct zhpe_hw_wq_enqa enqa;
     uint8_t             filler[ZHPE_HW_ENTRY_LEN];
 };
 
 union zhpe_hw_cq_entry {
     struct zhpe_cq_entry entry;
+    uint8_t             filler[ZHPE_HW_ENTRY_LEN];
+};
+
+struct zhpe_rdm_hdr {
+    uint64_t            valid     :  1;
+    uint64_t            rv1       :  3;
+    uint64_t            sgcid     : 28;
+    uint64_t            reqctxid  : 24;
+    uint64_t            rv2       :  8;
+};
+
+struct zhpe_rdm_entry {
+    struct zhpe_rdm_hdr hdr;
+    uint8_t             filler1[4];
+    uint8_t             payload[ZHPE_ENQA_MAX];
+};
+
+union zhpe_hw_rdm_entry {
+    struct zhpe_rdm_entry entry;
     uint8_t             filler[ZHPE_HW_ENTRY_LEN];
 };
 
@@ -222,6 +253,7 @@ struct zhpe_key_data {
     uint64_t            vaddr;
     uint64_t            zaddr;
     uint64_t            len;
+    uint64_t            key;
     uint8_t             access;
 };
 
