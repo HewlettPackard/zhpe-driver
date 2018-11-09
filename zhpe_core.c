@@ -874,7 +874,7 @@ static int zhpe_user_req_INIT(struct io_entry *entry)
 
     zhpe_generate_uuid(fdata->bridge, &rsp->init.uuid);
     uu = zhpe_uuid_tracker_alloc_and_insert(&rsp->init.uuid, UUID_TYPE_LOCAL,
-		fdata, GFP_KERNEL, &status);
+		0, fdata, GFP_KERNEL, &status);
     if (!uu)
         goto out;
 

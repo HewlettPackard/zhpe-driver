@@ -495,7 +495,7 @@ static int msg_req_UUID_IMPORT(struct rdm_info *rdmi, struct xdm_info *xdmi,
     }
     /* we now hold a reference to tuu */
     fdata = tuu->local->fdata;
-    suu = zhpe_uuid_tracker_alloc_and_insert(src_uuid, UUID_TYPE_REMOTE,
+    suu = zhpe_uuid_tracker_alloc_and_insert(src_uuid, UUID_TYPE_REMOTE, 0,
 		fdata, GFP_ATOMIC, &status);
     if (status == -EEXIST) {  /* duplicates ok */
         status = 0;

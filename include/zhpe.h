@@ -255,9 +255,15 @@ struct zhpe_rsp_ZMMU_FREE {
     struct zhpe_common_hdr hdr;
 };
 
+enum {
+    UUID_IS_FAM = 0x1,
+};
+
 struct zhpe_req_UUID_IMPORT {
     struct zhpe_common_hdr  hdr;
     uuid_t                  uuid;
+    uuid_t                  mgr_uuid;
+    uint32_t                uu_flags;
 };
 
 struct zhpe_rsp_UUID_IMPORT {

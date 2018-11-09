@@ -46,6 +46,7 @@ enum uuid_type {
 struct uuid_tracker_remote {
     uint32_t                ro_rkey;
     uint32_t                rw_rkey;
+    uint32_t                uu_flags;
     bool                    rkeys_valid;
     bool                    torndown;  /* UUID is being torndown */
     /* Revisit: add bool to distinguish "alias" vs "real" loopback */
@@ -151,6 +152,7 @@ static inline void zhpe_uuid_remove(struct uuid_tracker *uu)
 static inline struct uuid_tracker *zhpe_uuid_tracker_alloc_and_insert(
     uuid_t *uuid,
     uint type,
+    uint32_t uu_flags,
     struct file_data *fdata,
     gfp_t alloc_flags,
     int *status)
@@ -165,6 +167,7 @@ static inline struct uuid_tracker *zhpe_uuid_tracker_alloc_and_insert(
         }
         if (type & UUID_TYPE_REMOTE) {
             uu->remote->rkeys_valid = false;
+            uu->remote->uu_flags = uu_flags;
             uu->remote->local_uuid_tree = RB_ROOT;
             spin_lock_init(&uu->remote->local_uuid_lock);
         }

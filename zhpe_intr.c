@@ -74,17 +74,17 @@ int zhpe_get_irq_index(struct slice *sl, int queue)
 
 irqreturn_t zhpe_rdm_interrupt_handler(int irq_index, void *data)
 {
-    struct file_data *fdata = (struct file_data *)data;
+    struct bridge *br = (struct bridge *)data;
 
     debug(DEBUG_INTR,
             "zhpe_rdm_interrupt_handler: irq_index %d\n", irq_index);
-    if (fdata == NULL) {
+    if (br == NULL) {
         debug(DEBUG_INTR,
-            "zhpe_rdm_interrupt_handler: fdata is NULL\n");
+            "zhpe_rdm_interrupt_handler: br is NULL\n");
         return IRQ_NONE;
     }
     /* wake up the wait queue to process the interrupt */
-    wake_up_interruptible_all(&(fdata->bridge->zhpe_poll_wq[irq_index]));
+    wake_up_interruptible_all(&(br->zhpe_poll_wq[irq_index]));
 
     return IRQ_HANDLED;
 }

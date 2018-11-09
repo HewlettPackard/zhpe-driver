@@ -758,7 +758,7 @@ int zhpe_user_req_MR_REG(struct io_entry *entry)
     uint64_t                vaddr, len, access;
     uint64_t                rsp_zaddr = BASE_ADDR_ERROR;
     uint64_t                physaddr = BASE_ADDR_ERROR;
-    uint32_t                pg_ps;
+    uint32_t                pg_ps = 0;
     bool                    local, remote, cpu_visible, individual, dmasync;
     struct zhpe_umem        *umem;
 

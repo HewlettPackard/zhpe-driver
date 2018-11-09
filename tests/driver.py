@@ -84,6 +84,8 @@ def parse_args():
                         help='invoke interactive keyboard')
     parser.add_argument('-v', '--verbosity', action='count', default=0,
                         help='increase output verbosity')
+    parser.add_argument('-f', '--fam', action='store_true',
+                        help='test FAM at GCID 0x40')
     return parser.parse_args()
 
 def main():
@@ -121,7 +123,7 @@ def main():
 
         if args.loopback and modp.genz_loopback:
             zuu = zuuid(gcid=gcid)
-            conn.do_UUID_IMPORT(zuu, None)
+            conn.do_UUID_IMPORT(zuu, 0, None)
 
         sz4K = 4096
         sz2M = 2<<20
@@ -584,6 +586,39 @@ def main():
                 if enqa2.enqa.payload[0:52] != rdm_cmpls2[c].enqa.payload[0:52]:
                     print('FAIL: RDM: payload is {} and should be {}'.format(
                       rdm_cmpls[c].enqa.payload[0:52], enqa.enqa.payload[0:52]))
+            # test FAM
+            if args.fam:
+                # Assume CID is 0x40 and create a ZUUID
+                fam_zuu = zuuid(gcid=0x40)
+                print('FAM zuuid={}'.format(fam_zuu))
+                # Do a UUID_IMPORT with the ZHPE_IS_FAM flag set
+                conn.do_UUID_IMPORT(fam_zuu, 1, None)
+                # RMR_IMPORT the FAM at address 0 and size 1M
+                sz2M = 2<<20
+                access2M = (zhpe.MR.GET_REMOTE|zhpe.MR.PUT_REMOTE|
+                          zhpe.MR.INDIVIDUAL|zhpe.MR.REQ_CPU)
+                fam_rmr = conn.do_RMR_IMPORT(fam_zuu, 0, sz2M, access2M)
+                # Do load/store to FAM
+                fam_rmm = mmap.mmap(f.fileno(), sz2M,
+                                    offset=fam_rmr.offset)
+                fam_v, fam_l = zhpe.mmap_vaddr_len(fam_rmm)
+                fam_rmm[0:len1] = str1
+                fam_rmm[len1:len1_2] = str2
+                # flush writes, so reads will see new data
+                zhpe.pmem_flush(fam_v, len1_2)
+                # do an XDM command to get the data back and check it
+                get_imm = zhpe.xdm_cmd()
+                get_imm.opcode = zhpe.XDM_CMD.GET_IMM
+                get_imm.getput_imm.size = len1_2
+                get_imm.getput_imm.rem_addr = fam_rmr.req_addr
+                xdm.queue_cmd(get_imm)
+                try:
+                    get_imm_cmpl = xdm.get_cmpl()
+                    if args.verbosity:
+                        print('GET_IMM cmpl: {}'.format(get_imm_cmpl.getimm))
+                except XDMcompletionError as e:
+                    print('GET_IMM cmpl error: {} {:#x} request_id {:#x}'.format(
+                          e, e.status, e.request_id))
 
         if args.net:
             if args.verbosity:

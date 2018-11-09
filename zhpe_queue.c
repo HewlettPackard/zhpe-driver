@@ -1363,7 +1363,7 @@ int zhpe_req_RQALLOC(struct zhpe_req_RQALLOC *req,
 
 	/* Register the rdm second level interrupt handler */
 	ret = zhpe_register_rdm_interrupt(sl, queue,
-			zhpe_rdm_interrupt_handler, fdata);
+			zhpe_rdm_interrupt_handler, fdata->bridge);
         if (ret != 0) {
 		goto free_cmplq_zmap;
 	}

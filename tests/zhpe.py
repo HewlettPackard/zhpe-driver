@@ -341,6 +341,8 @@ class rsp_RMR_FREE(Structure):
 class req_UUID_IMPORT(uuidStructure):
     _fields_ = [('hdr',            hdr),
                 ('uuid_bytes',     c_byte * 16),
+                ('mgr_uuid_bytes', c_byte * 16),
+                ('uu_flags',       c_u32),
                 ]
 
 class rsp_UUID_IMPORT(Structure):
@@ -1059,9 +1061,9 @@ class Connection():
         self.read(rsp)
         return rsp
 
-    def do_UUID_IMPORT(self, uuid, sock):
+    def do_UUID_IMPORT(self, uuid, uu_flags, sock):
         # Revisit: finish this - do something with sock
-        req = req_UUID_IMPORT(hdr(OP.UUID_IMPORT), create_uuid_bytes(uuid))
+        req = req_UUID_IMPORT(hdr(OP.UUID_IMPORT), create_uuid_bytes(uuid), create_uuid_bytes(uuid),  uu_flags)
         self.write(req)
         rsp = rsp_UUID_IMPORT(hdr(OP.UUID_IMPORT,
                                   index=req.hdr.index, rsp=True))

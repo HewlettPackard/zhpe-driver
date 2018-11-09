@@ -549,6 +549,12 @@ void zhpe_notify_remote_uuids(struct file_data *fdata)
     for (rb = rb_first(&fdata->fd_remote_uuid_tree); rb; rb = rb_next(rb)) {
         node = container_of(rb, struct uuid_node, node);
         uu = node->tracker;
+        if (uu->remote->uu_flags & UUID_IS_FAM) { /* skip send if this is FAM */
+            debug(DEBUG_UUID, "%s:%s,%u: IS_FAM skipping FREE uuid=%s\n",
+                  zhpe_driver_name, __FUNCTION__, __LINE__,
+                  zhpe_uuid_str(&uu->uuid, str, sizeof(str)));
+            continue;
+        }
         debug(DEBUG_UUID, "%s:%s,%u: FREE uuid=%s\n",
               zhpe_driver_name, __FUNCTION__, __LINE__,
               zhpe_uuid_str(&uu->uuid, str, sizeof(str)));
@@ -677,6 +683,7 @@ int zhpe_user_req_UUID_IMPORT(struct io_entry *entry)
     struct uuid_node        *fd_node, *uu_node;
     uint32_t                ro_rkey, rw_rkey;
     char                    uustr[UUID_STRING_LEN+1];
+    uint32_t                uu_flags = req->uuid_import.uu_flags;
 
     CHECK_INIT_STATE(entry, status, out);
     if (zhpe_uuid_is_local(fdata->bridge, uuid)) {
@@ -687,7 +694,7 @@ int zhpe_user_req_UUID_IMPORT(struct io_entry *entry)
             goto out;
         }
     }
-    uu = zhpe_uuid_tracker_alloc_and_insert(uuid, type,
+    uu = zhpe_uuid_tracker_alloc_and_insert(uuid, type, uu_flags,
                                             fdata, GFP_KERNEL, &status);
     if (status == -EEXIST) {  /* duplicates ok - even expected */
         status = 0;
@@ -721,20 +728,22 @@ int zhpe_user_req_UUID_IMPORT(struct io_entry *entry)
         goto out;
     }
     /* send msg to retrieve R-keys from remote node - this can sleep a while */
-    status = zhpe_msg_send_UUID_IMPORT(fdata->bridge,
+    if (!(uu_flags & UUID_IS_FAM)) {
+        status = zhpe_msg_send_UUID_IMPORT(fdata->bridge,
                                        &fdata->local_uuid->uuid, uuid,
                                        &ro_rkey, &rw_rkey);
-    if (status < 0)
-        goto out;
+        if (status < 0)
+            goto out;
 
-    uu->remote->ro_rkey = ro_rkey;
-    uu->remote->rw_rkey = rw_rkey;
-    uu->remote->rkeys_valid = true;
+        uu->remote->ro_rkey = ro_rkey;
+        uu->remote->rw_rkey = rw_rkey;
+        uu->remote->rkeys_valid = true;
+    }
 
  out:
-    debug(DEBUG_UUID, "%s:%s,%u:ret = %d uuid = %s\n",
+    debug(DEBUG_UUID, "%s:%s,%u:ret = %d uuid = %s uu_flags = 0x%x\n",
           zhpe_driver_name, __FUNCTION__, __LINE__, status,
-          zhpe_uuid_str(uuid, uustr, sizeof(uustr)));
+          zhpe_uuid_str(uuid, uustr, sizeof(uustr)), uu_flags);
     return queue_io_rsp(entry, sizeof(rsp->uuid_import), status);
 }
 
@@ -750,6 +759,7 @@ int zhpe_user_req_UUID_FREE(struct io_entry *entry)
     bool                    local;
     ulong                   flags;
     char                    str[UUID_STRING_LEN+1];
+    uint32_t                uu_flags = 0;
 
     CHECK_INIT_STATE(entry, status, out);
     uu = zhpe_uuid_search(uuid);
@@ -782,18 +792,22 @@ int zhpe_user_req_UUID_FREE(struct io_entry *entry)
                                  &fdata->local_uuid->uuid, false);
         spin_unlock_irqrestore(&uu->remote->local_uuid_lock, flags);
         /* send msg to release UUID on remote node - this can sleep a while */
-        state = zhpe_msg_send_UUID_FREE(fdata->bridge,
+        uu_flags = uu->remote->uu_flags;
+        if (!(uu_flags & UUID_IS_FAM)) {
+            state = zhpe_msg_send_UUID_FREE(fdata->bridge,
                                         &fdata->local_uuid->uuid, uuid, true);
-        if (IS_ERR(state)) {
-            status = PTR_ERR(state);
-            debug(DEBUG_MSG, "%s:%s,%u: zhpe_msg_send_UUID_FREE status=%d\n",
-                  zhpe_driver_name, __FUNCTION__, __LINE__, status);
+            if (IS_ERR(state)) {
+                status = PTR_ERR(state);
+                debug(DEBUG_MSG,
+                      "%s:%s,%u: zhpe_msg_send_UUID_FREE status=%d\n",
+                      zhpe_driver_name, __FUNCTION__, __LINE__, status);
+            }
         }
     }
 
  out:
-    debug(DEBUG_UUID, "%s:%s,%u:ret = %d uuid = %s\n",
+    debug(DEBUG_UUID, "%s:%s,%u:ret = %d uuid = %s uu_flags = 0x%x\n",
           zhpe_driver_name, __FUNCTION__, __LINE__, status,
-          zhpe_uuid_str(uuid, str, sizeof(str)));
+          zhpe_uuid_str(uuid, str, sizeof(str)), uu_flags);
     return queue_io_rsp(entry, sizeof(rsp->uuid_free), status);
 }

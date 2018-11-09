@@ -200,7 +200,7 @@ class MyProtocol(Protocol):
                 self.lc_ping.start(PING_INTERVAL)
             self.state = 'READY'
             self.factory.peers[self.remote_nodeid] = self
-            self.factory.conn.do_UUID_IMPORT(self.remote_nodeid, None)
+            self.factory.conn.do_UUID_IMPORT(self.remote_nodeid, 0, None)
             ###inform our new peer about us
             self.send_addr(mine=True)
             ###and ask them for more peers
