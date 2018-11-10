@@ -368,7 +368,7 @@ void zhpe_rkey_print_all(void)
     struct rb_node *node;
     uint32_t nodes = 0;
 #if RKEY_DEBUG_ALL
-    char str[(RKEY_BITMAP_SZ/4) + (RKEY_BITMAP_SZ/(8*sizeof(ulong)))];
+    char str[(RKEY_BITMAP_SZ/4) + (RKEY_BITMAP_SZ/(8*sizeof(ulong))) + 1];
 #endif
 
     spin_lock(&rki.rk_lock);
