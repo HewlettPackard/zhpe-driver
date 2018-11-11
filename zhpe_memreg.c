@@ -172,13 +172,22 @@ static inline int zhpe_dma_map_sg_attrs(struct bridge *br,
                                         unsigned long dma_attrs)
 {
     int sl, ret = 0;
+#ifdef HAVE_RHEL
+    struct dma_attrs dattrs = {
+        .flags[0] = dma_attrs
+    };
+    struct dma_attrs *attrs = &dattrs;
+#else
+    unsigned long attrs = dma_attrs;
+#endif
+
 
     /* Revisit: add PASID support */
     for (sl = 0; sl < SLICES; sl++) {
         if (!SLICE_VALID(&br->slice[sl]))
             continue;
         ret = dma_map_sg_attrs(&br->slice[sl].pdev->dev, sg, nents,
-                               direction, dma_attrs);
+                               direction, attrs);
         /* Revisit: handle ret > 0 but different amongst the slices? */
         if (ret <= 0) {
             while (--sl >= 0)  /* undo the ones we already did */
@@ -244,6 +253,23 @@ static void _zhpe_umem_release(struct zhpe_umem *umem)
     }
 }
 
+static inline long
+get_user_pages_compat(unsigned long start, unsigned long nr_pages,
+		      bool write, bool force, struct page **pages,
+		      struct vm_area_struct **vmas)
+{
+#ifdef HAVE_RHEL
+    return get_user_pages(current, current->mm, start, nr_pages,
+                          write, force, pages, vmas);
+#else
+    unsigned int        gup_flags;
+
+    gup_flags = (write ? FOLL_WRITE : 0) | (force ? FOLL_FORCE : 0);
+
+    return get_user_pages(start, nr_pages, gup_flags, pages, vmas);
+#endif
+}
+
 /**
  * zhpe_umem_get - Pin and DMA map userspace memory.
  *
@@ -271,7 +297,6 @@ struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
     unsigned long dma_attrs = 0;
     struct scatterlist *sg, *sg_list_start;
     bool first_page = true; /* Revisit: temporary */
-    unsigned int gup_flags = FOLL_WRITE;
     ulong flags;
 
     if (dmasync)
@@ -367,18 +392,15 @@ struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
         goto out;
     }
 
-    if (!umem->writable)
-        gup_flags |= FOLL_FORCE;
-
     umem->need_release = true;
     sg_list_start = umem->sg_head.sgl;
 
     while (npages) {
         /* Revisit: new code shouldn't call get_user_pages */
-        ret = get_user_pages(cur_base,
-                             min_t(unsigned long, npages,
-                                   PAGE_SIZE / sizeof (struct page *)),
-                             gup_flags, page_list, vma_list);
+        ret = get_user_pages_compat(cur_base,
+                                    min_t(unsigned long, npages,
+                                          PAGE_SIZE / sizeof (struct page *)),
+                                    true, !umem->writable, page_list, vma_list);
         if (ret < 0) {
             debug(DEBUG_MEMREG, "%s:%s,%u:get_user_pages(0x%lx, %lu) failed\n",
                   zhpe_driver_name, __FUNCTION__, __LINE__,

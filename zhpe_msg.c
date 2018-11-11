@@ -36,6 +36,9 @@
 #include <zhpe.h>
 #include <zhpe_driver.h>
 
+#include <linux/interrupt.h>
+#include <linux/sched.h>
+
 /* msg_state & msgid's are global */
 static struct rb_root msg_rbtree = RB_ROOT;
 DEFINE_SPINLOCK(zhpe_msg_rbtree_lock);

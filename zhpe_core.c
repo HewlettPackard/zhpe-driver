@@ -1945,5 +1945,5 @@ static void zhpe_exit(void)
     zhpe_uuid_exit();
 
     printk(KERN_INFO "%s:%s mem_total %lld\n",
-           zhpe_driver_name, __FUNCTION__, atomic64_read(&mem_total));
+           zhpe_driver_name, __FUNCTION__, (llong)atomic64_read(&mem_total));
 }
