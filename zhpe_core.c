@@ -122,9 +122,9 @@ uint genz_gcid = 0x0000001;  /* Revisit Carbon: carbon node 1 */
 module_param(genz_gcid, uint, S_IRUGO);
 MODULE_PARM_DESC(genz_gcid, "Gen-Z bridge global CID");
 
-uint genz_loopback = 0;
+uint genz_loopback = 1;
 module_param(genz_loopback, uint, S_IRUGO);
-MODULE_PARM_DESC(genz_loopback, "Gen-Z loopback mode");
+MODULE_PARM_DESC(genz_loopback, "Gen-Z loopback mode (default=1)");
 
 static char *req_page_grid = "4K*20K,2M*12000,1G*2K,8G*1906,4K:1024,2M:1000,1G:5000,128T:3072";
 module_param(req_page_grid, charp, 0444);
