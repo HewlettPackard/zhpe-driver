@@ -40,7 +40,7 @@
 #include <zhpe.h>
 #include <zhpe_driver.h>
 
-#if HAVE_RHEL
+#ifdef HAVE_RHEL
 #include <asm/i387.h>
 #else
 #include <asm/fpu/api.h>

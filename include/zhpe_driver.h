@@ -566,7 +566,7 @@ struct file_data *pid_to_fdata(struct bridge *br, pid_t pid);
 #define UUID_STRING_LEN (36)
 #endif
 
-#if HAVE_RHEL
+#ifdef HAVE_RHEL
 static inline pgprot_t pgprot_writethrough(pgprot_t prot)
 {
     return __pgprot(pgprot_val(prot) |
@@ -574,7 +574,7 @@ static inline pgprot_t pgprot_writethrough(pgprot_t prot)
 }
 #endif
 
-#if HAVE_RHEL
+#ifdef HAVE_RHEL
 static inline void radix_tree_iter_delete(struct radix_tree_root *root,
                                           struct radix_tree_iter *iter,
                                           void __rcu **slot)
