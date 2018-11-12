@@ -562,6 +562,29 @@ struct file_data *pid_to_fdata(struct bridge *br, pid_t pid);
 #endif
 #endif
 
+#ifndef UUID_STRING_LEN
+#define UUID_STRING_LEN (36)
+#endif
+
+#ifdef HAVE_RHEL
+static inline pgprot_t pgprot_writethrough(pgprot_t prot)
+{
+    return __pgprot(pgprot_val(prot) |
+                    cachemode2protval(_PAGE_CACHE_MODE_WT));
+}
+#endif
+
+#ifdef HAVE_RHEL
+static inline void radix_tree_iter_delete(struct radix_tree_root *root,
+                                          struct radix_tree_iter *iter,
+                                          void __rcu **slot)
+{
+    /* REVISIT:May not be fully correct. */
+    if (radix_tree_delete(root, iter->index))
+        iter->index = iter->next_index;
+}
+#endif
+
 #include <zhpe_uuid.h>
 #include <zhpe_zmmu.h>
 #include <zhpe_memreg.h>

@@ -35,6 +35,7 @@
  */
 #include <linux/cdev.h>
 #include <linux/poll.h>
+#include <linux/sched.h>
 #include <zhpe.h>
 #include <zhpe_driver.h>
 
