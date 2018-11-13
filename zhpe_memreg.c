@@ -527,7 +527,7 @@ static inline int64_t rmr_cmp(uint32_t dgcid, uint64_t rsp_zaddr,
     const struct zhpe_pte_info *info = &r->pte_info;
 
     if (dgcid != r->dgcid)
-        return dgcid - r->dgcid;
+        return (int32_t)(dgcid - r->dgcid);
     else if (rsp_zaddr != r->rsp_zaddr)
         return rsp_zaddr - r->rsp_zaddr;
     else if (length != info->length)
