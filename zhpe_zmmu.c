@@ -746,7 +746,7 @@ int zhpe_zmmu_rsp_page_grid_alloc(struct bridge *br,
     return err;
 }
 
-uint64_t zhpe_zmmu_pte_addr(struct zhpe_pte_info *info)
+uint64_t zhpe_zmmu_pte_addr(const struct zhpe_pte_info *info)
 {
     uint64_t base_addr, ps, pte_off;
     struct sw_page_grid *pg = info->pg;

@@ -1004,7 +1004,7 @@ int zhpe_user_req_RMR_FREE(struct io_entry *entry)
     uint64_t                len, access, rsp_zaddr, req_addr;
     uint32_t                dgcid;
     ulong                   flags;
-    char                    str[GCID_STRING_LEN+1];
+    char                    str[UUID_STRING_LEN+1];
 
     rsp_zaddr = req->rmr_free.rsp_zaddr;
     len = req->rmr_free.len;
@@ -1027,6 +1027,6 @@ int zhpe_user_req_RMR_FREE(struct io_entry *entry)
     debug(DEBUG_MEMREG, "%s:%s,%u:ret = %d, dgcid = %s, rsp_zaddr = 0x%016llx, "
           "len = 0x%llx, access = 0x%llx\n",
           zhpe_driver_name, __FUNCTION__, __LINE__, status,
-          zhpe_gcid_str(dgcid, str, sizeof(str)), rsp_zaddr, len, access);
+          zhpe_uuid_str(uuid, str, sizeof(str)), rsp_zaddr, len, access);
     return queue_io_rsp(entry, sizeof(rsp->mr_free), status);
 }

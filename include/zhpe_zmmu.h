@@ -160,7 +160,7 @@ void zhpe_zmmu_clear_slice(struct slice *sl);
 void zhpe_zmmu_clear_all(struct bridge *br, bool free_radix_tree);
 int zhpe_zmmu_req_page_grid_alloc(struct bridge *br,
                                   struct sw_page_grid *sw_pg);
-uint64_t zhpe_zmmu_pte_addr(struct zhpe_pte_info *info);
+uint64_t zhpe_zmmu_pte_addr(const struct zhpe_pte_info *info);
 int zhpe_zmmu_req_pte_alloc(struct zhpe_rmr *rmr, uint64_t *req_addr,
                             uint32_t *pg_ps);
 void zhpe_zmmu_req_pte_free(struct zhpe_rmr *rmr);
