@@ -120,7 +120,7 @@ static inline bool zhpe_unode_rmr_empty(struct uuid_node *node)
 static inline int zhpe_uuid_cmp(const uuid_t *u1, const uuid_t *u2)
 {
     /* this must sort all UUIDs for a given GCID together, which it does
-     * because the GCID is in the first 7 nybbles
+     * because the GCID is in the first 28 bits.
      */
     return memcmp(u1, u2, sizeof(uuid_t));
 }

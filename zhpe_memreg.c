@@ -1024,7 +1024,7 @@ int zhpe_user_req_RMR_FREE(struct io_entry *entry)
  unlock:
     spin_unlock_irqrestore(&entry->fdata->mr_lock, flags);
  out:
-    debug(DEBUG_MEMREG, "%s:%s,%u:ret = %d, dgcid = %s, rsp_zaddr = 0x%016llx, "
+    debug(DEBUG_MEMREG, "%s:%s,%u:ret = %d, uuid = %s, rsp_zaddr = 0x%016llx, "
           "len = 0x%llx, access = 0x%llx\n",
           zhpe_driver_name, __FUNCTION__, __LINE__, status,
           zhpe_uuid_str(uuid, str, sizeof(str)), rsp_zaddr, len, access);
