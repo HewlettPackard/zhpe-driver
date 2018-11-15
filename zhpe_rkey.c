@@ -347,18 +347,17 @@ static char *rkey_bitmap_str(const unsigned long *bitmap, char *str,
                              const size_t maxlen)
 {
     int i, cnt, len = maxlen;
-    bool last;
     char *p = str;
 
-    for (i = 0; i < RKEY_BITMAP_SZ/(8*sizeof(ulong)); i++) {
-        last = (i == RKEY_BITMAP_SZ/(8*sizeof(ulong)) - 1);
-        cnt = snprintf(p, len, "%016lx", bitmap[i]);
+    for (i = 0; ; i++) {
+        cnt = scnprintf(p, len, "%016lx", bitmap[i]);
         p += cnt;
-        *p++ = (last) ? '\0' : ':';
         len -= (cnt + 1);
+        if (i == (BITS_TO_LONGS(RKEY_BITMAP_SZ) - 1) || len <= 0)
+            break;
+        *p++ = ':';
     }
 
-    *p = '\0';
     return str;
 }
 #endif
@@ -368,7 +367,7 @@ void zhpe_rkey_print_all(void)
     struct rb_node *node;
     uint32_t nodes = 0;
 #if RKEY_DEBUG_ALL
-    char str[(RKEY_BITMAP_SZ/4) + (RKEY_BITMAP_SZ/(8*sizeof(ulong))) + 1];
+    char str[BITS_TO_LONGS(RKEY_BITMAP_SZ) * (1 + BITS_PER_LONG/4)];
 #endif
 
     spin_lock(&rki.rk_lock);
