@@ -1,1 +1,16 @@
+# Object files
+*.o
+*.ko
+*.obj
+
+# Kernel Module Compile Results
+*.ko
+*.mod*
+*.cmd
+.tmp_versions/
+modules.order
+Module.symvers
+
+# Misc
+.cache.mk
 *~

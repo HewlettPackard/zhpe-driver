@@ -43,17 +43,19 @@
 
 static void umem_free(struct kref *ref);  /* forward reference */
 
-static inline int64_t umem_cmp(uint64_t vaddr, uint64_t length, uint64_t access,
-                               const struct zhpe_umem *u)
+static inline int umem_cmp(uint64_t vaddr, uint64_t length, uint64_t access,
+                           const struct zhpe_umem *u)
 {
+    int cmp;
     const struct zhpe_pte_info *info = &u->pte_info;
 
-    if (vaddr != u->vaddr)
-        return vaddr - u->vaddr;
-    else if (length != info->length)
-        return length - info->length;
-    else
-        return access - info->access;
+    cmp = arithcmp(vaddr, u->vaddr);
+    if (cmp)
+        return cmp;
+    cmp = arithcmp(length, info->length);
+    if (cmp)
+        return cmp;
+    return arithcmp(access, info->access);
 }
 
 static struct zhpe_umem *umem_search(struct file_data *fdata,
@@ -520,20 +522,23 @@ void zhpe_umem_free_all(struct file_data *fdata)
     spin_unlock_irqrestore(&fdata->mr_lock, flags);
 }
 
-static inline int64_t rmr_cmp(uint32_t dgcid, uint64_t rsp_zaddr,
-                              uint64_t length, uint64_t access,
-                              const struct zhpe_rmr *r)
+static inline int rmr_cmp(uint32_t dgcid, uint64_t rsp_zaddr,
+                          uint64_t length, uint64_t access,
+                          const struct zhpe_rmr *r)
 {
+    int cmp;
     const struct zhpe_pte_info *info = &r->pte_info;
 
-    if (dgcid != r->dgcid)
-        return (int32_t)(dgcid - r->dgcid);
-    else if (rsp_zaddr != r->rsp_zaddr)
-        return rsp_zaddr - r->rsp_zaddr;
-    else if (length != info->length)
-        return length - info->length;
-    else
-        return access - info->access;
+    cmp = arithcmp(dgcid, r->dgcid);
+    if (cmp)
+        return cmp;
+    cmp = arithcmp(rsp_zaddr, r->rsp_zaddr);
+    if (cmp)
+        return cmp;
+    cmp = arithcmp(length, info->length);
+    if (cmp)
+        return cmp;
+    return arithcmp(access, info->access);
 }
 
 static inline int64_t rmr_uu_cmp(uint64_t rsp_zaddr,
@@ -541,17 +546,20 @@ static inline int64_t rmr_uu_cmp(uint64_t rsp_zaddr,
                                  struct file_data *fdata,
                                  const struct zhpe_rmr *r)
 {
+    int cmp;
     const struct zhpe_pte_info *info = &r->pte_info;
 
-    if (rsp_zaddr != r->rsp_zaddr)
-        return rsp_zaddr - r->rsp_zaddr;
-    else if (length != info->length)
-        return length - info->length;
-    else if (access != info->access)
-        return access - info->access;
-    else
-        return zhpe_uuid_cmp(&fdata->local_uuid->uuid,
-                             &info->fdata->local_uuid->uuid);
+    cmp = arithcmp(rsp_zaddr, r->rsp_zaddr);
+    if (cmp)
+        return cmp;
+    cmp = arithcmp(length, info->length);
+    if (cmp)
+        return cmp;
+    cmp = arithcmp(access, info->access);
+    if (cmp)
+        return cmp;
+    return zhpe_uuid_cmp(&fdata->local_uuid->uuid,
+                         &info->fdata->local_uuid->uuid);
 }
 
 static struct zhpe_rmr *rmr_search(struct file_data *fdata,

@@ -546,6 +546,8 @@ bool _free_zmap_list(const char *callf, uint line, struct file_data *fdata);
 struct slice *slice_id_to_slice(struct file_data *fdata, int slice);
 struct file_data *pid_to_fdata(struct bridge *br, pid_t pid);
 
+#define arithcmp(_a, _b)        ((_a) < (_b) ? -1 : ((_a) > (_b) ? 1 : 0))
+
 #ifndef ioread64
 #ifdef readq
 #define ioread64 readq
