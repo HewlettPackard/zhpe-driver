@@ -161,7 +161,7 @@ void _do_kfree(const char *callf, uint line, void *ptr)
     ptr -= sizeof(void *);
     size = *(uintptr_t *)ptr;
     atomic64_sub(size, &mem_total);
-    debug(DEBUG_MEM, "%s:%s,%u:%s:ptr 0x%p size %lu\n",
+    debug(DEBUG_MEM, "%s:%s,%u:%s:ptr 0x%px size %lu\n",
           zhpe_driver_name, callf, line, __FUNCTION__, ptr, size);
     kfree(ptr);
 }
@@ -182,7 +182,7 @@ void *_do_kmalloc(const char *callf, uint line,
     ret = ptr + sizeof(void *);
     if (zero)
         memset(ret, 0, size);
-    debug(DEBUG_MEM, "%s:%s,%u:%s:ptr 0x%p ret 0x%p size %lu\n",
+    debug(DEBUG_MEM, "%s:%s,%u:%s:ptr 0x%px ret 0x%px size %lu\n",
           zhpe_driver_name, callf, line, __FUNCTION__, ptr, ret, size);
     atomic64_add(size, &mem_total);
     *(uintptr_t *)ptr = size;
@@ -202,7 +202,7 @@ void _do_free_pages(const char *callf, uint line, void *ptr, int order)
     atomic64_sub(size, &mem_total);
     page = virt_to_page(ptr);
     (void)page;
-    debug(DEBUG_MEM, "%s:%s,%u:%s:ptr/page/pfn 0x%p/0x%p/0x%lx size %lu\n",
+    debug(DEBUG_MEM, "%s:%s,%u:%s:ptr/page/pfn 0x%px/0x%px/0x%lx size %lu\n",
           zhpe_driver_name, callf, line, __FUNCTION__,
           ptr, page, page_to_pfn(page), size);
     free_pages((ulong)ptr, order);
@@ -227,7 +227,7 @@ void *_do__get_free_pages(const char *callf, uint line,
     atomic64_add(size, &mem_total);
     page = virt_to_page(ret);
     (void)page;
-    debug(DEBUG_MEM, "%s:%s,%u:%s:ret/page/pfn 0x%p/0x%p/0x%lx size %lu\n",
+    debug(DEBUG_MEM, "%s:%s,%u:%s:ret/page/pfn 0x%px/0x%px/0x%lx size %lu\n",
           zhpe_driver_name, callf, line, __FUNCTION__,
           ret, page, page_to_pfn(page), size);
 
@@ -241,7 +241,7 @@ static inline void _put_io_entry(const char *callf, uint line,
 
     if (entry) {
         count = atomic_dec_return(&entry->count);
-        debug(DEBUG_COUNT, "%s:%s,%u:%s:entry 0x%p count %d\n",
+        debug(DEBUG_COUNT, "%s:%s,%u:%s:entry 0x%px count %d\n",
               zhpe_driver_name, callf, line, __FUNCTION__, entry, count);
         if (!count && entry->free)
             entry->free(callf, line, entry);
@@ -262,7 +262,7 @@ static inline struct io_entry *_get_io_entry(const char *callf, uint line,
     count = atomic_inc_return(&entry->count);
     /* Override unused variable warning. */
     (void)count;
-    debug(DEBUG_COUNT, "%s:%s,%u:%s:entry 0x%p count %d\n",
+    debug(DEBUG_COUNT, "%s:%s,%u:%s:entry 0x%px count %d\n",
           zhpe_driver_name, callf, line, __FUNCTION__, entry, count);
 
     return entry;
@@ -278,11 +278,11 @@ static void _free_io_lists(const char *callf, uint line,
     struct io_entry     *entry;
     int i = 0;
 
-    debug(DEBUG_RELEASE, "%s:%s,%u:%s:fdata 0x%p\n",
+    debug(DEBUG_RELEASE, "%s:%s,%u:%s:fdata 0x%px\n",
           zhpe_driver_name, callf, line, __FUNCTION__, fdata);
 
     list_for_each_entry_safe(entry, next, &fdata->rd_list, list) {
-        debug(DEBUG_RELEASE, "%s:%s,%u:i %d entry 0x%p idx 0x%04x\n",
+        debug(DEBUG_RELEASE, "%s:%s,%u:i %d entry 0x%px idx 0x%04x\n",
               zhpe_driver_name, __FUNCTION__, __LINE__, i, entry,
               entry->op.hdr.index);
         list_del_init(&entry->list);
@@ -306,7 +306,7 @@ static inline void _put_file_data(const char *callf, uint line,
 
     if (fdata) {
         count = atomic_dec_return(&fdata->count);
-        debug(DEBUG_COUNT, "%s:%s,%u:%s:fdata 0x%p count %d\n",
+        debug(DEBUG_COUNT, "%s:%s,%u:%s:fdata 0x%px count %d\n",
               zhpe_driver_name, callf, line, __FUNCTION__, fdata, count);
         if (!count && fdata->free)
             fdata->free(callf, line, fdata);
@@ -327,7 +327,7 @@ static inline struct file_data *_get_file_data(const char *callf, uint line,
     count = atomic_inc_return(&fdata->count);
     /* Override unused variable warning. */
     (void)count;
-    debug(DEBUG_COUNT, "%s:%s,%u:%s:fdata 0x%p count %d\n",
+    debug(DEBUG_COUNT, "%s:%s,%u:%s:fdata 0x%px count %d\n",
           zhpe_driver_name, callf, line, __FUNCTION__, fdata, count);
 
     return fdata;
@@ -361,7 +361,7 @@ void _zpages_free(const char *callf, uint line, union zpages *zpages)
     if (!zpages)
         return;
 
-    debug(DEBUG_MEM, "%s:%s,%u:%s:zpages 0x%p\n",
+    debug(DEBUG_MEM, "%s:%s,%u:%s:zpages 0x%px\n",
           zhpe_driver_name, callf, line, __FUNCTION__, zpages);
 
     /* Revisit: most of these need zap_vma_ptes(vma, addr, size); */
@@ -411,7 +411,7 @@ union zpages *_hsr_zpage_alloc(
     ret->hsr.base_addr = base_addr;
 
  done:
-    debug(DEBUG_MEM, "%s:%s,%u:%s:ret 0x%p\n",
+    debug(DEBUG_MEM, "%s:%s,%u:%s:ret 0x%px\n",
           zhpe_driver_name, callf, line, __FUNCTION__, ret);
 
     return ret;
@@ -446,7 +446,7 @@ union zpages *_dma_zpages_alloc(
 
     ret->dma.cpu_addr = dma_zalloc_coherent(&sl->pdev->dev, npages * PAGE_SIZE,
 			&ret->dma.dma_addr, GFP_KERNEL);
-    debug(DEBUG_MEM, "dma_zalloc_coherent(size = %u, pa returned = 0x%llu, va returned = 0x%p\n", (unsigned int)(npages * PAGE_SIZE), ret->dma.dma_addr, ret->dma.cpu_addr);
+    debug(DEBUG_MEM, "dma_zalloc_coherent(size = %u, pa returned = 0x%llu, va returned = 0x%px\n", (unsigned int)(npages * PAGE_SIZE), ret->dma.dma_addr, ret->dma.cpu_addr);
     /* RAM memory will always be WB unless you set the memory type. */
     ret->dma.page_type = DMA_PAGE;
     ret->dma.size = size;
@@ -457,7 +457,7 @@ union zpages *_dma_zpages_alloc(
     }
 
  done:
-    debug(DEBUG_MEM, "%s:%s,%u:%s:ret 0x%p\n",
+    debug(DEBUG_MEM, "%s:%s,%u:%s:ret 0x%px\n",
           zhpe_driver_name, callf, line, __FUNCTION__, ret);
 
     return ret;
@@ -544,7 +544,7 @@ union zpages *_queue_zpages_alloc(
     }
 
  done:
-    debug(DEBUG_MEM, "%s:%s,%u:%s:ret 0x%p\n",
+    debug(DEBUG_MEM, "%s:%s,%u:%s:ret 0x%px\n",
           zhpe_driver_name, callf, line, __FUNCTION__, ret);
 
     return ret;
@@ -573,7 +573,7 @@ union zpages *_rmr_zpages_alloc(const char *callf, uint line,
     ret->rmrz.rmr = rmr;
 
  done:
-    debug(DEBUG_MEM, "%s:%s,%u:%s:ret 0x%p\n",
+    debug(DEBUG_MEM, "%s:%s,%u:%s:ret 0x%px\n",
           zhpe_driver_name, callf, line, __FUNCTION__, ret);
 
     return ret;
@@ -584,7 +584,7 @@ void _zmap_free(const char *callf, uint line, struct zmap *zmap)
     if (!zmap)
         return;
 
-    debug(DEBUG_MEM, "%s:%s,%u:%s:zmap 0x%p offset 0x%lx\n",
+    debug(DEBUG_MEM, "%s:%s,%u:%s:zmap 0x%px offset 0x%lx\n",
           zhpe_driver_name, callf, line, __FUNCTION__,
           zmap, zmap->offset);
 
@@ -604,7 +604,7 @@ struct zmap *_zmap_alloc(
     ulong               coff;
     size_t              size;
 
-    debug(DEBUG_MEM, "%s:%s,%u:%s:zpages 0x%p\n",
+    debug(DEBUG_MEM, "%s:%s,%u:%s:zpages 0x%px\n",
           zhpe_driver_name, callf, line, __FUNCTION__, zpages);
     ret = _do_kmalloc(callf, line, sizeof(*ret), GFP_KERNEL, true);
     if (!ret) {
@@ -660,7 +660,7 @@ bool _free_zmap_list(const char *callf, uint line,
     struct zmap         *zmap;
     struct zmap         *next;
 
-    debug(DEBUG_RELEASE, "%s:%s,%u:%s:fdata 0x%p\n",
+    debug(DEBUG_RELEASE, "%s:%s,%u:%s:fdata 0x%px\n",
           zhpe_driver_name, callf, line, __FUNCTION__, fdata);
 
     spin_lock(&fdata->zmap_lock);
@@ -819,13 +819,13 @@ static uint parse_page_grid_opt(char *str, uint64_t max_page_count,
 
     for (s = str_copy; s; s = k) {
         k = strchr(s, ',');
-        debug(DEBUG_ZMMU, "%s:%s,%u: str=%p,s=%p,k=%p\n",
+        debug(DEBUG_ZMMU, "%s:%s,%u: str=%px,s=%px,k=%px\n",
               zhpe_driver_name, __FUNCTION__, __LINE__,
               str_copy, s, k);
 
         if (k)
             *k++ = 0;
-        debug(DEBUG_ZMMU, "%s:%s,%u: calling parse_page_grid_one(s=%s,max_page_count=%llu, &pg[cnt]=%p)\n",
+        debug(DEBUG_ZMMU, "%s:%s,%u: calling parse_page_grid_one(s=%s,max_page_count=%llu, &pg[cnt]=%px)\n",
               zhpe_driver_name, __FUNCTION__, __LINE__,
               s, max_page_count, &pg[cnt]);
         ret = parse_page_grid_one(s, max_page_count, allow_cpu_visible,
@@ -1864,7 +1864,7 @@ static int __init zhpe_init(void)
           zhpe_driver_name, __FUNCTION__, __LINE__);
     zhpe_rkey_init();
 
-    debug(DEBUG_ZMMU, "%s:%s,%u: req calling parse_page_grid_opt(%s, %u, %p)\n",
+    debug(DEBUG_ZMMU, "%s:%s,%u: req calling parse_page_grid_opt(%s, %u, %px)\n",
           zhpe_driver_name, __FUNCTION__, __LINE__,
           req_page_grid, REQ_ZMMU_ENTRIES, sw_pg);
     cnt = parse_page_grid_opt(req_page_grid, REQ_ZMMU_ENTRIES, true, sw_pg);
@@ -1872,7 +1872,7 @@ static int __init zhpe_init(void)
         pg_index = zhpe_zmmu_req_page_grid_alloc(&zhpe_bridge, &sw_pg[pg]);
     }
 
-    debug(DEBUG_ZMMU, "%s:%s,%u: rsp calling parse_page_grid_opt(%s, %u, %p)\n",
+    debug(DEBUG_ZMMU, "%s:%s,%u: rsp calling parse_page_grid_opt(%s, %u, %px)\n",
           zhpe_driver_name, __FUNCTION__, __LINE__,
           rsp_page_grid, RSP_ZMMU_ENTRIES, sw_pg);
     cnt = parse_page_grid_opt(rsp_page_grid, RSP_ZMMU_ENTRIES, false, sw_pg);

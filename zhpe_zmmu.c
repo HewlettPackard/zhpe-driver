@@ -103,7 +103,7 @@ void zhpe_zmmu_clear_slice(struct slice *sl)
 {
     ulong flags;
 
-    debug(DEBUG_ZMMU, "%s:%s,%u:sl=%p, slice_valid=%u\n",
+    debug(DEBUG_ZMMU, "%s:%s,%u:sl=%px, slice_valid=%u\n",
           zhpe_driver_name, __FUNCTION__, __LINE__, sl, SLICE_VALID(sl));
     if (!SLICE_VALID(sl))
         return;
@@ -144,7 +144,7 @@ void zhpe_zmmu_clear_all(struct bridge *br, bool free_radix_tree)
 {
     ulong flags;
 
-    debug(DEBUG_ZMMU, "%s:%s,%u:br=%p, free_radix_tree=%u\n",
+    debug(DEBUG_ZMMU, "%s:%s,%u:br=%px, free_radix_tree=%u\n",
           zhpe_driver_name, __FUNCTION__, __LINE__, br, free_radix_tree);
     spin_lock_irqsave(&br->zmmu_lock, flags);
     zmmu_clear_pg_info(&br->req_zmmu_pg, REQ_ZMMU_ENTRIES, free_radix_tree);
@@ -161,7 +161,7 @@ static void zmmu_page_grid_setup_all(struct page_grid_info *pgi,
 
     /* caller must hold slice zmmu_lock & have done kernel_fpu_save() */
     for (i = 0; i < PAGE_GRID_ENTRIES; i++) {
-        debug(DEBUG_ZMMU, "%s:%s,%u:pg[%u]@%p:base_addr=0x%llx, page_size=%u, "
+        debug(DEBUG_ZMMU, "%s:%s,%u:pg[%u]@%px:base_addr=0x%llx, page_size=%u, "
               "page_count=%u, base_pte_idx=%u\n",
               zhpe_driver_name, __FUNCTION__, __LINE__, i, &pg[i],
               sw_pg[i].page_grid.base_addr,
@@ -180,7 +180,7 @@ void zhpe_zmmu_setup_slice(struct slice *sl)
     struct bridge *br = BRIDGE_FROM_SLICE(sl);
     ulong flags;
 
-    debug(DEBUG_ZMMU, "%s:%s,%u:sl=%p, br=%p, slice_valid=%u\n",
+    debug(DEBUG_ZMMU, "%s:%s,%u:sl=%px, br=%px, slice_valid=%u\n",
           zhpe_driver_name, __FUNCTION__, __LINE__, sl, br, SLICE_VALID(sl));
     if (!SLICE_VALID(sl))
         return;
@@ -223,7 +223,7 @@ static void zmmu_req_pte_write(struct zhpe_rmr *rmr,
 
     for (i = first; i <= last; i++) {
         pte.addr = addr >> 12;
-        debug(DEBUG_ZMMU, "%s:%s,%u:pte[%u]@%p:addr=0x%llx, pasid=0x%x, "
+        debug(DEBUG_ZMMU, "%s:%s,%u:pte[%u]@%px:addr=0x%llx, pasid=0x%x, "
               "dgcid=%s, space_type=%u, rke=%u, rkey=0x%x, "
               "traffic_class=%u, dc_grp=%u, v=%u\n",
               zhpe_driver_name, __FUNCTION__, __LINE__, i, &reqz->pte[i],
@@ -264,7 +264,7 @@ static void zmmu_rsp_pte_write(struct zhpe_pte_info *info,
         pte.va = va;
         window_sz = min(ps - offset, length);
         pte.window_sz = window_sz % BIT_ULL(PAGE_GRID_MAX_PAGESIZE);
-        debug(DEBUG_ZMMU, "%s:%s,%u:pte[%u]@%p:va=0x%llx, pasid=0x%x, "
+        debug(DEBUG_ZMMU, "%s:%s,%u:pte[%u]@%px:va=0x%llx, pasid=0x%x, "
               "rke=%u, ro_rkey=0x%x, rw_rkey=0x%x, "
               "window_sz=0x%llx, v=%u\n",
               zhpe_driver_name, __FUNCTION__, __LINE__, i, &rspz->pte[i],
@@ -790,7 +790,7 @@ static struct sw_page_grid *zmmu_pg_page_size(struct zhpe_pte_info *info,
     }
 
     debug(DEBUG_ZMMU, "%s:%s,%u:addr_aligned=0x%llx, length_adjusted=0x%llx, "
-          "page_size=%d, sw_pg=%p\n",
+          "page_size=%d, sw_pg=%px\n",
           zhpe_driver_name, __FUNCTION__, __LINE__,
           info->addr_aligned, info->length_adjusted, ps, sw_pg);
     return (ps < 0) ? ERR_PTR(ps) : sw_pg;

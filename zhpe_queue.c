@@ -232,7 +232,7 @@ int zhpe_clear_xdm_qcm(
 	int      q;
 	uint64_t junk;
 
-	debug(DEBUG_XQUEUE, "%s:%s,%u, qcm = 0x%p\n",
+	debug(DEBUG_XQUEUE, "%s:%s,%u, qcm = 0x%px\n",
 		zhpe_driver_name, __FUNCTION__, __LINE__, qcm);
 
 	/*
@@ -288,7 +288,7 @@ int zhpe_clear_rdm_qcm(
 	int      q;
 	uint64_t junk;
 
-	debug(DEBUG_RQUEUE, "%s:%s,%u, qcm = 0x%p\n",
+	debug(DEBUG_RQUEUE, "%s:%s,%u, qcm = 0x%px\n",
 		zhpe_driver_name, __FUNCTION__, __LINE__, qcm);
 
 	/*
@@ -616,7 +616,7 @@ static int _xqueue_free(
 	clear_bit(queue, slices[slice].xdm_alloced_bitmap);
 	spin_unlock (&slices[slice].xdm_slice_lock);
 
-	debug(DEBUG_XQUEUE, "Freed queue %d on slice %d qcm=0x%p\n", queue, slice, hw_qcm_addr);
+	debug(DEBUG_XQUEUE, "Freed queue %d on slice %d qcm=0x%px\n", queue, slice, hw_qcm_addr);
 	return 0;
 }
 
@@ -686,7 +686,7 @@ static int _rqueue_free(
 	clear_bit(queue, slices[slice].rdm_alloced_bitmap);
 	spin_unlock (&slices[slice].rdm_slice_lock);
 
-	debug(DEBUG_RQUEUE, "Freed queue %d on slice %d qcm=0x%p\n",
+	debug(DEBUG_RQUEUE, "Freed queue %d on slice %d qcm=0x%px\n",
 		queue, slice, hw_qcm_addr);
 	return 0;
 }
@@ -977,7 +977,7 @@ int zhpe_req_XQALLOC(
 	sl = &(fdata->bridge->slice[slice]);
 	hw_qcm_addr = &(sl->bar->xdm[queue*2]);
 
-	debug(DEBUG_XQUEUE, "hw_qcm_addr for slice %d queue %d queue init 0x%p\n",
+	debug(DEBUG_XQUEUE, "hw_qcm_addr for slice %d queue %d queue init 0x%px\n",
 		slice, queue, hw_qcm_addr);
 
 	/* Allocate pages and map for qcm, cmdq, and cmplq */
@@ -986,7 +986,7 @@ int zhpe_req_XQALLOC(
         app_qcm_addr = hw_qcm_addr + 1;
         app_qcm_physaddr = sl->phys_base +
             ((void *)app_qcm_addr - (void *)sl->bar);
-	debug(DEBUG_XQUEUE, "app_qcm_physaddr %pa\n", &app_qcm_physaddr);
+	debug(DEBUG_XQUEUE, "app_qcm_physaddr %pxa\n", &app_qcm_physaddr);
 	qcm_zpage = hsr_zpage_alloc(app_qcm_physaddr);
 	if (!qcm_zpage) {
 		debug(DEBUG_XQUEUE, "zpage_alloc failed for qcm\n");
@@ -1326,7 +1326,7 @@ int zhpe_req_RQALLOC(struct zhpe_req_RQALLOC *req,
 	sl = &(fdata->bridge->slice[slice]);
 	hw_qcm_addr = &(sl->bar->rdm[queue*2]);
 
-	debug(DEBUG_RQUEUE, "hw_qcm_addr for slice %d queue %d queue init 0x%p\n",
+	debug(DEBUG_RQUEUE, "hw_qcm_addr for slice %d queue %d queue init 0x%px\n",
 		slice, queue, hw_qcm_addr);
 
 	/* Allocate pages and map for qcm and cmplq */
@@ -1335,7 +1335,7 @@ int zhpe_req_RQALLOC(struct zhpe_req_RQALLOC *req,
         app_qcm_addr = hw_qcm_addr + 1;
         app_qcm_physaddr = sl->phys_base +
             ((void *)app_qcm_addr - (void *)sl->bar);
-	debug(DEBUG_RQUEUE, "app_qcm_physaddr %pa\n", &app_qcm_physaddr);
+	debug(DEBUG_RQUEUE, "app_qcm_physaddr %pxa\n", &app_qcm_physaddr);
 	qcm_zpage = hsr_zpage_alloc(app_qcm_physaddr);
 	if (!qcm_zpage) {
 		debug(DEBUG_RQUEUE, "zpage_alloc failed for qcm\n");

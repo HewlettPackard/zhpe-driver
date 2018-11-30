@@ -184,7 +184,7 @@ struct uuid_tracker *zhpe_uuid_tracker_alloc(uuid_t *uuid,
 
  done:
     *status = ret;
-    debug(DEBUG_UUID, "%s:%s,%u:alloc uuid=%s, refcount=%u, local=%p, remote=%p, ret=%d\n",
+    debug(DEBUG_UUID, "%s:%s,%u:alloc uuid=%s, refcount=%u, local=%px, remote=%px, ret=%d\n",
           zhpe_driver_name, __FUNCTION__, __LINE__,
           zhpe_uuid_str(&uu->uuid, uustr, sizeof(uustr)),
           kref_read(&uu->refcount), uu->local, uu->remote, ret);
@@ -353,7 +353,7 @@ struct uuid_node *zhpe_remote_uuid_get(struct file_data *fdata,
               kref_read(&uu->refcount));
     }
     spin_unlock_irqrestore(&fdata->uuid_lock, flags);
-    debug(DEBUG_UUID, "%s:%s,%u:unode = %p\n",
+    debug(DEBUG_UUID, "%s:%s,%u:unode = %px\n",
           zhpe_driver_name, __FUNCTION__, __LINE__, unode);
 
     return unode;
@@ -600,7 +600,7 @@ int zhpe_teardown_remote_uuid(uuid_t *src_uuid)
 
     if (!suu->remote) {
         debug(DEBUG_UUID, "%s:%s,%u:unexpected null ptr, "
-              "suu->remote=%p, uuid=%s\n",
+              "suu->remote=%px, uuid=%s\n",
               zhpe_driver_name, __FUNCTION__, __LINE__,
               suu->remote, uustr);
         goto local;

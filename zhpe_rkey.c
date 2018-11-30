@@ -375,7 +375,7 @@ void zhpe_rkey_print_all(void)
 #if RKEY_DEBUG_ALL
         struct rkey_node *rkn = rb_entry(node, struct rkey_node, rb);
 
-        debug(DEBUG_RKEYS, "%s:%s,%u:rkey_base=0x%05x, count=%u, bitmap=%s, rkn_count=%u, rkn=%px, left=%px, right=%px\n",
+        debug(DEBUG_RKEYS, "%s:%s,%u:rkey_base=0x%05x, count=%u, bitmap=%s, rkn_count=%u, rkn=%pxx, left=%pxx, right=%pxx\n",
               zhpe_driver_name, __FUNCTION__, __LINE__,
               rkn->rkey_base, rkn->count,
               rkey_bitmap_str(rkn->bitmap, str, sizeof(str)),

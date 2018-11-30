@@ -381,7 +381,7 @@ int zhpe_poll_device_create(struct slice *sl, int num_vectors)
     base_irq_vector = sl->id * VECTORS_PER_SLICE;
     for (d = 0; d < num_vectors; d++) {
         minor = base_irq_vector + d;
-        debug(DEBUG_PCI, "device create for /dev/zhpe_poll_%d class = %p major = %d, minor = %d\n", minor, poll_class, zhpe_poll_dev_major, minor);
+        debug(DEBUG_PCI, "device create for /dev/zhpe_poll_%d class = %px major = %d, minor = %d\n", minor, poll_class, zhpe_poll_dev_major, minor);
 
         dev = device_create(poll_class, NULL,
                 MKDEV(zhpe_poll_dev_major, minor),
@@ -424,18 +424,18 @@ void zhpe_poll_device_destroy(struct slice *sl)
 	debug(DEBUG_PCI, "zhpe_poll_device_destroy base_irq_vector is %d\n", base_irq_vector);
 	for (d = 0; d < sl->irq_vectors_count; d++) {
                 minor = base_irq_vector + d;
-	debug(DEBUG_PCI, "zhpe_poll_device_destroy poll_class %p zhpe_poll_dev_major %d minor %d\n", poll_class, zhpe_poll_dev_major, minor);
+	debug(DEBUG_PCI, "zhpe_poll_device_destroy poll_class %px zhpe_poll_dev_major %d minor %d\n", poll_class, zhpe_poll_dev_major, minor);
 		poll_devt = MKDEV(zhpe_poll_dev_major, minor);
 		dev = class_find_device(poll_class, NULL, &poll_devt, __match_devt);
-		debug(DEBUG_PCI, "dev is %p\n", dev);
-		debug(DEBUG_PCI, "dev->parent is %p\n", dev->parent);
-		debug(DEBUG_PCI, "dev->bus is %p\n", dev->bus);
+		debug(DEBUG_PCI, "dev is %px\n", dev);
+		debug(DEBUG_PCI, "dev->parent is %px\n", dev->parent);
+		debug(DEBUG_PCI, "dev->bus is %px\n", dev->bus);
 		if (dev->bus) {
-			debug(DEBUG_PCI, "dev->bus->p is %p\n", dev->bus->p);
+			debug(DEBUG_PCI, "dev->bus->p is %px\n", dev->bus->p);
 		}
-		debug(DEBUG_PCI, "dev->p is %p\n", dev->p);
+		debug(DEBUG_PCI, "dev->p is %px\n", dev->p);
 		debug(DEBUG_PCI, "MAJOR(dev->devt) is %d\n", MAJOR(dev->devt));
-		debug(DEBUG_PCI, "dev->class is %p\n", dev->class);
+		debug(DEBUG_PCI, "dev->class is %px\n", dev->class);
 
                 device_destroy(poll_class, MKDEV(zhpe_poll_dev_major, minor));
 	}
@@ -479,7 +479,7 @@ int zhpe_setup_poll_devs(void)
         goto unreg_region;
     }
     poll_class->devnode = poll_devnode;
-    debug(DEBUG_PCI, "poll_class is %p\n", poll_class);
+    debug(DEBUG_PCI, "poll_class is %px\n", poll_class);
     poll_cdev = cdev_alloc();
     if (poll_cdev == NULL) {
         debug(DEBUG_PCI, "cdev_alloc failed\n");

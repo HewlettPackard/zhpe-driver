@@ -928,7 +928,7 @@ int zhpe_user_req_RMR_IMPORT(struct io_entry *entry)
         status = -ENOMEM;
         goto out;
     }
-    debug(DEBUG_MEMREG, "%s:%s,%u:rmr = %p\n",
+    debug(DEBUG_MEMREG, "%s:%s,%u:rmr = %px\n",
           zhpe_driver_name, __FUNCTION__, __LINE__, rmr);
     unode = zhpe_remote_uuid_get(entry->fdata, uuid);
     if (!unode) {
@@ -953,8 +953,8 @@ int zhpe_user_req_RMR_IMPORT(struct io_entry *entry)
     info->access     = access;
     info->length     = len;
     info->space_type = GENZ_DATA;  /* Revisit: add CONTROL */
-    debug(DEBUG_MEMREG, "%s:%s,%u:rmr: info=%p, addr=0x%llx, "
-          "dgcid=%s, rkey=0x%x, uu=%p, fdata=%p\n",
+    debug(DEBUG_MEMREG, "%s:%s,%u:rmr: info=%px, addr=0x%llx, "
+          "dgcid=%s, rkey=0x%x, uu=%px, fdata=%px\n",
           zhpe_driver_name, __FUNCTION__, __LINE__,
           info, info->addr, zhpe_gcid_str(rmr->dgcid, gcstr, sizeof(gcstr)),
           rmr->rkey, rmr->uu, info->fdata);
