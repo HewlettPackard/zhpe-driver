@@ -102,7 +102,7 @@ int zhpe_register_rdm_interrupt(struct slice *sl,
     irq_index = zhpe_get_irq_index(sl, queue);
     if (irq_index < 0) {
         debug(DEBUG_INTR, "%s:%s: get_irq_index failed with %d\n",
-              zhpe_driver_name, __FUNCTION__, irq_index);
+              zhpe_driver_name, __func__, irq_index);
         return -1;
     }
 
@@ -110,7 +110,7 @@ int zhpe_register_rdm_interrupt(struct slice *sl,
     new_entry = do_kmalloc(sizeof(*new_entry), GFP_KERNEL, true);
     if (new_entry == NULL) {
         debug(DEBUG_INTR, "%s:%s: kmalloc failed\n",
-              zhpe_driver_name, __FUNCTION__);
+              zhpe_driver_name, __func__);
         return -ENOMEM;
     }
     new_entry->irq_index = irq_index;
@@ -124,7 +124,7 @@ int zhpe_register_rdm_interrupt(struct slice *sl,
 
     debug(DEBUG_INTR,
           "%s:%s: added handler and data for slice %d and queue %d to vector %d\n",
-          zhpe_driver_name, __FUNCTION__, sl->id, queue, vector);
+          zhpe_driver_name, __func__, sl->id, queue, vector);
     return 0;
 }
 

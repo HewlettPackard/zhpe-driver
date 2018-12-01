@@ -354,20 +354,20 @@ static int msg_wait_timeout(struct zhpe_msg_state *state, ktime_t timeout)
     int ret;
 
     debug(DEBUG_MSG, "%s:%s,%u: waiting for reply to msgid=%u\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           state->req_msg.hdr.msgid);
     ret = wait_event_interruptible_hrtimeout(state->wq, state->ready,
                                              timeout);
     if (ret < 0) {  /* interrupted or timout expired */
         debug(DEBUG_MSG, "%s:%s,%u: wait on msgid=%u returned ret=%d\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__,
+              zhpe_driver_name, __func__, __LINE__,
               state->req_msg.hdr.msgid, ret);
         goto out;
     }
 
     if (state->rsp_msg.hdr.status != 0) {
         debug(DEBUG_MSG, "%s:%s,%u: response for msgid=%u returned status=%d\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__,
+              zhpe_driver_name, __func__, __LINE__,
               state->rsp_msg.hdr.msgid, state->rsp_msg.hdr.status);
         ret = -EINVAL;
     }
@@ -427,7 +427,7 @@ static int msg_req_NOP(struct rdm_info *rdmi, struct xdm_info *xdmi,
 
     seq = req_msg->req.nop.seq;
     debug(DEBUG_MSG, "%s:%s,%u: sgcid=%s, reqctxid=%u, rspctxid=%u, msgid=%u, seq=%llu\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           zhpe_gcid_str(req_hdr->sgcid, str, sizeof(str)),
           req_hdr->reqctxid, rspctxid, req_msg->hdr.msgid, seq);
     /* fill in rsp_msg */
@@ -447,7 +447,7 @@ static int msg_rsp_NOP(struct zhpe_rdm_hdr *rsp_hdr,
 
     seq = rsp_msg->rsp.nop.seq;
     debug(DEBUG_MSG, "%s:%s,%u: sgcid=%s, reqctxid=%u, rspctxid=%u, msgid=%u, seq=%llu\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           zhpe_gcid_str(rsp_hdr->sgcid, str, sizeof(str)),
           rsp_hdr->reqctxid, rspctxid, rsp_msg->hdr.msgid, seq);
     return ret;
@@ -471,7 +471,7 @@ static int msg_req_UUID_IMPORT(struct rdm_info *rdmi, struct xdm_info *xdmi,
     char                   tuustr[UUID_STRING_LEN+1];
 
     debug(DEBUG_MSG, "%s:%s,%u: sgcid=%s, reqctxid=%u, rspctxid=%u, msgid=%u, src_uuid=%s, tgt_uuid=%s\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           zhpe_gcid_str(req_hdr->sgcid, gcstr, sizeof(gcstr)),
           req_hdr->reqctxid, rspctxid, req_msg->hdr.msgid,
           zhpe_uuid_str(src_uuid, suustr, sizeof(suustr)),
@@ -479,21 +479,21 @@ static int msg_req_UUID_IMPORT(struct rdm_info *rdmi, struct xdm_info *xdmi,
     if (req_hdr->sgcid != zhpe_gcid_from_uuid(src_uuid)) {
         status = ZHPE_MSG_ERR_UUID_GCID_MISMATCH;
         debug(DEBUG_MSG, "%s:%s,%u: src_uuid=%s GCID mismatch (%s)\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__, suustr,
+              zhpe_driver_name, __func__, __LINE__, suustr,
               zhpe_gcid_str(req_hdr->sgcid, gcstr, sizeof(gcstr)));
         goto respond;
     }
     if (!zhpe_uuid_is_local(rdmi->br, tgt_uuid)) {
         status = ZHPE_MSG_ERR_UUID_NOT_LOCAL;
         debug(DEBUG_MSG, "%s:%s,%u: tgt_uuid=%s not local\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__, tuustr);
+              zhpe_driver_name, __func__, __LINE__, tuustr);
         goto respond;
     }
     tuu = zhpe_uuid_search(tgt_uuid);
     if (!tuu) {
         status = ZHPE_MSG_ERR_NO_UUID;
         debug(DEBUG_MSG, "%s:%s,%u: tgt_uuid=%s not found\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__, tuustr);
+              zhpe_driver_name, __func__, __LINE__, tuustr);
         goto respond;
     }
     /* we now hold a reference to tuu */
@@ -546,7 +546,7 @@ static int msg_rsp_UUID_IMPORT(struct zhpe_rdm_hdr *rsp_hdr,
     char                   tuustr[UUID_STRING_LEN+1];
 
     debug(DEBUG_MSG, "%s:%s,%u: sgcid=%s, reqctxid=%u, rspctxid=%u, msgid=%u, src_uuid=%s, tgt_uuid=%s, ro_rkey=0x%08x, rw_rkey=0x%08x\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           zhpe_gcid_str(rsp_hdr->sgcid, gcstr, sizeof(gcstr)),
           rsp_hdr->reqctxid, rspctxid, rsp_msg->hdr.msgid,
           zhpe_uuid_str(src_uuid, suustr, sizeof(suustr)),
@@ -572,7 +572,7 @@ static int msg_req_UUID_FREE(struct rdm_info *rdmi, struct xdm_info *xdmi,
     char                   tuustr[UUID_STRING_LEN+1];
 
     debug(DEBUG_MSG, "%s:%s,%u: sgcid=%s, reqctxid=%u, rspctxid=%u, msgid=%u, src_uuid=%s, tgt_uuid=%s\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           zhpe_gcid_str(req_hdr->sgcid, gcstr, sizeof(gcstr)),
           req_hdr->reqctxid, rspctxid, req_msg->hdr.msgid,
           zhpe_uuid_str(src_uuid, suustr, sizeof(suustr)),
@@ -580,21 +580,21 @@ static int msg_req_UUID_FREE(struct rdm_info *rdmi, struct xdm_info *xdmi,
     if (req_hdr->sgcid != zhpe_gcid_from_uuid(src_uuid)) {
         status = ZHPE_MSG_ERR_UUID_GCID_MISMATCH;
         debug(DEBUG_MSG, "%s:%s,%u: src_uuid=%s GCID mismatch (%s)\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__, suustr,
+              zhpe_driver_name, __func__, __LINE__, suustr,
               zhpe_gcid_str(req_hdr->sgcid, gcstr, sizeof(gcstr)));
         goto respond;
     }
     if (!zhpe_uuid_is_local(rdmi->br, tgt_uuid)) {
         status = ZHPE_MSG_ERR_UUID_NOT_LOCAL;
         debug(DEBUG_MSG, "%s:%s,%u: tgt_uuid=%s not local\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__, tuustr);
+              zhpe_driver_name, __func__, __LINE__, tuustr);
         goto respond;
     }
     tuu = zhpe_uuid_search(tgt_uuid);
     if (!tuu) {
         status = ZHPE_MSG_ERR_NO_UUID;
         debug(DEBUG_MSG, "%s:%s,%u: tgt_uuid=%s not found\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__, tuustr);
+              zhpe_driver_name, __func__, __LINE__, tuustr);
         goto respond;
     }
     /* we now hold a reference to tuu */
@@ -631,7 +631,7 @@ static int msg_rsp_UUID_FREE(struct zhpe_rdm_hdr *rsp_hdr,
     char                   tuustr[UUID_STRING_LEN+1];
 
     debug(DEBUG_MSG, "%s:%s,%u: sgcid=%s, reqctxid=%u, rspctxid=%u, msgid=%u, src_uuid=%s, tgt_uuid=%s\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           zhpe_gcid_str(rsp_hdr->sgcid, gcstr, sizeof(gcstr)),
           rsp_hdr->reqctxid, rspctxid, rsp_msg->hdr.msgid,
           zhpe_uuid_str(src_uuid, suustr, sizeof(suustr)),
@@ -652,14 +652,14 @@ static int msg_req_UUID_TEARDOWN(struct rdm_info *rdmi, struct xdm_info *xdmi,
     char                   uustr[UUID_STRING_LEN+1];
 
     debug(DEBUG_MSG, "%s:%s,%u: sgcid=%s, reqctxid=%u, rspctxid=%u, msgid=%u, src_uuid=%s\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           zhpe_gcid_str(req_hdr->sgcid, gcstr, sizeof(gcstr)),
           req_hdr->reqctxid, rspctxid, req_msg->hdr.msgid,
           zhpe_uuid_str(src_uuid, uustr, sizeof(uustr)));
     if (req_hdr->sgcid != zhpe_gcid_from_uuid(src_uuid)) {
         status = ZHPE_MSG_ERR_UUID_GCID_MISMATCH;
         debug(DEBUG_MSG, "%s:%s,%u: src_uuid=%s GCID mismatch (%s)\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__, uustr,
+              zhpe_driver_name, __func__, __LINE__, uustr,
               zhpe_gcid_str(req_hdr->sgcid, gcstr, sizeof(gcstr)));
         goto respond;
     }
@@ -683,7 +683,7 @@ static int msg_rsp_UUID_TEARDOWN(struct zhpe_rdm_hdr *rsp_hdr,
     char                   uustr[UUID_STRING_LEN+1];
 
     debug(DEBUG_MSG, "%s:%s,%u: sgcid=%s, reqctxid=%u, rspctxid=%u, msgid=%u, src_uuid=%s\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           zhpe_gcid_str(rsp_hdr->sgcid, gcstr, sizeof(gcstr)),
           rsp_hdr->reqctxid, rspctxid, rsp_msg->hdr.msgid,
           zhpe_uuid_str(src_uuid, uustr, sizeof(uustr)));
@@ -709,7 +709,7 @@ static int msg_req_ERROR(struct rdm_info *rdmi, struct xdm_info *xdmi,
     }
 
     debug(DEBUG_MSG, "%s:%s,%u: sgcid=%s, reqctxid=%u, rspctxid=%u, msgid=%u\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           zhpe_gcid_str(req_hdr->sgcid, gcstr, sizeof(gcstr)),
           req_hdr->reqctxid, rspctxid, msgid);
 
@@ -739,11 +739,11 @@ static irqreturn_t msg_rdm_interrupt_handler(int irq_index, void *data)
             ret = msg_rdm_get_cmpl(rdmi, &msg_hdr, &msg);
             if (ret == -EBUSY) {  /* no cmpl - spurious interrupt */
                 debug(DEBUG_MSG, "%s:%s,%u: spurious, ret=%d\n",
-                      zhpe_driver_name, __FUNCTION__, __LINE__, ret);
+                      zhpe_driver_name, __func__, __LINE__, ret);
                 goto out;
             } else if (ret < 0) {
                 debug(DEBUG_MSG, "%s:%s,%u: unknown error, ret=%d\n",
-                      zhpe_driver_name, __FUNCTION__, __LINE__, ret);
+                      zhpe_driver_name, __func__, __LINE__, ret);
                 goto out;
             }
             more = ret;
@@ -751,7 +751,7 @@ static irqreturn_t msg_rdm_interrupt_handler(int irq_index, void *data)
 
             rspctxid = msg.hdr.rspctxid;
             debug(DEBUG_MSG, "%s:%s,%u: sgcid=%s, reqctxid=%u, version=%u, opcode=0x%x, status=%d, rspctxid=%u, handled=%u, more=%u\n",
-                  zhpe_driver_name, __FUNCTION__, __LINE__,
+                  zhpe_driver_name, __func__, __LINE__,
                   zhpe_gcid_str(msg_hdr.sgcid, sgstr, sizeof(sgstr)),
                   msg_hdr.reqctxid, msg.hdr.version, msg.hdr.opcode,
                   msg.hdr.status, rspctxid, handled, more);
@@ -763,7 +763,7 @@ static irqreturn_t msg_rdm_interrupt_handler(int irq_index, void *data)
                  */
                 ret = -EINVAL;
                 debug(DEBUG_MSG, "%s:%s,%u: UNKNOWN_VERSION, ret=%d\n",
-                      zhpe_driver_name, __FUNCTION__, __LINE__, ret);
+                      zhpe_driver_name, __func__, __LINE__, ret);
                 continue;
             }
             response = (msg.hdr.opcode & ZHPE_MSG_RESPONSE) != 0;
@@ -773,7 +773,7 @@ static irqreturn_t msg_rdm_interrupt_handler(int irq_index, void *data)
                 if (!state) {
                     debug(DEBUG_MSG,
                           "%s:%s,%u: msg_state_search for msgid=%u failed\n",
-                          zhpe_driver_name, __FUNCTION__, __LINE__,
+                          zhpe_driver_name, __func__, __LINE__,
                           msg.hdr.msgid);
                     continue;
                 }
@@ -793,14 +793,14 @@ static irqreturn_t msg_rdm_interrupt_handler(int irq_index, void *data)
                 default:
                     debug(DEBUG_MSG,
                           "%s:%s,%u: unknown opcode 0x%x for msgid=%u\n",
-                          zhpe_driver_name, __FUNCTION__, __LINE__,
+                          zhpe_driver_name, __func__, __LINE__,
                           msg.hdr.opcode, msg.hdr.msgid);
                     continue;
                 }
                 if (msg_hdr.sgcid != state->dgcid) {
                     debug(DEBUG_MSG,
                           "%s:%s,%u: msg SGCID (%s) != state DGCID (%s) for msgid=%u\n",
-                          zhpe_driver_name, __FUNCTION__, __LINE__,
+                          zhpe_driver_name, __func__, __LINE__,
                           zhpe_gcid_str(msg_hdr.sgcid, sgstr, sizeof(sgstr)),
                           zhpe_gcid_str(state->dgcid, dgstr, sizeof(dgstr)),
                           msg.hdr.msgid);
@@ -860,7 +860,7 @@ int zhpe_msg_send_UUID_IMPORT(struct bridge *br,
         debug(DEBUG_MSG,
               "%s:%s,%u: msg_state_alloc failed, "
               "dgcid=%s, rspctxid=%u, src_uuid=%s, tgt_uuid=%s\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__,
+              zhpe_driver_name, __func__, __LINE__,
               zhpe_gcid_str(dgcid, gcstr, sizeof(gcstr)), rspctxid,
               zhpe_uuid_str(src_uuid, suustr, sizeof(suustr)),
               zhpe_uuid_str(tgt_uuid, tuustr, sizeof(tuustr)));
@@ -874,7 +874,7 @@ int zhpe_msg_send_UUID_IMPORT(struct bridge *br,
     uuid_copy(&req_msg->req.uuid_import.tgt_uuid, tgt_uuid);
     debug(DEBUG_MSG,
           "%s:%s,%u: dgcid=%s, rspctxid=%u, src_uuid=%s, tgt_uuid=%s, msgid=%u\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           zhpe_gcid_str(dgcid, gcstr, sizeof(gcstr)), rspctxid,
           zhpe_uuid_str(src_uuid, suustr, sizeof(suustr)),
           zhpe_uuid_str(tgt_uuid, tuustr, sizeof(tuustr)),
@@ -912,7 +912,7 @@ struct zhpe_msg_state *zhpe_msg_send_UUID_FREE(struct bridge *br,
         debug(DEBUG_MSG,
               "%s:%s,%u: msg_state_alloc failed, "
               "dgcid=%s, rspctxid=%u, src_uuid=%s, tgt_uuid=%s\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__,
+              zhpe_driver_name, __func__, __LINE__,
               zhpe_gcid_str(dgcid, gcstr, sizeof(gcstr)), rspctxid,
               zhpe_uuid_str(src_uuid, suustr, sizeof(suustr)),
               zhpe_uuid_str(tgt_uuid, tuustr, sizeof(tuustr)));
@@ -926,7 +926,7 @@ struct zhpe_msg_state *zhpe_msg_send_UUID_FREE(struct bridge *br,
     uuid_copy(&req_msg->req.uuid_free.tgt_uuid, tgt_uuid);
     debug(DEBUG_MSG,
           "%s:%s,%u: dgcid=%s, rspctxid=%u, src_uuid=%s, tgt_uuid=%s, msgid=%u\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           zhpe_gcid_str(dgcid, gcstr, sizeof(gcstr)), rspctxid,
           zhpe_uuid_str(src_uuid, suustr, sizeof(suustr)),
           zhpe_uuid_str(tgt_uuid, tuustr, sizeof(tuustr)),
@@ -967,7 +967,7 @@ struct zhpe_msg_state *zhpe_msg_send_UUID_TEARDOWN(struct bridge *br,
         debug(DEBUG_MSG,
               "%s:%s,%u: msg_state_alloc failed, "
               "dgcid=%s, rspctxid=%u, src_uuid=%s, tgt_uuid=%s\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__,
+              zhpe_driver_name, __func__, __LINE__,
               zhpe_gcid_str(dgcid, gcstr, sizeof(gcstr)), rspctxid,
               zhpe_uuid_str(src_uuid, suustr, sizeof(suustr)),
               zhpe_uuid_str(tgt_uuid, tuustr, sizeof(tuustr)));
@@ -981,7 +981,7 @@ struct zhpe_msg_state *zhpe_msg_send_UUID_TEARDOWN(struct bridge *br,
     uuid_copy(&req_msg->req.uuid_teardown.tgt_uuid, tgt_uuid);
     debug(DEBUG_MSG,
           "%s:%s,%u: dgcid=%s, rspctxid=%u, src_uuid=%s, tgt_uuid=%s, msgid=%u\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           zhpe_gcid_str(dgcid, gcstr, sizeof(gcstr)), rspctxid,
           zhpe_uuid_str(src_uuid, suustr, sizeof(suustr)),
           zhpe_uuid_str(tgt_uuid, tuustr, sizeof(tuustr)),

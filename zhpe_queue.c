@@ -233,7 +233,7 @@ int zhpe_clear_xdm_qcm(
 	uint64_t junk;
 
 	debug(DEBUG_XQUEUE, "%s:%s,%u, qcm = 0x%px\n",
-		zhpe_driver_name, __FUNCTION__, __LINE__, qcm);
+		zhpe_driver_name, __func__, __LINE__, qcm);
 
 	/*
 	 * The XDM HSR space has 32MB for 256 QCM. Each QCM has an App
@@ -289,7 +289,7 @@ int zhpe_clear_rdm_qcm(
 	uint64_t junk;
 
 	debug(DEBUG_RQUEUE, "%s:%s,%u, qcm = 0x%px\n",
-		zhpe_driver_name, __FUNCTION__, __LINE__, qcm);
+		zhpe_driver_name, __func__, __LINE__, qcm);
 
 	/*
 	 * The RDM HSR space has 32MB for 256 QCM. Each QCM has an App
@@ -1055,7 +1055,7 @@ int zhpe_kernel_XQALLOC(struct xdm_info *xdmi)
     int ret = 0;
 
     debug(DEBUG_XQUEUE, "%s:%s,%u: cmdq_ent=%u, cmplq_ent=%u\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           xdmi->cmdq_ent, xdmi->cmplq_ent);
     spin_lock_init(&xdmi->xdm_info_lock);
     ret = xdm_queue_sizes(&xdmi->cmdq_ent, &xdmi->cmplq_ent,
@@ -1094,7 +1094,7 @@ int zhpe_kernel_XQALLOC(struct xdm_info *xdmi)
     xdmi->cmplq_tail_shadow = 0;
     ret = 0;
     debug(DEBUG_XQUEUE, "%s:%s,%u: slice=%d, queue=%d\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           xdmi->slice, xdmi->queue);
     goto done;
 
@@ -1401,7 +1401,7 @@ int zhpe_kernel_RQALLOC(struct rdm_info *rdmi)
     int ret = 0;
 
     debug(DEBUG_RQUEUE, "%s:%s,%u: cmplq_ent=%u, slice_mask 0x%x\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           rdmi->cmplq_ent, rdmi->slice_mask);
     spin_lock_init(&rdmi->rdm_info_lock);
     ret = rdm_queue_sizes(&rdmi->cmplq_ent, &rdmi->cmplq_size, &rdmi->qcm_size);
@@ -1428,7 +1428,7 @@ int zhpe_kernel_RQALLOC(struct rdm_info *rdmi)
     rdmi->cmplq_head_shadow = 0;
     ret = 0;
     debug(DEBUG_RQUEUE, "%s:%s,%u: slice=%d, queue=%d, rspctxid=%u\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           rdmi->slice, rdmi->queue, rdmi->rspctxid);
     goto done;
 

@@ -71,7 +71,7 @@ struct uuid_tracker *zhpe_uuid_search(uuid_t *uuid)
         } else {
             kref_get(&uu->refcount);
             debug(DEBUG_UUID, "%s:%s,%u:get uuid=%s, refcount=%u\n",
-                  zhpe_driver_name, __FUNCTION__, __LINE__,
+                  zhpe_driver_name, __func__, __LINE__,
                   zhpe_uuid_str(&uu->uuid, uustr, sizeof(uustr)),
                   kref_read(&uu->refcount));
             goto out;
@@ -109,7 +109,7 @@ static struct uuid_tracker *uuid_insert(struct uuid_tracker *uu)
             uu = this;
             kref_get(&uu->refcount);
             debug(DEBUG_UUID, "%s:%s,%u:get uuid=%s, refcount=%u\n",
-                  zhpe_driver_name, __FUNCTION__, __LINE__,
+                  zhpe_driver_name, __func__, __LINE__,
                   zhpe_uuid_str(&uu->uuid, uustr, sizeof(uustr)),
                   kref_read(&uu->refcount));
             goto out;  /* already there */
@@ -185,7 +185,7 @@ struct uuid_tracker *zhpe_uuid_tracker_alloc(uuid_t *uuid,
  done:
     *status = ret;
     debug(DEBUG_UUID, "%s:%s,%u:alloc uuid=%s, refcount=%u, local=%px, remote=%px, ret=%d\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           zhpe_uuid_str(&uu->uuid, uustr, sizeof(uustr)),
           kref_read(&uu->refcount), uu->local, uu->remote, ret);
     return uu;
@@ -246,7 +246,7 @@ static void teardown_local_uuid(struct uuid_tracker *local_uu)
     /* caller must already hold uuid_lock */
 
     debug(DEBUG_UUID, "%s:%s,%u: uuid=%s\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           zhpe_uuid_str(&local_uu->uuid, uustr, sizeof(uustr)));
 
     for (rb = rb_first_postorder(&local_uu->local->uu_remote_uuid_tree);
@@ -254,7 +254,7 @@ static void teardown_local_uuid(struct uuid_tracker *local_uu)
         node = container_of(rb, struct uuid_node, node);
         uu = node->tracker;
         debug(DEBUG_UUID, "%s:%s,%u: uu_remote_uuid_tree uuid=%s\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__,
+              zhpe_driver_name, __func__, __LINE__,
               zhpe_uuid_str(&uu->uuid, uustr, sizeof(uustr)));
         next = rb_next_postorder(rb);  /* must precede kfree() */
         do_kfree(node);
@@ -316,7 +316,7 @@ static struct uuid_node *uuid_node_search(struct rb_root *root,
             if (!teardown && unode->tracker->remote &&
                 READ_ONCE(unode->tracker->remote->torndown)) {
                 debug(DEBUG_UUID, "%s:%s,%u:returning NULL because torndown=true, uuid=%s\n",
-                      zhpe_driver_name, __FUNCTION__, __LINE__,
+                      zhpe_driver_name, __func__, __LINE__,
                       zhpe_uuid_str(uuid, uustr, sizeof(uustr)));
                 goto null;
             }
@@ -340,7 +340,7 @@ struct uuid_node *zhpe_remote_uuid_get(struct file_data *fdata,
     char                    uustr[UUID_STRING_LEN+1];
 
     debug(DEBUG_UUID, "%s:%s,%u:uuid = %s\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           zhpe_uuid_str(uuid, uustr, sizeof(uustr)));
     spin_lock_irqsave(&fdata->uuid_lock, flags);
     unode = uuid_node_search(&fdata->fd_remote_uuid_tree, uuid, false);
@@ -348,13 +348,13 @@ struct uuid_node *zhpe_remote_uuid_get(struct file_data *fdata,
         uu = unode->tracker;
         kref_get(&uu->refcount);
         debug(DEBUG_UUID, "%s:%s,%u:get uuid=%s, refcount=%u\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__,
+              zhpe_driver_name, __func__, __LINE__,
               zhpe_uuid_str(&uu->uuid, uustr, sizeof(uustr)),
               kref_read(&uu->refcount));
     }
     spin_unlock_irqrestore(&fdata->uuid_lock, flags);
     debug(DEBUG_UUID, "%s:%s,%u:unode = %px\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__, unode);
+          zhpe_driver_name, __func__, __LINE__, unode);
 
     return unode;
 }
@@ -415,7 +415,7 @@ static int _free_uuid_node(struct file_data *fdata, struct rb_root *root,
     } else if (!zhpe_unode_rmr_empty(node)) {
         ret = -EBUSY;
         debug(DEBUG_UUID, "%s:%s,%u:ret = %d uuid = %s\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__, ret,
+              zhpe_driver_name, __func__, __LINE__, ret,
               zhpe_uuid_str(&uu->uuid, str, sizeof(str)));
         goto out;
     }
@@ -455,7 +455,7 @@ void zhpe_free_remote_uuids(struct file_data *fdata)
         node = container_of(rb, struct uuid_node, node);
         uu = node->tracker;
         debug(DEBUG_UUID, "%s:%s,%u:uuid = %s\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__,
+              zhpe_driver_name, __func__, __LINE__,
               zhpe_uuid_str(&uu->uuid, str, sizeof(str)));
         zhpe_free_uuid_node(fdata, &uu->remote->local_uuid_lock,
                             &uu->remote->local_uuid_tree,
@@ -493,7 +493,7 @@ void zhpe_notify_remote_uuids(struct file_data *fdata)
         uu = node->tracker;
         if (uu->local && uu->remote) {  /* loopback UUID */
             debug(DEBUG_UUID, "%s:%s,%u: TEARDOWN loopback uuid=%s\n",
-                  zhpe_driver_name, __FUNCTION__, __LINE__,
+                  zhpe_driver_name, __func__, __LINE__,
                   zhpe_uuid_str(&uu->uuid, str, sizeof(str)));
             state = zhpe_msg_send_UUID_TEARDOWN(fdata->bridge,
                                                 &uu->uuid,
@@ -502,7 +502,7 @@ void zhpe_notify_remote_uuids(struct file_data *fdata)
                 status = PTR_ERR(state);
                 debug(DEBUG_MSG,
                       "%s:%s,%u: zhpe_msg_send_UUID_TEARDOWN status=%d\n",
-                      zhpe_driver_name, __FUNCTION__, __LINE__, status);
+                      zhpe_driver_name, __func__, __LINE__, status);
                 continue;
             }
             list_add_tail(&state->msg_list, &teardown_msg_list);
@@ -511,7 +511,7 @@ void zhpe_notify_remote_uuids(struct file_data *fdata)
 
     if (zhpe_uu_remote_uuid_empty(fdata)) {
         debug(DEBUG_UUID, "%s:%s,%u: no remote UUIDs to TEARDOWN\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__);
+              zhpe_driver_name, __func__, __LINE__);
         goto teardown_done;
     }
 
@@ -526,7 +526,7 @@ void zhpe_notify_remote_uuids(struct file_data *fdata)
             continue;
         prev_gcid = gcid;
         debug(DEBUG_UUID, "%s:%s,%u: TEARDOWN uuid=%s\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__,
+              zhpe_driver_name, __func__, __LINE__,
               zhpe_uuid_str(&uu->uuid, str, sizeof(str)));
         state = zhpe_msg_send_UUID_TEARDOWN(fdata->bridge,
                                             &fdata->local_uuid->uuid,
@@ -535,7 +535,7 @@ void zhpe_notify_remote_uuids(struct file_data *fdata)
             status = PTR_ERR(state);
             debug(DEBUG_MSG,
                   "%s:%s,%u: zhpe_msg_send_UUID_TEARDOWN status=%d\n",
-                  zhpe_driver_name, __FUNCTION__, __LINE__, status);
+                  zhpe_driver_name, __func__, __LINE__, status);
             continue;
         }
         list_add_tail(&state->msg_list, &teardown_msg_list);
@@ -551,12 +551,12 @@ void zhpe_notify_remote_uuids(struct file_data *fdata)
         uu = node->tracker;
         if (uu->remote->uu_flags & UUID_IS_FAM) { /* skip send if this is FAM */
             debug(DEBUG_UUID, "%s:%s,%u: IS_FAM skipping FREE uuid=%s\n",
-                  zhpe_driver_name, __FUNCTION__, __LINE__,
+                  zhpe_driver_name, __func__, __LINE__,
                   zhpe_uuid_str(&uu->uuid, str, sizeof(str)));
             continue;
         }
         debug(DEBUG_UUID, "%s:%s,%u: FREE uuid=%s\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__,
+              zhpe_driver_name, __func__, __LINE__,
               zhpe_uuid_str(&uu->uuid, str, sizeof(str)));
         state = zhpe_msg_send_UUID_FREE(fdata->bridge,
                                         &fdata->local_uuid->uuid, &uu->uuid,
@@ -564,7 +564,7 @@ void zhpe_notify_remote_uuids(struct file_data *fdata)
         if (IS_ERR(state)) {
             status = PTR_ERR(state);
             debug(DEBUG_MSG, "%s:%s,%u: zhpe_msg_send_UUID_FREE status=%d\n",
-                  zhpe_driver_name, __FUNCTION__, __LINE__, status);
+                  zhpe_driver_name, __func__, __LINE__, status);
             continue;
         }
         list_add_tail(&state->msg_list, &free_msg_list);
@@ -588,20 +588,20 @@ int zhpe_teardown_remote_uuid(uuid_t *src_uuid)
     if (!suu) {
         status = ZHPE_MSG_ERR_NO_UUID;
         debug(DEBUG_UUID, "%s:%s,%u: src_uuid=%s not found\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__,
+              zhpe_driver_name, __func__, __LINE__,
               zhpe_uuid_str(src_uuid, uustr, sizeof(uustr)));
         goto out;
     }
     /* we now hold an extra reference to suu */
 
     debug(DEBUG_UUID, "%s:%s,%u: uuid=%s\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           zhpe_uuid_str(&suu->uuid, uustr, sizeof(uustr)));
 
     if (!suu->remote) {
         debug(DEBUG_UUID, "%s:%s,%u:unexpected null ptr, "
               "suu->remote=%px, uuid=%s\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__,
+              zhpe_driver_name, __func__, __LINE__,
               suu->remote, uustr);
         goto local;
     }
@@ -612,7 +612,7 @@ int zhpe_teardown_remote_uuid(uuid_t *src_uuid)
         node = container_of(rb, struct uuid_node, node);
         tuu = node->tracker;
         debug(DEBUG_UUID, "%s:%s,%u:local_uuid_tree uuid = %s\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__,
+              zhpe_driver_name, __func__, __LINE__,
               zhpe_uuid_str(&tuu->uuid, uustr, sizeof(uustr)));
         next = rb_next_postorder(rb);  /* must precede kfree() */
         fdata = tuu->local->fdata;
@@ -658,11 +658,11 @@ void zhpe_uuid_exit(void)
 
     if (!uuid_tree_empty()) {
         debug(DEBUG_UUID, "%s:%s,%u:uuid_tree not empty\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__);
+              zhpe_driver_name, __func__, __LINE__);
         for (rb = rb_first(&uuid_rbtree); rb; rb = rb_next(rb)) {
             uu = container_of(rb, struct uuid_tracker, node);
             debug(DEBUG_UUID, "%s:%s,%u: orphaned uuid=%s, refcount=%u\n",
-                  zhpe_driver_name, __FUNCTION__, __LINE__,
+                  zhpe_driver_name, __func__, __LINE__,
                   zhpe_uuid_str(&uu->uuid, str, sizeof(str)),
                   kref_read(&uu->refcount));
         }
@@ -713,7 +713,7 @@ int zhpe_user_req_UUID_IMPORT(struct io_entry *entry)
     /* add fdata->local_uuid to uu->remote->local_uuid_tree */
     kref_get(&fdata->local_uuid->refcount);
     debug(DEBUG_UUID, "%s:%s,%u:get uuid=%s, refcount=%u\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           zhpe_uuid_str(&fdata->local_uuid->uuid, uustr, sizeof(uustr)),
           kref_read(&fdata->local_uuid->refcount));
     uu_node = zhpe_remote_uuid_alloc_and_insert(fdata->local_uuid,
@@ -742,7 +742,7 @@ int zhpe_user_req_UUID_IMPORT(struct io_entry *entry)
 
  out:
     debug(DEBUG_UUID, "%s:%s,%u:ret = %d uuid = %s uu_flags = 0x%x\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__, status,
+          zhpe_driver_name, __func__, __LINE__, status,
           zhpe_uuid_str(uuid, uustr, sizeof(uustr)), uu_flags);
     return queue_io_rsp(entry, sizeof(rsp->uuid_import), status);
 }
@@ -800,14 +800,14 @@ int zhpe_user_req_UUID_FREE(struct io_entry *entry)
                 status = PTR_ERR(state);
                 debug(DEBUG_MSG,
                       "%s:%s,%u: zhpe_msg_send_UUID_FREE status=%d\n",
-                      zhpe_driver_name, __FUNCTION__, __LINE__, status);
+                      zhpe_driver_name, __func__, __LINE__, status);
             }
         }
     }
 
  out:
     debug(DEBUG_UUID, "%s:%s,%u:ret = %d uuid = %s uu_flags = 0x%x\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__, status,
+          zhpe_driver_name, __func__, __LINE__, status,
           zhpe_uuid_str(uuid, str, sizeof(str)), uu_flags);
     return queue_io_rsp(entry, sizeof(rsp->uuid_free), status);
 }

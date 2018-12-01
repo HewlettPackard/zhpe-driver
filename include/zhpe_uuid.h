@@ -141,10 +141,10 @@ static inline void zhpe_uuid_remove(struct uuid_tracker *uu)
     gone = kref_put(&uu->refcount, zhpe_uuid_tracker_free);
     if (gone)
         debug(DEBUG_UUID, "%s:%s,%u:freed uuid=%s\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__, uustr);
+              zhpe_driver_name, __func__, __LINE__, uustr);
     else
         debug(DEBUG_UUID, "%s:%s,%u:removed uuid=%s, refcount=%u\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__, uustr,
+              zhpe_driver_name, __func__, __LINE__, uustr,
               kref_read(&uu->refcount));
     spin_unlock_irqrestore(&zhpe_uuid_rbtree_lock, flags);
 }
