@@ -109,16 +109,73 @@ int rqcm_hsr_offsets[] =
 
 static DECLARE_WAIT_QUEUE_HEAD(wqA);
 
-static void dump_qcm(struct xdm_qcm *qcm)
+void zhpe_debug_xdm_qcm(const char *func, uint line, const void *cqcm)
 {
-	uint64_t	data;
+	void            *qcm = (void *)cqcm;
+	uint            off;
+	uint64_t        cmd_addr;
+	uint64_t        cmpl_addr;
+	uint64_t        cmd_paddr;
+	uint64_t        cmpl_paddr;
+	uint64_t        cmd_vaddr;
+	uint64_t        cmpl_vaddr;
 
-	data = xdm_qcm_read(qcm, 0x0);
-	debug(DEBUG_XQUEUE, "QCM: Command Queue Base Address 0x%llx", data);
-	data = xdm_qcm_read(qcm, 0x08);
-	debug(DEBUG_XQUEUE, "QCM: Completion Queue Base Address 0x%llx", data);
-	data = xdm_qcm_read(qcm, 0x10);
-	debug(DEBUG_XQUEUE, "QCM: Command Queue size 0x%x Completion Queue Size 0x%x", (uint32_t)data & 0xffff, (uint32_t)((data & 0xffff00000000) >> 8));
+	if (!(zhpe_debug_flags & DEBUG_XQUEUE))
+		return;
+
+	cmd_addr = xdm_qcm_read(qcm, XDM_CMD_ADDR_OFFSET) & ~0x1FULL;
+	cmpl_addr = xdm_qcm_read(qcm, XDM_CMPL_ADDR_OFFSET) & ~0x1FULL;
+	if (xdm_qcm_read(qcm, XDM_PASID_OFFSET) & XDM_PASID_QVIRT_FLAG) {
+		cmd_vaddr = cmd_addr;
+		cmpl_vaddr = cmpl_addr;
+		cmd_paddr = virt_to_phys((void *)cmd_addr);
+		cmpl_paddr = virt_to_phys((void *)cmpl_addr);
+	} else {
+		cmd_paddr = cmd_addr;
+		cmpl_paddr = cmpl_addr;
+		cmd_vaddr = (uintptr_t)phys_to_virt(cmd_addr);
+		cmpl_vaddr = (uintptr_t)phys_to_virt(cmpl_addr);
+	}
+
+	printk(KERN_DEBUG
+	       "%s,%u:xqcm %px cmd 0x%llx/0x%llx cmpl 0x%llx/0x%llx\n",
+	       func, line, qcm, cmd_vaddr, cmd_paddr, cmpl_vaddr, cmpl_paddr);
+	for (off = XDM_DUMP_08_START; off <= XDM_DUMP_08_END; off += 0x08)
+		printk(KERN_DEBUG "xqcm[0x%03x] = 0x%llx\n",
+		       off, xdm_qcm_read(qcm, off));
+	for (off = XDM_DUMP_40_START; off <= XDM_DUMP_40_END; off += 0x40)
+		printk(KERN_DEBUG "xqcm[0x%03x] = 0x%llx\n",
+		       off, xdm_qcm_read(qcm, off));
+}
+
+void zhpe_debug_rdm_qcm(const char *func, uint line, const void *cqcm)
+{
+	void            *qcm = (void *)cqcm;
+	uint            off;
+	uint64_t        cmpl_addr;
+	uint64_t        cmpl_paddr;
+	uint64_t        cmpl_vaddr;
+
+	if (!(zhpe_debug_flags & DEBUG_XQUEUE))
+		return;
+
+	cmpl_addr = rdm_qcm_read(qcm, RDM_CMPL_ADDR_OFFSET) & ~0x1FULL;
+	if (rdm_qcm_read(qcm, RDM_SIZE_OFFSET) & RDM_SIZE_QVIRT_FLAG) {
+		cmpl_vaddr = cmpl_addr;
+		cmpl_paddr = virt_to_phys((void *)cmpl_addr);
+	} else {
+		cmpl_paddr = cmpl_addr;
+		cmpl_vaddr = (uintptr_t)phys_to_virt(cmpl_addr);
+	}
+
+	printk(KERN_DEBUG "%s,%u:rqcm %px cmpl 0x%llx/0x%llx\n",
+	       func, line, qcm, cmpl_vaddr, cmpl_paddr);
+	for (off = RDM_DUMP_08_START; off <= RDM_DUMP_08_END; off += 0x08)
+		printk(KERN_DEBUG "rqcm[0x%03x] = 0x%llx\n",
+		       off, rdm_qcm_read(qcm, off));
+	for (off = RDM_DUMP_40_START; off <= RDM_DUMP_40_END; off += 0x40)
+		printk(KERN_DEBUG "rqcm[0x%03x] = 0x%llx\n",
+		       off, rdm_qcm_read(qcm, off));
 }
 
 static int xdm_get_A_bit(struct xdm_qcm *qcm, uint16_t *acc)
@@ -167,7 +224,7 @@ static int xdm_wait(struct xdm_qcm *qcm, int wait_type, int wait_time)
 			debug(DEBUG_XQUEUE,
 				"xdm_wait: queue did not go idle. Active command count is %d\n",
 				acc);
-			dump_qcm(qcm);
+			zhpe_debug_xdm_qcm(__func__, __LINE__, qcm);
 			return -1;
 		}
 	}
@@ -864,6 +921,11 @@ static void xdm_qcm_setup(struct xdm_qcm *hw_qcm_addr,
 	for (offset=0; offset < 0x20; offset+=0x8) {
 		xdm_qcm_write(&qcm, hw_qcm_addr, offset);
 	}
+	/* Initialize the queue indicies. */
+	xdm_qcm_write(&qcm, hw_qcm_addr, ZHPE_XDM_QCM_CMD_QUEUE_TAIL_OFFSET);
+	xdm_qcm_write(&qcm, hw_qcm_addr, ZHPE_XDM_QCM_CMD_QUEUE_HEAD_OFFSET);
+	xdm_qcm_write(&qcm, hw_qcm_addr,
+		      ZHPE_XDM_QCM_CMPL_QUEUE_TAIL_TOGGLE_OFFSET);
 
 	/* Now set the stop bits to turn control over to application. */
 	xdm_qcm_write(&qcm, hw_qcm_addr, XDM_STOP_OFFSET);
@@ -871,6 +933,8 @@ static void xdm_qcm_setup(struct xdm_qcm *hw_qcm_addr,
 
 	/* Read back to ensure synchronization */
 	junk = xdm_qcm_read(hw_qcm_addr, XDM_MASTER_STOP_OFFSET);
+
+	zhpe_debug_xdm_qcm(__func__, __LINE__, hw_qcm_addr);
 }
 
 static int xdm_queue_sizes(uint32_t *cmdq_ent, uint32_t *cmplq_ent,
@@ -1232,6 +1296,10 @@ static void rdm_qcm_setup(struct rdm_qcm *hw_qcm_addr,
 	for (offset=0; offset < 0x10; offset+=0x8) {
                 rdm_qcm_write(&qcm, hw_qcm_addr, offset);
 	}
+	/* Initialize the queue indicies. */
+	rdm_qcm_write(&qcm, hw_qcm_addr,
+		      ZHPE_RDM_QCM_RCV_QUEUE_TAIL_TOGGLE_OFFSET);
+	rdm_qcm_write(&qcm, hw_qcm_addr, ZHPE_RDM_QCM_RCV_QUEUE_HEAD_OFFSET);
 
 	/* Now set the stop bits to turn control over to application. */
         rdm_qcm_write(&qcm, hw_qcm_addr, RDM_STOP_OFFSET);
@@ -1239,6 +1307,8 @@ static void rdm_qcm_setup(struct rdm_qcm *hw_qcm_addr,
 
 	/* Read back to ensure synchronization */
         junk = rdm_qcm_read(hw_qcm_addr, RDM_MASTER_STOP_OFFSET);
+
+	zhpe_debug_rdm_qcm(__func__, __LINE__, hw_qcm_addr);
 }
 
 static int rdm_queue_sizes(uint32_t *cmplq_ent, size_t *cmplq_size,

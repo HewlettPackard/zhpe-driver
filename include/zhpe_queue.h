@@ -67,13 +67,28 @@
 #define MAX_HW_RDM_QLEN    (MAX_SW_RDM_QLEN-1)
 #define MAX_DMA_LEN        (1U << 31)
 
+#define XDM_CMD_ADDR_OFFSET     0x00
+#define XDM_CMPL_ADDR_OFFSET    0x10
+#define XDM_PASID_OFFSET        0x18
+#define XDM_PASID_QVIRT_FLAG    (1ULL << 31)
 #define XDM_MASTER_STOP_OFFSET 	0x20
 #define XDM_STOP_OFFSET		0x40
 #define XDM_A_OFFSET 		0x28
+#define XDM_DUMP_08_START       0x10
+#define XDM_DUMP_08_END         0x28
+#define XDM_DUMP_40_START       0x40
+#define XDM_DUMP_40_END         0x100
 
+#define RDM_CMPL_ADDR_OFFSET    0x00
+#define RDM_SIZE_OFFSET         0x08
+#define RDM_SIZE_QVIRT_FLAG     (1ULL << 63)
 #define RDM_MASTER_STOP_OFFSET 	0x10
 #define RDM_STOP_OFFSET		0x40
 #define RDM_A_OFFSET		0x18
+#define RDM_DUMP_08_START       0x08
+#define RDM_DUMP_08_END         0x18
+#define RDM_DUMP_40_START       0x40
+#define RDM_DUMP_40_END         0xC0
 
 static inline uint64_t qcm_val(void *qcm, int offset)
 {
@@ -155,5 +170,7 @@ void zhpe_release_owned_xdm_queues(struct file_data *fdata);
 void zhpe_release_owned_rdm_queues(struct file_data *fdata);
 int zhpe_rdm_queue_to_irq(int queue, struct slice *sl);
 int zhpe_rdm_queue_to_vector(int queue, struct slice *sl);
+void zhpe_debug_xdm_qcm(const char *func, uint line, const void *cqcm);
+void zhpe_debug_rdm_qcm(const char *func, uint line, const void *cqcm);
 
 #endif /* _ZHPE_DRIVER_H_ */
