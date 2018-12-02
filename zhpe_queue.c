@@ -128,8 +128,8 @@ void zhpe_debug_xdm_qcm(const char *func, uint line, const void *cqcm)
 	if (xdm_qcm_read(qcm, XDM_PASID_OFFSET) & XDM_PASID_QVIRT_FLAG) {
 		cmd_vaddr = cmd_addr;
 		cmpl_vaddr = cmpl_addr;
-		cmd_paddr = virt_to_phys((void *)cmd_addr);
-		cmpl_paddr = virt_to_phys((void *)cmpl_addr);
+		cmd_paddr = 0;
+		cmpl_paddr = 0;
 	} else {
 		cmd_paddr = cmd_addr;
 		cmpl_paddr = cmpl_addr;
@@ -162,7 +162,7 @@ void zhpe_debug_rdm_qcm(const char *func, uint line, const void *cqcm)
 	cmpl_addr = rdm_qcm_read(qcm, RDM_CMPL_ADDR_OFFSET) & ~0x1FULL;
 	if (rdm_qcm_read(qcm, RDM_SIZE_OFFSET) & RDM_SIZE_QVIRT_FLAG) {
 		cmpl_vaddr = cmpl_addr;
-		cmpl_paddr = virt_to_phys((void *)cmpl_addr);
+		cmpl_paddr = 0;
 	} else {
 		cmpl_paddr = cmpl_addr;
 		cmpl_vaddr = (uintptr_t)phys_to_virt(cmpl_addr);
