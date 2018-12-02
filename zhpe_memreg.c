@@ -342,7 +342,7 @@ struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
     if (found != umem) {
         put_pid(umem->pid);
         do_kfree(umem);
-        return found;
+        return ERR_PTR(-EEXIST);
     }
 
     page_list = (struct page **)do__get_free_page(GFP_KERNEL, false);
