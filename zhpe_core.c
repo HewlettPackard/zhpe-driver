@@ -62,6 +62,9 @@ module_param_named(debug, zhpe_debug_flags, uint, 0644);
 MODULE_PARM_DESC(debug, "debug output bitmask");
 #endif /* !NDEBUG */
 
+module_param_named(kmsg_timeout, zhpe_kmsg_timeout, uint, 0644);
+MODULE_PARM_DESC(kmsg_timeout, "kernel-to-kernel message timeout in seconds");
+
 const char zhpe_driver_name[] = DRIVER_NAME;
 
 static atomic64_t mem_total = ATOMIC64_INIT(0);

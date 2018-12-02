@@ -39,10 +39,17 @@
 #include <linux/interrupt.h>
 #include <linux/sched.h>
 
+uint zhpe_kmsg_timeout;
+
 /* msg_state & msgid's are global */
 static struct rb_root msg_rbtree = RB_ROOT;
 DEFINE_SPINLOCK(zhpe_msg_rbtree_lock);
 static atomic_t msgid = ATOMIC_INIT(0);
+
+static inline ktime_t get_timeout(void)
+{
+    return ktime_set((zhpe_kmsg_timeout > 0 ? zhpe_kmsg_timeout : 2), 0);
+}
 
 static inline uint16_t msg_alloc_msgid(void)
 {
@@ -353,9 +360,9 @@ static int msg_wait_timeout(struct zhpe_msg_state *state, ktime_t timeout)
 {
     int ret;
 
-    debug(DEBUG_MSG, "%s:%s,%u: waiting for reply to msgid=%u\n",
+    debug(DEBUG_MSG, "%s:%s,%u: waiting for reply to msgid=%u, timeout %lld\n",
           zhpe_driver_name, __func__, __LINE__,
-          state->req_msg.hdr.msgid);
+          state->req_msg.hdr.msgid, (ullong)timeout);
     ret = wait_event_interruptible_hrtimeout(state->wq, state->ready,
                                              timeout);
     if (ret < 0) {  /* interrupted or timout expired */
@@ -378,23 +385,25 @@ static int msg_wait_timeout(struct zhpe_msg_state *state, ktime_t timeout)
 
 static int msg_wait(struct zhpe_msg_state *state)
 {
-    ktime_t timeout;
-
-    timeout = ktime_set(2, 0);  /* Revisit: make tunable */
-    return msg_wait_timeout(state, timeout);
+    return msg_wait_timeout(state, get_timeout());
 }
 
 void zhpe_msg_list_wait(struct list_head *msg_wait_list, ktime_t start)
 {
+    int                     status = 0;
+    ktime_t                 timeout = get_timeout();
     struct zhpe_msg_state   *state, *next;
-    int                     status;
-    ktime_t                 now, timeout;
+    ktime_t                 now, remaining;
 
     list_for_each_entry_safe(state, next, msg_wait_list, msg_list) {
-        now = ktime_get();
-        timeout = ktime_sub(ktime_set(2, 0),  /* Revisit: make tunable */
-                            ktime_sub(now, start));
-        status = msg_wait_timeout(state, timeout);
+        if (status >= 0) {
+            now = ktime_sub(ktime_get(), start);
+            if (ktime_compare(timeout, now) > 0) {
+                remaining = ktime_sub(timeout, now);
+                status = msg_wait_timeout(state, remaining);
+            } else
+                status = -ETIME;
+        }
         list_del(&state->msg_list);
         msg_state_free(state);
     }
