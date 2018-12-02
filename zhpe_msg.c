@@ -82,7 +82,7 @@ static struct zhpe_msg_state *msg_state_search(uint16_t msgid)
         int result;
 
         state = container_of(node, struct zhpe_msg_state, node);
-        result = (int)(msgid - state->req_msg.hdr.msgid);
+        result = arithcmp(msgid, state->req_msg.hdr.msgid);
         if (result < 0) {
             node = node->rb_left;
         } else if (result > 0) {
@@ -110,7 +110,7 @@ static struct zhpe_msg_state *msg_state_insert(struct zhpe_msg_state *ms)
     while (*new) {
         struct zhpe_msg_state *this =
             container_of(*new, struct zhpe_msg_state, node);
-        int result = (int)(ms->req_msg.hdr.msgid - this->req_msg.hdr.msgid);
+        int result = arithcmp(ms->req_msg.hdr.msgid, this->req_msg.hdr.msgid);
 
         parent = *new;
         if (result < 0) {

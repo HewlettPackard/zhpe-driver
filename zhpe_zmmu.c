@@ -286,7 +286,7 @@ static uint64_t zmmu_base_addr_insert(struct page_grid_info *pgi, uint pg_index)
     struct rb_root *root = &pgi->base_addr_tree;
     struct rb_node **new = &root->rb_node, *parent = NULL;
     struct sw_page_grid *node = &pgi->pg[pg_index];
-    int64_t result;
+    int result;
 
     /* caller must hold bridge zmmu lock */
 
@@ -295,7 +295,7 @@ static uint64_t zmmu_base_addr_insert(struct page_grid_info *pgi, uint pg_index)
         struct sw_page_grid *this =
             container_of(*new, struct sw_page_grid, base_addr_node);
 
-        result = (node->page_grid.base_addr - this->page_grid.base_addr);
+        result = arithcmp(node->page_grid.base_addr, this->page_grid.base_addr);
         parent = *new;
         if (result < 0)
             new = &((*new)->rb_left);
@@ -323,8 +323,8 @@ static int zmmu_base_pte_insert(struct page_grid_info *pgi, uint pg_index)
     while (*new) {
         struct sw_page_grid *this =
             container_of(*new, struct sw_page_grid, base_pte_node);
-        int result = (node->page_grid.base_pte_idx -
-                      this->page_grid.base_pte_idx);
+        int result = arithcmp(node->page_grid.base_pte_idx,
+                              this->page_grid.base_pte_idx);
 
         parent = *new;
         if (result < 0)
@@ -458,7 +458,7 @@ static struct sw_page_grid *zmmu_pg_pte_search(struct page_grid_info *pgi,
         int result;
 
         pg = container_of(node, struct sw_page_grid, base_pte_node);
-        result = pte_index - pg->page_grid.base_pte_idx;
+        result = arithcmp(pte_index, pg->page_grid.base_pte_idx);
         if (result < 0)
             node = node->rb_left;
         else if (result > 0)
@@ -492,10 +492,10 @@ static struct sw_page_grid *zmmu_pg_addr_search(struct page_grid_info *pgi,
     node = root->rb_node;
 
     while (node) {
-        int64_t result;
+        int result;
 
         pg = container_of(node, struct sw_page_grid, base_addr_node);
-        result = base_addr - pg->page_grid.base_addr;
+        result = arithcmp(base_addr, pg->page_grid.base_addr);
         if (result < 0)
             node = node->rb_left;
         else if (result > 0)
@@ -807,7 +807,7 @@ static int zmmu_pte_insert(struct zhpe_pte_info *info, struct sw_page_grid *pg)
     while (*new) {
         struct zhpe_pte_info *this =
             container_of(*new, struct zhpe_pte_info, node);
-        int result = (info->pte_index - this->pte_index);
+        int result = arithcmp(info->pte_index, this->pte_index);
 
         parent = *new;
         if (result < 0)
