@@ -111,11 +111,6 @@ uint no_iommu = 0;
 module_param(no_iommu, uint, 0444);
 MODULE_PARM_DESC(no_iommu, "System does not have an IOMMU (default=0)");
 
-/* "libfabric" is the default for now. */
-static char *backend = "libfabric";
-module_param(backend, charp, 0444);
-MODULE_PARM_DESC(backend, "backend transport: zhpe, libfabric (default)");
-
 #define TRACKER_MAX     (256)
 
 /* Revisit Carbon: Gen-Z Global CID should come from bridge Core
@@ -1801,7 +1796,7 @@ static struct pci_driver zhpe_pci_driver = {
 
 static int __init zhpe_init(void)
 {
-    int                 ret = -ENODEV;
+    int                 ret;
     int                 i;
     struct zhpe_attr default_attr = {
         .max_tx_queues      = 1024,
@@ -1811,22 +1806,6 @@ static int __init zhpe_init(void)
         .max_dma_len        = (1U << 31),
     };
     uint                sl, pg, cnt, pg_index;
-
-    if (!strcmp(backend, "zhpe"))
-        default_attr.backend = ZHPE_BACKEND_ZHPE;
-    else if (!strcmp(backend, "libfabric"))
-        default_attr.backend = ZHPE_BACKEND_LIBFABRIC;
-    else {
-        printk(KERN_WARNING "%s:%s:unrecognized backend = %s\n",
-               zhpe_driver_name, __func__, backend);
-        goto err_out;
-    }
-    if (default_attr.backend != ZHPE_BACKEND_LIBFABRIC) {
-        printk(KERN_WARNING
-               "%s:%s:only LIBFABRIC backend supported at this time.\n",
-               zhpe_driver_name, __func__);
-        goto err_out;
-    }
 
     ret = -EINVAL;
     if (!(zhpe_no_avx || boot_cpu_has(X86_FEATURE_AVX))) {

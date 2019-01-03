@@ -341,6 +341,8 @@ struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
     found = umem_insert(umem);
     if (found != umem) {
         put_pid(umem->pid);
+        /* Undo the kref_get() for a duplicate umem from umem_insert(). */
+        kref_put(&umem->refcount, umem_free);
         do_kfree(umem);
         return ERR_PTR(-EEXIST);
     }
