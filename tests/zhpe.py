@@ -216,8 +216,8 @@ class zhpe_attr(Structure):
     _fields_ = [('backend',        c_u32),
                 ('max_tx_queues',  c_u32),
                 ('max_rx_queues',  c_u32),
-                ('max_hw_qlen',    c_u32),
-                ('max_sw_qlen',    c_u32),
+                ('max_tx_qlen',    c_u32),
+                ('max_rx_qlen',    c_u32),
                 ('max_dma_len',    c_u64)
                ]
 

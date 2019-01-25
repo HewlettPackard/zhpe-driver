@@ -944,7 +944,7 @@ static int xdm_queue_sizes(uint32_t *cmdq_ent, uint32_t *cmplq_ent,
 	int ret = 0;
 
 	/* Validate the given queue lengths */
-	if (*cmdq_ent < 2 || *cmdq_ent > MAX_SW_XDM_QLEN) {
+	if (*cmdq_ent < 2 || *cmdq_ent > MAX_XDM_QLEN) {
 		debug(DEBUG_XQUEUE, "Invalid command queue entries %d\n",
 			*cmdq_ent);
 		ret = -EINVAL;
@@ -957,7 +957,7 @@ static int xdm_queue_sizes(uint32_t *cmdq_ent, uint32_t *cmplq_ent,
         *cmdq_ent = max(*cmdq_ent, CMDS_PER_PAGE);
         *cmdq_ent = roundup_pow_of_two(*cmdq_ent);
 
-	if (*cmplq_ent < 2 || *cmplq_ent > MAX_SW_XDM_QLEN) {
+	if (*cmplq_ent < 2 || *cmplq_ent > MAX_XDM_QLEN) {
 		debug(DEBUG_XQUEUE, "Invalid completion queue entries %d\n",
 			*cmplq_ent);
 		ret = -EINVAL;
@@ -1317,7 +1317,7 @@ static int rdm_queue_sizes(uint32_t *cmplq_ent, size_t *cmplq_size,
 	int ret = 0;
 
 	/* Validate the given queue length */
-	if (*cmplq_ent < 2 || *cmplq_ent > MAX_SW_RDM_QLEN) {
+	if (*cmplq_ent < 2 || *cmplq_ent > MAX_RDM_QLEN) {
 		debug(DEBUG_RQUEUE, "Invalid completion queue entries %d\n",
 			*cmplq_ent);
 		ret = -EINVAL;

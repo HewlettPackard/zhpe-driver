@@ -222,8 +222,8 @@ struct zhpe_attr {
     enum zhpe_backend   backend;
     uint32_t            max_tx_queues;
     uint32_t            max_rx_queues;
-    uint32_t            max_hw_qlen;
-    uint32_t            max_sw_qlen;
+    uint32_t            max_tx_qlen;
+    uint32_t            max_rx_qlen;
     uint64_t            max_dma_len;
 };
 

@@ -61,10 +61,8 @@
 /* Hardware limits */
 #define MAX_TX_QUEUES      1024
 #define MAX_RX_QUEUES      1024
-#define MAX_SW_XDM_QLEN    BIT(16)
-#define MAX_HW_XDM_QLEN    (MAX_SW_XDM_QLEN-1)
-#define MAX_SW_RDM_QLEN    BIT(20)
-#define MAX_HW_RDM_QLEN    (MAX_SW_RDM_QLEN-1)
+#define MAX_XDM_QLEN       (BIT(16)-1)
+#define MAX_RDM_QLEN       (BIT(20)-1)
 #define MAX_DMA_LEN        (1U << 31)
 
 #define XDM_CMD_ADDR_OFFSET     0x00

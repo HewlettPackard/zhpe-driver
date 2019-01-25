@@ -906,105 +906,6 @@ static int zhpe_user_req_INIT(struct io_entry *entry)
     return queue_io_rsp(entry, sizeof(rsp->init), status);
 }
 
-static int zhpe_user_req_QALLOC(struct io_entry *entry)
-{
-    int                 ret = -EINVAL;
-    union zhpe_req      *req = &entry->op.req;
-    union zhpe_rsp      *rsp = &entry->op.rsp;
-    union zpages        *zpages[3] = { NULL, NULL, NULL };
-    struct zmap         *zmaps[3] = { NULL, NULL, NULL };
-    size_t              sizes[3];
-    uint32_t            qlen;
-    size_t              qsize;
-    size_t              i;
-
-    CHECK_INIT_STATE(entry, ret, done);
-    qlen = req->qalloc.qlen;
-    if (qlen < 1 || qlen > global_shared_data->default_attr.max_hw_qlen)
-        goto done;
-    /* To support qlen entries, we need a real size of qlen + 1 rounded
-     * up to the next power of 2.
-     */
-    rsp->qalloc.info.qlen = 1U << fls(qlen);
-    /* Compute sizes; assume a page for registers. */
-    rsp->qalloc.info.rsize = PAGE_SIZE;
-    sizes[0] = PAGE_SIZE;
-    qsize = req->qalloc.qlen * ZHPE_HW_ENTRY_LEN;
-    qsize = PAGE_ALIGN(qsize);
-    rsp->qalloc.info.qsize = qsize;
-    sizes[1] = qsize;
-    sizes[2] = qsize;
-    /* Allocate zpages and zmaps. */
-    ret = -ENOMEM;
-    for (i = 0; i < ARRAY_SIZE(sizes); i++) {
-        zpages[i] = queue_zpages_alloc(sizes[i], false);
-        if (!zpages[i])
-            goto done;
-        zmaps[i] = zmap_alloc(entry->fdata, zpages[i]);
-        if (IS_ERR(zmaps[i])) {
-            ret = PTR_ERR(zmaps[i]);
-            zmaps[i] = NULL;
-            goto done;
-        }
-    }
-    rsp->qalloc.info.reg_off = zmaps[0]->offset;
-    rsp->qalloc.info.wq_off = zmaps[1]->offset;
-    rsp->qalloc.info.cq_off = zmaps[2]->offset;
-    /* Set owner field to valid value; can't fail after this. */
-    for (i = 0; i < ARRAY_SIZE(sizes); i++)
-        zmaps[i]->owner = entry->fdata;
-    /* Make sure owner is seen before we advertise the queue anywhere. */
-    smp_wmb();
-    ret = 0;
-
- done:
-    if (ret < 0) {
-        for (i = 0; i < ARRAY_SIZE(sizes); i++) {
-            if (zmaps[i])
-                zmap_free(zmaps[i]);
-            else if (zpages[i])
-                zpages_free(zpages[i]);
-        }
-    }
-
-    return queue_io_rsp(entry, sizeof(rsp->qalloc), ret);
-}
-
-static int zhpe_user_req_QFREE(struct io_entry *entry)
-{
-    int                 ret = 0;
-    struct file_data    *fdata = entry->fdata;
-    union zhpe_req      *req = &entry->op.req;
-    union zhpe_rsp      *rsp = &entry->op.rsp;
-    int                 count = 3;
-    struct zmap         *zmap;
-    struct zmap         *next;
-
-    CHECK_INIT_STATE(entry, ret, done);
-    spin_lock(&fdata->zmap_lock);
-    list_for_each_entry_safe(zmap, next, &fdata->zmap_list, list) {
-        if (zmap->offset == req->qfree.info.reg_off ||
-            zmap->offset == req->qfree.info.wq_off ||
-            zmap->offset == req->qfree.info.cq_off) {
-            if (zmap->owner != fdata) {
-                if (ret >= 0)
-                    ret = -EACCES;
-            } else {
-                list_del_init(&zmap->list);
-                zmap_free(zmap);
-            }
-            if (--count == 0)
-                break;
-        }
-    }
-    spin_unlock(&fdata->zmap_lock);
-    if (ret >= 0 && count)
-        ret = -ENOENT;
-
- done:
-    return queue_io_rsp(entry, sizeof(rsp->qfree), ret);
-}
-
 /* This function called by IOMMU driver on PPR failure */
 static int iommu_invalid_ppr_cb(struct pci_dev *pdev, int pasid,
             unsigned long address, u16 flags)
@@ -1202,8 +1103,6 @@ static ssize_t zhpe_write(struct file *file, const char __user *buf,
     USER_REQ_HANDLER(INIT);
     USER_REQ_HANDLER(MR_REG);
     USER_REQ_HANDLER(MR_FREE);
-    USER_REQ_HANDLER(QALLOC);
-    USER_REQ_HANDLER(QFREE);
     USER_REQ_HANDLER(RMR_IMPORT);
     USER_REQ_HANDLER(RMR_FREE);
     USER_REQ_HANDLER(ZMMU_REG);
@@ -1799,11 +1698,11 @@ static int __init zhpe_init(void)
     int                 ret;
     int                 i;
     struct zhpe_attr default_attr = {
-        .max_tx_queues      = 1024,
-        .max_rx_queues      = 1024,
-        .max_hw_qlen        = 65535,
-        .max_sw_qlen        = 65535,
-        .max_dma_len        = (1U << 31),
+        .max_tx_queues      = MAX_TX_QUEUES,
+        .max_rx_queues      = MAX_RX_QUEUES,
+        .max_tx_qlen        = MAX_XDM_QLEN,
+        .max_rx_qlen        = MAX_RDM_QLEN,
+        .max_dma_len        = MAX_DMA_LEN,
     };
     uint                sl, pg, cnt, pg_index;
 
