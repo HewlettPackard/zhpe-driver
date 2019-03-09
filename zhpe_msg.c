@@ -73,9 +73,9 @@ static struct zhpe_msg_state *msg_state_search(uint16_t msgid)
     struct zhpe_msg_state *state;
     struct rb_node *node;
     struct rb_root *root = &msg_rbtree;
-    ulong flags;
 
-    spin_lock_irqsave(&zhpe_msg_rbtree_lock, flags);
+    BUG_ON(!irqs_disabled());
+    spin_lock(&zhpe_msg_rbtree_lock);
     node = root->rb_node;
 
     while (node) {
@@ -95,7 +95,7 @@ static struct zhpe_msg_state *msg_state_search(uint16_t msgid)
     state = NULL;
 
  out:
-    spin_unlock_irqrestore(&zhpe_msg_rbtree_lock, flags);
+    spin_unlock(&zhpe_msg_rbtree_lock);
     return state;
 }
 
@@ -104,7 +104,8 @@ static struct zhpe_msg_state *msg_state_insert(struct zhpe_msg_state *ms)
     struct rb_root *root = &msg_rbtree;
     struct rb_node **new = &root->rb_node, *parent = NULL;
 
-    spin_lock(&zhpe_msg_rbtree_lock);
+    BUG_ON(irqs_disabled());
+    spin_lock_irq(&zhpe_msg_rbtree_lock);
 
     /* figure out where to put new node */
     while (*new) {
@@ -128,7 +129,7 @@ static struct zhpe_msg_state *msg_state_insert(struct zhpe_msg_state *ms)
     rb_insert_color(&ms->node, root);
 
  out:
-    spin_unlock(&zhpe_msg_rbtree_lock);
+    spin_unlock_irq(&zhpe_msg_rbtree_lock);
     return ms;
 }
 
@@ -136,9 +137,10 @@ static void msg_state_free(struct zhpe_msg_state *ms)
 {
     struct rb_root *root = &msg_rbtree;
 
-    spin_lock(&zhpe_msg_rbtree_lock);
+    BUG_ON(irqs_disabled());
+    spin_lock_irq(&zhpe_msg_rbtree_lock);
     rb_erase(&ms->node, root);
-    spin_unlock(&zhpe_msg_rbtree_lock);
+    spin_unlock_irq(&zhpe_msg_rbtree_lock);
     do_kfree(ms);
 }
 
