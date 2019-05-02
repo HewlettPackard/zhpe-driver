@@ -67,18 +67,6 @@ typedef unsigned long long ullong;
 
 #include <zhpe_uapi.h>
 
-/* Do extern "C" without goofing up emacs. */
-#ifndef _EXTERN_C_SET
-#define _EXTERN_C_SET
-#ifdef  __cplusplus
-#define _EXTERN_C_BEG extern "C" {
-#define _EXTERN_C_END }
-#else
-#define _EXTERN_C_BEG
-#define _EXTERN_C_END
-#endif
-#endif
-
 _EXTERN_C_BEG
 
 #define DRIVER_NAME     "zhpe"
@@ -255,9 +243,15 @@ struct zhpe_rsp_ZMMU_FREE {
     struct zhpe_common_hdr hdr;
 };
 
+enum {
+    UUID_IS_FAM = 0x1,
+};
+
 struct zhpe_req_UUID_IMPORT {
     struct zhpe_common_hdr  hdr;
     uuid_t                  uuid;
+    uuid_t                  mgr_uuid;
+    uint32_t                uu_flags;
 };
 
 struct zhpe_rsp_UUID_IMPORT {
@@ -475,11 +469,5 @@ struct zhpe_rdm_rcv_queue_tail_toggle {
 #define ZHPE_RDM_QCM_RCV_QUEUE_HEAD_OFFSET		0xc0
 
 _EXTERN_C_END
-
-#ifdef _EXTERN_C_SET
-#undef _EXTERN_C_SET
-#undef _EXTERN_C_BEG
-#undef _EXTERN_C_END
-#endif
 
 #endif /* _ZHPE_H_ */

@@ -145,6 +145,8 @@ struct zhpe_msg_state {
     struct list_head       msg_list;
 };
 
+extern uint zhpe_kmsg_timeout;
+
 /* Function Prototypes */
 void zhpe_msg_list_wait(struct list_head *msg_wait_list, ktime_t start);
 int zhpe_msg_send_UUID_IMPORT(struct bridge *br,

@@ -43,17 +43,19 @@
 
 static void umem_free(struct kref *ref);  /* forward reference */
 
-static inline int64_t umem_cmp(uint64_t vaddr, uint64_t length, uint64_t access,
-                               const struct zhpe_umem *u)
+static inline int umem_cmp(uint64_t vaddr, uint64_t length, uint64_t access,
+                           const struct zhpe_umem *u)
 {
+    int cmp;
     const struct zhpe_pte_info *info = &u->pte_info;
 
-    if (vaddr != u->vaddr)
-        return vaddr - u->vaddr;
-    else if (length != info->length)
-        return length - info->length;
-    else
-        return access - info->access;
+    cmp = arithcmp(vaddr, u->vaddr);
+    if (cmp)
+        return cmp;
+    cmp = arithcmp(length, info->length);
+    if (cmp)
+        return cmp;
+    return arithcmp(access, info->access);
 }
 
 static struct zhpe_umem *umem_search(struct file_data *fdata,
@@ -172,13 +174,22 @@ static inline int zhpe_dma_map_sg_attrs(struct bridge *br,
                                         unsigned long dma_attrs)
 {
     int sl, ret = 0;
+#ifdef HAVE_RHEL
+    struct dma_attrs dattrs = {
+        .flags[0] = dma_attrs
+    };
+    struct dma_attrs *attrs = &dattrs;
+#else
+    unsigned long attrs = dma_attrs;
+#endif
+
 
     /* Revisit: add PASID support */
     for (sl = 0; sl < SLICES; sl++) {
         if (!SLICE_VALID(&br->slice[sl]))
             continue;
         ret = dma_map_sg_attrs(&br->slice[sl].pdev->dev, sg, nents,
-                               direction, dma_attrs);
+                               direction, attrs);
         /* Revisit: handle ret > 0 but different amongst the slices? */
         if (ret <= 0) {
             while (--sl >= 0)  /* undo the ones we already did */
@@ -244,6 +255,23 @@ static void _zhpe_umem_release(struct zhpe_umem *umem)
     }
 }
 
+static inline long
+get_user_pages_compat(unsigned long start, unsigned long nr_pages,
+		      bool write, bool force, struct page **pages,
+		      struct vm_area_struct **vmas)
+{
+#ifdef HAVE_RHEL
+    return get_user_pages(current, current->mm, start, nr_pages,
+                          write, force, pages, vmas);
+#else
+    unsigned int        gup_flags;
+
+    gup_flags = (write ? FOLL_WRITE : 0) | (force ? FOLL_FORCE : 0);
+
+    return get_user_pages(start, nr_pages, gup_flags, pages, vmas);
+#endif
+}
+
 /**
  * zhpe_umem_get - Pin and DMA map userspace memory.
  *
@@ -271,7 +299,6 @@ struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
     unsigned long dma_attrs = 0;
     struct scatterlist *sg, *sg_list_start;
     bool first_page = true; /* Revisit: temporary */
-    unsigned int gup_flags = FOLL_WRITE;
     ulong flags;
 
     if (dmasync)
@@ -308,14 +335,16 @@ struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
 
     debug(DEBUG_MEMREG, "%s:%s,%u:vaddr = 0x%016llx, "
           "size = 0x%zx, access = 0x%llx\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__, vaddr,
+          zhpe_driver_name, __func__, __LINE__, vaddr,
           size, access);
 
     found = umem_insert(umem);
     if (found != umem) {
         put_pid(umem->pid);
+        /* Undo the kref_get() for a duplicate umem from umem_insert(). */
+        kref_put(&umem->refcount, umem_free);
         do_kfree(umem);
-        return found;
+        return ERR_PTR(-EEXIST);
     }
 
     page_list = (struct page **)do__get_free_page(GFP_KERNEL, false);
@@ -323,7 +352,7 @@ struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
         put_pid(umem->pid);
         do_kfree(umem);
         debug(DEBUG_MEMREG, "%s:%s,%u:failed to allocate page_list\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__);
+              zhpe_driver_name, __func__, __LINE__);
         return ERR_PTR(-ENOMEM);
     }
 
@@ -345,7 +374,7 @@ struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
     if ((locked > lock_limit) && !capable(CAP_IPC_LOCK)) {
         ret = -ENOMEM;
         debug(DEBUG_MEMREG, "%s:%s,%u:locked (%lu) > lock_limit (%lu)\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__,
+              zhpe_driver_name, __func__, __LINE__,
               locked, lock_limit);
         goto out;
     }
@@ -355,7 +384,7 @@ struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
     if (npages == 0 || npages > UINT_MAX) {
         ret = -EINVAL;
         debug(DEBUG_MEMREG, "%s:%s,%u:invalid npages (%lu)\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__,
+              zhpe_driver_name, __func__, __LINE__,
               npages);
         goto out;
     }
@@ -363,25 +392,22 @@ struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
     ret = sg_alloc_table(&umem->sg_head, npages, GFP_KERNEL);
     if (ret) {
         debug(DEBUG_MEMREG, "%s:%s,%u:sg_alloc_table failed\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__);
+              zhpe_driver_name, __func__, __LINE__);
         goto out;
     }
-
-    if (!umem->writable)
-        gup_flags |= FOLL_FORCE;
 
     umem->need_release = true;
     sg_list_start = umem->sg_head.sgl;
 
     while (npages) {
         /* Revisit: new code shouldn't call get_user_pages */
-        ret = get_user_pages(cur_base,
-                             min_t(unsigned long, npages,
-                                   PAGE_SIZE / sizeof (struct page *)),
-                             gup_flags, page_list, vma_list);
+        ret = get_user_pages_compat(cur_base,
+                                    min_t(unsigned long, npages,
+                                          PAGE_SIZE / sizeof (struct page *)),
+                                    true, !umem->writable, page_list, vma_list);
         if (ret < 0) {
             debug(DEBUG_MEMREG, "%s:%s,%u:get_user_pages(0x%lx, %lu) failed\n",
-                  zhpe_driver_name, __FUNCTION__, __LINE__,
+                  zhpe_driver_name, __func__, __LINE__,
                   cur_base, npages);
             goto out;
         }
@@ -422,7 +448,7 @@ struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
     if (umem->nmap <= 0) {
         ret = -ENOMEM;
         debug(DEBUG_MEMREG, "%s:%s,%u:zhpe_dma_map_sg_attrs failed\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__);
+              zhpe_driver_name, __func__, __LINE__);
         goto out;
     }
 
@@ -486,7 +512,7 @@ void zhpe_umem_free_all(struct file_data *fdata)
         info = &umem->pte_info;
         debug(DEBUG_MEMREG, "%s:%s,%u:vaddr = 0x%016llx, "
               "len = 0x%zx, access = 0x%llx\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__, umem->vaddr,
+              zhpe_driver_name, __func__, __LINE__, umem->vaddr,
               info->length, info->access);
         next = rb_next_postorder(rb);  /* must precede umem_free() */
         umem->erase = false;
@@ -498,20 +524,23 @@ void zhpe_umem_free_all(struct file_data *fdata)
     spin_unlock_irqrestore(&fdata->mr_lock, flags);
 }
 
-static inline int64_t rmr_cmp(uint32_t dgcid, uint64_t rsp_zaddr,
-                              uint64_t length, uint64_t access,
-                              const struct zhpe_rmr *r)
+static inline int rmr_cmp(uint32_t dgcid, uint64_t rsp_zaddr,
+                          uint64_t length, uint64_t access,
+                          const struct zhpe_rmr *r)
 {
+    int cmp;
     const struct zhpe_pte_info *info = &r->pte_info;
 
-    if (dgcid != r->dgcid)
-        return dgcid - r->dgcid;
-    else if (rsp_zaddr != r->rsp_zaddr)
-        return rsp_zaddr - r->rsp_zaddr;
-    else if (length != info->length)
-        return length - info->length;
-    else
-        return access - info->access;
+    cmp = arithcmp(dgcid, r->dgcid);
+    if (cmp)
+        return cmp;
+    cmp = arithcmp(rsp_zaddr, r->rsp_zaddr);
+    if (cmp)
+        return cmp;
+    cmp = arithcmp(length, info->length);
+    if (cmp)
+        return cmp;
+    return arithcmp(access, info->access);
 }
 
 static inline int64_t rmr_uu_cmp(uint64_t rsp_zaddr,
@@ -519,17 +548,20 @@ static inline int64_t rmr_uu_cmp(uint64_t rsp_zaddr,
                                  struct file_data *fdata,
                                  const struct zhpe_rmr *r)
 {
+    int cmp;
     const struct zhpe_pte_info *info = &r->pte_info;
 
-    if (rsp_zaddr != r->rsp_zaddr)
-        return rsp_zaddr - r->rsp_zaddr;
-    else if (length != info->length)
-        return length - info->length;
-    else if (access != info->access)
-        return access - info->access;
-    else
-        return zhpe_uuid_cmp(&fdata->local_uuid->uuid,
-                             &info->fdata->local_uuid->uuid);
+    cmp = arithcmp(rsp_zaddr, r->rsp_zaddr);
+    if (cmp)
+        return cmp;
+    cmp = arithcmp(length, info->length);
+    if (cmp)
+        return cmp;
+    cmp = arithcmp(access, info->access);
+    if (cmp)
+        return cmp;
+    return zhpe_uuid_cmp(&fdata->local_uuid->uuid,
+                         &info->fdata->local_uuid->uuid);
 }
 
 static struct zhpe_rmr *rmr_search(struct file_data *fdata,
@@ -684,7 +716,7 @@ void zhpe_rmr_remove_unode(struct file_data *fdata, struct uuid_node *unode)
         info = &rmr->pte_info;
         debug(DEBUG_MEMREG, "%s:%s,%u:dgcid = %s, rsp_zaddr = 0x%016llx, "
               "len = 0x%zx, access = 0x%llx\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__,
+              zhpe_driver_name, __func__, __LINE__,
               zhpe_gcid_str(rmr->dgcid, str, sizeof(str)), rmr->rsp_zaddr,
               info->length, info->access);
         next = rb_next_postorder(rb);  /* must precede rmr_free() */
@@ -711,7 +743,7 @@ void zhpe_rmr_free_all(struct file_data *fdata)
         info = &rmr->pte_info;
         debug(DEBUG_MEMREG, "%s:%s,%u:dgcid = %s, rsp_zaddr = 0x%016llx, "
               "len = 0x%zx, access = 0x%llx\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__,
+              zhpe_driver_name, __func__, __LINE__,
               zhpe_gcid_str(rmr->dgcid, str, sizeof(str)), rmr->rsp_zaddr,
               info->length, info->access);
         next = rb_next_postorder(rb);  /* must precede rmr_free() */
@@ -758,7 +790,7 @@ int zhpe_user_req_MR_REG(struct io_entry *entry)
     uint64_t                vaddr, len, access;
     uint64_t                rsp_zaddr = BASE_ADDR_ERROR;
     uint64_t                physaddr = BASE_ADDR_ERROR;
-    uint32_t                pg_ps;
+    uint32_t                pg_ps = 0;
     bool                    local, remote, cpu_visible, individual, dmasync;
     struct zhpe_umem        *umem;
 
@@ -775,7 +807,7 @@ int zhpe_user_req_MR_REG(struct io_entry *entry)
     debug(DEBUG_MEMREG, "%s:%s,%u:vaddr = 0x%016llx, "
           "len = 0x%llx, access = 0x%llx, "
           "local = %u, remote = %u, cpu_visible = %u, individual = %u\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__, vaddr,
+          zhpe_driver_name, __func__, __LINE__, vaddr,
           len, access, local, remote, cpu_visible, individual);
 
     if (!(local || remote) || cpu_visible) {
@@ -809,7 +841,7 @@ int zhpe_user_req_MR_REG(struct io_entry *entry)
  out:
     debug(DEBUG_MEMREG, "%s:%s,%u:ret = %d rsp_zaddr = 0x%016llx, "
           "pg_ps=%u, physaddr = 0x%016llx\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__, status,
+          zhpe_driver_name, __func__, __LINE__, status,
           rsp_zaddr, pg_ps, physaddr);
     return queue_io_rsp(entry, sizeof(rsp->mr_reg), status);
 }
@@ -842,7 +874,7 @@ int zhpe_user_req_MR_FREE(struct io_entry *entry)
  out:
     debug(DEBUG_MEMREG, "%s:%s,%u:ret = %d, vaddr = 0x%016llx, "
           "len = 0x%llx, access = 0x%llx, rsp_zaddr = 0x%016llx\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__, status,
+          zhpe_driver_name, __func__, __LINE__, status,
           vaddr, len, access, rsp_zaddr);
     return queue_io_rsp(entry, sizeof(rsp->mr_free), status);
 }
@@ -879,7 +911,7 @@ int zhpe_user_req_RMR_IMPORT(struct io_entry *entry)
     debug(DEBUG_MEMREG, "%s:%s,%u:uuid = %s, rsp_zaddr = 0x%016llx, "
           "len = 0x%llx, access = 0x%llx, "
           "remote = %u, writable = %u, cpu_visible = %u, individual = %u\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+          zhpe_driver_name, __func__, __LINE__,
           zhpe_uuid_str(uuid, uustr, sizeof(uustr)), rsp_zaddr,
           len, access, remote, writable, cpu_visible, individual);
 
@@ -898,8 +930,8 @@ int zhpe_user_req_RMR_IMPORT(struct io_entry *entry)
         status = -ENOMEM;
         goto out;
     }
-    debug(DEBUG_MEMREG, "%s:%s,%u:rmr = %p\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__, rmr);
+    debug(DEBUG_MEMREG, "%s:%s,%u:rmr = %px\n",
+          zhpe_driver_name, __func__, __LINE__, rmr);
     unode = zhpe_remote_uuid_get(entry->fdata, uuid);
     if (!unode) {
         do_kfree(rmr);
@@ -923,9 +955,9 @@ int zhpe_user_req_RMR_IMPORT(struct io_entry *entry)
     info->access     = access;
     info->length     = len;
     info->space_type = GENZ_DATA;  /* Revisit: add CONTROL */
-    debug(DEBUG_MEMREG, "%s:%s,%u:rmr: info=%p, addr=0x%llx, "
-          "dgcid=%s, rkey=0x%x, uu=%p, fdata=%p\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__,
+    debug(DEBUG_MEMREG, "%s:%s,%u:rmr: info=%px, addr=0x%llx, "
+          "dgcid=%s, rkey=0x%x, uu=%px, fdata=%px\n",
+          zhpe_driver_name, __func__, __LINE__,
           info, info->addr, zhpe_gcid_str(rmr->dgcid, gcstr, sizeof(gcstr)),
           rmr->rkey, rmr->uu, info->fdata);
 
@@ -967,7 +999,7 @@ int zhpe_user_req_RMR_IMPORT(struct io_entry *entry)
 
  out:
     debug(DEBUG_MEMREG, "%s:%s,%u:ret=%d, req_addr=0x%016llx, offset=0x%lx, pg_ps=%u\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__, status,
+          zhpe_driver_name, __func__, __LINE__, status,
           req_addr, offset, pg_ps);
     return queue_io_rsp(entry, sizeof(rsp->rmr_import), status);
 }
@@ -982,7 +1014,7 @@ int zhpe_user_req_RMR_FREE(struct io_entry *entry)
     uint64_t                len, access, rsp_zaddr, req_addr;
     uint32_t                dgcid;
     ulong                   flags;
-    char                    str[GCID_STRING_LEN+1];
+    char                    str[UUID_STRING_LEN+1];
 
     rsp_zaddr = req->rmr_free.rsp_zaddr;
     len = req->rmr_free.len;
@@ -1002,9 +1034,9 @@ int zhpe_user_req_RMR_FREE(struct io_entry *entry)
  unlock:
     spin_unlock_irqrestore(&entry->fdata->mr_lock, flags);
  out:
-    debug(DEBUG_MEMREG, "%s:%s,%u:ret = %d, dgcid = %s, rsp_zaddr = 0x%016llx, "
+    debug(DEBUG_MEMREG, "%s:%s,%u:ret = %d, uuid = %s, rsp_zaddr = 0x%016llx, "
           "len = 0x%llx, access = 0x%llx\n",
-          zhpe_driver_name, __FUNCTION__, __LINE__, status,
-          zhpe_gcid_str(dgcid, str, sizeof(str)), rsp_zaddr, len, access);
+          zhpe_driver_name, __func__, __LINE__, status,
+          zhpe_uuid_str(uuid, str, sizeof(str)), rsp_zaddr, len, access);
     return queue_io_rsp(entry, sizeof(rsp->mr_free), status);
 }

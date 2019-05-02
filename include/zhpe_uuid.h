@@ -46,6 +46,7 @@ enum uuid_type {
 struct uuid_tracker_remote {
     uint32_t                ro_rkey;
     uint32_t                rw_rkey;
+    uint32_t                uu_flags;
     bool                    rkeys_valid;
     bool                    torndown;  /* UUID is being torndown */
     /* Revisit: add bool to distinguish "alias" vs "real" loopback */
@@ -119,7 +120,7 @@ static inline bool zhpe_unode_rmr_empty(struct uuid_node *node)
 static inline int zhpe_uuid_cmp(const uuid_t *u1, const uuid_t *u2)
 {
     /* this must sort all UUIDs for a given GCID together, which it does
-     * because the GCID is in the first 7 bytes
+     * because the GCID is in the first 28 bits.
      */
     return memcmp(u1, u2, sizeof(uuid_t));
 }
@@ -140,10 +141,10 @@ static inline void zhpe_uuid_remove(struct uuid_tracker *uu)
     gone = kref_put(&uu->refcount, zhpe_uuid_tracker_free);
     if (gone)
         debug(DEBUG_UUID, "%s:%s,%u:freed uuid=%s\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__, uustr);
+              zhpe_driver_name, __func__, __LINE__, uustr);
     else
         debug(DEBUG_UUID, "%s:%s,%u:removed uuid=%s, refcount=%u\n",
-              zhpe_driver_name, __FUNCTION__, __LINE__, uustr,
+              zhpe_driver_name, __func__, __LINE__, uustr,
               kref_read(&uu->refcount));
     spin_unlock_irqrestore(&zhpe_uuid_rbtree_lock, flags);
 }
@@ -151,6 +152,7 @@ static inline void zhpe_uuid_remove(struct uuid_tracker *uu)
 static inline struct uuid_tracker *zhpe_uuid_tracker_alloc_and_insert(
     uuid_t *uuid,
     uint type,
+    uint32_t uu_flags,
     struct file_data *fdata,
     gfp_t alloc_flags,
     int *status)
@@ -165,6 +167,7 @@ static inline struct uuid_tracker *zhpe_uuid_tracker_alloc_and_insert(
         }
         if (type & UUID_TYPE_REMOTE) {
             uu->remote->rkeys_valid = false;
+            uu->remote->uu_flags = uu_flags;
             uu->remote->local_uuid_tree = RB_ROOT;
             spin_lock_init(&uu->remote->local_uuid_lock);
         }

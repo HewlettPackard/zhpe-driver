@@ -46,17 +46,7 @@
 
 #endif
 
-/* Do extern "C" without goofing up emacs. */
-#ifndef _EXTERN_C_SET
-#define _EXTERN_C_SET
-#ifdef  __cplusplus
-#define _EXTERN_C_BEG extern "C" {
-#define _EXTERN_C_END }
-#else
-#define _EXTERN_C_BEG
-#define _EXTERN_C_END
-#endif
-#endif
+#include <zhpe_externc.h>
 
 _EXTERN_C_BEG
 
@@ -232,8 +222,8 @@ struct zhpe_attr {
     enum zhpe_backend   backend;
     uint32_t            max_tx_queues;
     uint32_t            max_rx_queues;
-    uint32_t            max_hw_qlen;
-    uint32_t            max_sw_qlen;
+    uint32_t            max_tx_qlen;
+    uint32_t            max_rx_qlen;
     uint64_t            max_dma_len;
 };
 
@@ -246,11 +236,5 @@ struct zhpe_key_data {
 };
 
 _EXTERN_C_END
-
-#ifdef _EXTERN_C_SET
-#undef _EXTERN_C_SET
-#undef _EXTERN_C_BEG
-#undef _EXTERN_C_END
-#endif
 
 #endif /* _ZHPE_UAPI_H_ */

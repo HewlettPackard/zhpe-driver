@@ -35,6 +35,7 @@
  */
 #include <linux/cdev.h>
 #include <linux/poll.h>
+#include <linux/sched.h>
 #include <zhpe.h>
 #include <zhpe_driver.h>
 
@@ -74,17 +75,17 @@ int zhpe_get_irq_index(struct slice *sl, int queue)
 
 irqreturn_t zhpe_rdm_interrupt_handler(int irq_index, void *data)
 {
-    struct file_data *fdata = (struct file_data *)data;
+    struct bridge *br = (struct bridge *)data;
 
     debug(DEBUG_INTR,
             "zhpe_rdm_interrupt_handler: irq_index %d\n", irq_index);
-    if (fdata == NULL) {
+    if (br == NULL) {
         debug(DEBUG_INTR,
-            "zhpe_rdm_interrupt_handler: fdata is NULL\n");
+            "zhpe_rdm_interrupt_handler: br is NULL\n");
         return IRQ_NONE;
     }
     /* wake up the wait queue to process the interrupt */
-    wake_up_interruptible_all(&(fdata->bridge->zhpe_poll_wq[irq_index]));
+    wake_up_interruptible_all(&(br->zhpe_poll_wq[irq_index]));
 
     return IRQ_HANDLED;
 }
@@ -101,7 +102,7 @@ int zhpe_register_rdm_interrupt(struct slice *sl,
     irq_index = zhpe_get_irq_index(sl, queue);
     if (irq_index < 0) {
         debug(DEBUG_INTR, "%s:%s: get_irq_index failed with %d\n",
-              zhpe_driver_name, __FUNCTION__, irq_index);
+              zhpe_driver_name, __func__, irq_index);
         return -1;
     }
 
@@ -109,7 +110,7 @@ int zhpe_register_rdm_interrupt(struct slice *sl,
     new_entry = do_kmalloc(sizeof(*new_entry), GFP_KERNEL, true);
     if (new_entry == NULL) {
         debug(DEBUG_INTR, "%s:%s: kmalloc failed\n",
-              zhpe_driver_name, __FUNCTION__);
+              zhpe_driver_name, __func__);
         return -ENOMEM;
     }
     new_entry->irq_index = irq_index;
@@ -123,7 +124,7 @@ int zhpe_register_rdm_interrupt(struct slice *sl,
 
     debug(DEBUG_INTR,
           "%s:%s: added handler and data for slice %d and queue %d to vector %d\n",
-          zhpe_driver_name, __FUNCTION__, sl->id, queue, vector);
+          zhpe_driver_name, __func__, sl->id, queue, vector);
     return 0;
 }
 
@@ -380,7 +381,7 @@ int zhpe_poll_device_create(struct slice *sl, int num_vectors)
     base_irq_vector = sl->id * VECTORS_PER_SLICE;
     for (d = 0; d < num_vectors; d++) {
         minor = base_irq_vector + d;
-        debug(DEBUG_PCI, "device create for /dev/zhpe_poll_%d class = %p major = %d, minor = %d\n", minor, poll_class, zhpe_poll_dev_major, minor);
+        debug(DEBUG_PCI, "device create for /dev/zhpe_poll_%d class = %px major = %d, minor = %d\n", minor, poll_class, zhpe_poll_dev_major, minor);
 
         dev = device_create(poll_class, NULL,
                 MKDEV(zhpe_poll_dev_major, minor),
@@ -423,18 +424,18 @@ void zhpe_poll_device_destroy(struct slice *sl)
 	debug(DEBUG_PCI, "zhpe_poll_device_destroy base_irq_vector is %d\n", base_irq_vector);
 	for (d = 0; d < sl->irq_vectors_count; d++) {
                 minor = base_irq_vector + d;
-	debug(DEBUG_PCI, "zhpe_poll_device_destroy poll_class %p zhpe_poll_dev_major %d minor %d\n", poll_class, zhpe_poll_dev_major, minor);
+	debug(DEBUG_PCI, "zhpe_poll_device_destroy poll_class %px zhpe_poll_dev_major %d minor %d\n", poll_class, zhpe_poll_dev_major, minor);
 		poll_devt = MKDEV(zhpe_poll_dev_major, minor);
 		dev = class_find_device(poll_class, NULL, &poll_devt, __match_devt);
-		debug(DEBUG_PCI, "dev is %p\n", dev);
-		debug(DEBUG_PCI, "dev->parent is %p\n", dev->parent);
-		debug(DEBUG_PCI, "dev->bus is %p\n", dev->bus);
+		debug(DEBUG_PCI, "dev is %px\n", dev);
+		debug(DEBUG_PCI, "dev->parent is %px\n", dev->parent);
+		debug(DEBUG_PCI, "dev->bus is %px\n", dev->bus);
 		if (dev->bus) {
-			debug(DEBUG_PCI, "dev->bus->p is %p\n", dev->bus->p);
+			debug(DEBUG_PCI, "dev->bus->p is %px\n", dev->bus->p);
 		}
-		debug(DEBUG_PCI, "dev->p is %p\n", dev->p);
+		debug(DEBUG_PCI, "dev->p is %px\n", dev->p);
 		debug(DEBUG_PCI, "MAJOR(dev->devt) is %d\n", MAJOR(dev->devt));
-		debug(DEBUG_PCI, "dev->class is %p\n", dev->class);
+		debug(DEBUG_PCI, "dev->class is %px\n", dev->class);
 
                 device_destroy(poll_class, MKDEV(zhpe_poll_dev_major, minor));
 	}
@@ -478,7 +479,7 @@ int zhpe_setup_poll_devs(void)
         goto unreg_region;
     }
     poll_class->devnode = poll_devnode;
-    debug(DEBUG_PCI, "poll_class is %p\n", poll_class);
+    debug(DEBUG_PCI, "poll_class is %px\n", poll_class);
     poll_cdev = cdev_alloc();
     if (poll_cdev == NULL) {
         debug(DEBUG_PCI, "cdev_alloc failed\n");

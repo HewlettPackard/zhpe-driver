@@ -467,34 +467,34 @@ struct func1_bar0 {
 
 
 #define do_kmalloc(...) \
-    _do_kmalloc(__FUNCTION__, __LINE__, __VA_ARGS__)
+    _do_kmalloc(__func__, __LINE__, __VA_ARGS__)
 void *_do_kmalloc(const char *callf, uint line,
                          size_t size, gfp_t flags, bool zero);
 #define do_kfree(...) \
-    _do_kfree(__FUNCTION__, __LINE__, __VA_ARGS__)
+    _do_kfree(__func__, __LINE__, __VA_ARGS__)
 void _do_kfree(const char *callf, uint line, void *ptr);
 
 #define do_free_pages(...) \
-    _do_free_pages(__FUNCTION__, __LINE__, __VA_ARGS__)
+    _do_free_pages(__func__, __LINE__, __VA_ARGS__)
 void _do_free_pages(const char *callf, uint line, void *ptr, int order);
 
 #define do_free_page(_ptr) \
-    _do_free_pages(__FUNCTION__, __LINE__, (_ptr), 0)
+    _do_free_pages(__func__, __LINE__, (_ptr), 0)
 
 #define do__get_free_pages(...) \
-    _do__get_free_pages(__FUNCTION__, __LINE__, __VA_ARGS__)
+    _do__get_free_pages(__func__, __LINE__, __VA_ARGS__)
 void *_do__get_free_pages(const char *callf, uint line,
                           int order, gfp_t flags, bool zero);
 
 #define do__get_free_page(_flags, _zero)                        \
-    _do__get_free_pages(__FUNCTION__, __LINE__, 0, (_flags), (_zero))
+    _do__get_free_pages(__func__, __LINE__, 0, (_flags), (_zero))
 
 int queue_io_rsp(struct io_entry *entry, size_t data_len, int status);
 
 
 void _zpages_free(const char *callf, uint line, union zpages *zpages);
 #define zpages_free(...) \
-    _zpages_free(__FUNCTION__, __LINE__, __VA_ARGS__)
+    _zpages_free(__func__, __LINE__, __VA_ARGS__)
 
 enum {
 	QUEUE_PAGE =           1,
@@ -510,26 +510,26 @@ struct zhpe_rmr;  /* tentative definition */
 union zpages *_queue_zpages_alloc(const char *callf, uint line, 
 	size_t size, bool contig);
 #define queue_zpages_alloc(...) \
-    _queue_zpages_alloc(__FUNCTION__, __LINE__, __VA_ARGS__)
+    _queue_zpages_alloc(__func__, __LINE__, __VA_ARGS__)
 
 union zpages *_dma_zpages_alloc(const char *callf, uint line, 
 	struct slice * sl, size_t size);
 #define dma_zpages_alloc(...) \
-    _dma_zpages_alloc(__FUNCTION__, __LINE__, __VA_ARGS__)
+    _dma_zpages_alloc(__func__, __LINE__, __VA_ARGS__)
 
 union zpages *_hsr_zpage_alloc(const char *callf, uint line,
                                phys_addr_t base_addr);
 #define hsr_zpage_alloc(...) \
-    _hsr_zpage_alloc(__FUNCTION__, __LINE__, __VA_ARGS__)
+    _hsr_zpage_alloc(__func__, __LINE__, __VA_ARGS__)
 
 union zpages *_rmr_zpages_alloc(const char *callf, uint line,
                                 struct zhpe_rmr *rmr);
 #define rmr_zpages_alloc(...) \
-    _rmr_zpages_alloc(__FUNCTION__, __LINE__, __VA_ARGS__)
+    _rmr_zpages_alloc(__func__, __LINE__, __VA_ARGS__)
 
 void _zmap_free(const char *callf, uint line, struct zmap *zmap);
 #define zmap_free(...) \
-    _zmap_free(__FUNCTION__, __LINE__, __VA_ARGS__)
+    _zmap_free(__func__, __LINE__, __VA_ARGS__)
 
 struct zmap *_zmap_alloc(
 	const char *callf,
@@ -537,14 +537,16 @@ struct zmap *_zmap_alloc(
 	struct file_data *fdata,
 	union zpages *zpages);
 #define zmap_alloc(...) \
-    _zmap_alloc(__FUNCTION__, __LINE__, __VA_ARGS__)
+    _zmap_alloc(__func__, __LINE__, __VA_ARGS__)
 
 bool _free_zmap_list(const char *callf, uint line, struct file_data *fdata);
 #define free_zmap_list(...) \
-    _free_zmap_list(__FUNCTION__, __LINE__, __VA_ARGS__)
+    _free_zmap_list(__func__, __LINE__, __VA_ARGS__)
 
 struct slice *slice_id_to_slice(struct file_data *fdata, int slice);
 struct file_data *pid_to_fdata(struct bridge *br, pid_t pid);
+
+#define arithcmp(_a, _b)        ((_a) < (_b) ? -1 : ((_a) > (_b) ? 1 : 0))
 
 #ifndef ioread64
 #ifdef readq
@@ -560,6 +562,29 @@ struct file_data *pid_to_fdata(struct bridge *br, pid_t pid);
 #else
 #error Platform has no useable iowrite64
 #endif
+#endif
+
+#ifndef UUID_STRING_LEN
+#define UUID_STRING_LEN (36)
+#endif
+
+#ifdef HAVE_RHEL
+static inline pgprot_t pgprot_writethrough(pgprot_t prot)
+{
+    return __pgprot(pgprot_val(prot) |
+                    cachemode2protval(_PAGE_CACHE_MODE_WT));
+}
+#endif
+
+#ifdef HAVE_RHEL
+static inline void radix_tree_iter_delete(struct radix_tree_root *root,
+                                          struct radix_tree_iter *iter,
+                                          void __rcu **slot)
+{
+    /* REVISIT:May not be fully correct. */
+    if (radix_tree_delete(root, iter->index))
+        iter->index = iter->next_index;
+}
 #endif
 
 #include <zhpe_uuid.h>
