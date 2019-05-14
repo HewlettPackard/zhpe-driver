@@ -364,7 +364,7 @@ static int msg_wait_timeout(struct zhpe_msg_state *state, ktime_t timeout)
 
     debug(DEBUG_MSG, "%s:%s,%u: waiting for reply to msgid=%u, timeout %lld\n",
           zhpe_driver_name, __func__, __LINE__,
-          state->req_msg.hdr.msgid, (ullong)timeout);
+          state->req_msg.hdr.msgid, ktime_to_ns(timeout));
     ret = wait_event_interruptible_hrtimeout(state->wq, state->ready,
                                              timeout);
     if (ret < 0) {  /* interrupted or timout expired */
