@@ -40,6 +40,7 @@
 #include <linux/list.h>
 #include <linux/miscdevice.h>
 #include <linux/mm.h>
+#include <linux/sched/mm.h>
 #include <linux/poll.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
@@ -294,6 +295,10 @@ static void _free_io_lists(const char *callf, uint line,
 
 static void file_data_free(const char *callf, uint line, void *ptr)
 {
+    struct file_data    *fdata = ptr;
+
+    if (fdata->mm)
+        mmput(fdata->mm);
     _do_kfree(callf, line, ptr);
 }
 
@@ -1433,6 +1438,7 @@ static int zhpe_open(struct inode *inode, struct file *file)
         goto done;
 
     fdata->pid = task_pid_nr(current); /* Associate this fdata with pid */
+    fdata->mm = get_task_mm(current);
     fdata->free = file_data_free;
     atomic_set(&fdata->count, 1);
     spin_lock_init(&fdata->io_lock);
