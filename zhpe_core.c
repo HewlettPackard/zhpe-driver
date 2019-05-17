@@ -40,7 +40,6 @@
 #include <linux/list.h>
 #include <linux/miscdevice.h>
 #include <linux/mm.h>
-#include <linux/sched/mm.h>
 #include <linux/poll.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
@@ -295,10 +294,6 @@ static void _free_io_lists(const char *callf, uint line,
 
 static void file_data_free(const char *callf, uint line, void *ptr)
 {
-    struct file_data    *fdata = ptr;
-
-    if (fdata->mm)
-        mmput(fdata->mm);
     _do_kfree(callf, line, ptr);
 }
 
@@ -979,7 +974,7 @@ static int zhpe_release(struct inode *inode, struct file *file)
     free_io_lists(fdata);
     zhpe_rmr_free_all(fdata);
     zhpe_notify_remote_uuids(fdata);
-    zhpe_umem_free_all(fdata);
+    zhpe_mmun_exit(fdata);
     spin_lock_irqsave(&fdata->uuid_lock, flags);
     zhpe_free_remote_uuids(fdata);
     (void)zhpe_free_local_uuid(fdata, true); /* also frees associated R-keys */
@@ -1438,7 +1433,7 @@ static int zhpe_open(struct inode *inode, struct file *file)
         goto done;
 
     fdata->pid = task_pid_nr(current); /* Associate this fdata with pid */
-    fdata->mm = get_task_mm(current);
+    fdata->mm = NULL;
     fdata->free = file_data_free;
     atomic_set(&fdata->count, 1);
     spin_lock_init(&fdata->io_lock);
@@ -1477,6 +1472,10 @@ static int zhpe_open(struct inode *inode, struct file *file)
     ret = zhpe_bind_iommu(fdata);
     if (ret < 0)
         goto free_pasid;
+    /* Initialize our mmu notifier to handle cleanup */
+    ret = zhpe_mmun_init(fdata);
+    if (ret < 0)
+        goto unbind_iommu;
 
     /* Add this fdata to the bridge's fdata_list */
     spin_lock(&fdata->bridge->fdata_lock);
@@ -1485,6 +1484,9 @@ static int zhpe_open(struct inode *inode, struct file *file)
 
     ret = 0;
     goto done;
+
+ unbind_iommu:
+    zhpe_unbind_iommu(fdata);
 
  free_pasid:
     zhpe_pasid_free(fdata->pasid);
