@@ -409,6 +409,7 @@ struct file_data {
     spinlock_t          rdm_queue_lock;
     DECLARE_BITMAP(rdm_queues, QUEUES_PER_SLICE*SLICES);
     pid_t               pid;        /* pid that allocated this file_data */
+    struct mm_struct    *mm;
 };
 
 struct io_entry {
