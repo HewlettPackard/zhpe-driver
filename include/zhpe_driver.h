@@ -42,6 +42,8 @@
 #include <linux/radix-tree.h>
 #include <linux/rbtree.h>
 #include <linux/interrupt.h>
+#include <linux/mmu_notifier.h>
+
 extern uint zhpe_debug_flags;
 extern const char zhpe_driver_name[];
 extern uint no_iommu;
@@ -410,7 +412,11 @@ struct file_data {
     DECLARE_BITMAP(rdm_queues, QUEUES_PER_SLICE*SLICES);
     pid_t               pid;        /* pid that allocated this file_data */
     struct mm_struct    *mm;
+    struct mmu_notifier mmun;
 };
+
+int zhpe_mmun_init(struct file_data *fdata);
+void zhpe_mmun_exit(struct file_data *fdata);
 
 struct io_entry {
     void                (*free)(const char *callf, uint line, void *ptr);
