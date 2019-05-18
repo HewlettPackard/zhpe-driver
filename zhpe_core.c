@@ -86,9 +86,16 @@ MODULE_DEVICE_TABLE(pci, zhpe_id_table);
 /* Revisit Carbon: Workaround for Carbon simulator not having AVX instructions
  * and ymm registers, but also not requiring 16/32-byte accesses
  */
-uint zhpe_no_avx = 1;
-module_param_named(no_avx, zhpe_no_avx, uint, S_IRUGO);
-MODULE_PARM_DESC(no_avx, "Workaround for lack of AVX instructions/registers");
+uint zhpe_no_avx = 0;
+
+unsigned int zhpe_req_zmmu_entries;
+unsigned int zhpe_rsp_zmmu_entries;
+unsigned int zhpe_xdm_queues_per_slice;
+unsigned int zhpe_rdm_queues_per_slice;
+int zhpe_platform = ZHPE_CARBON;
+static char *platform = "carbon";
+module_param(platform, charp, 0444);
+MODULE_PARM_DESC(platform, "Platform the driver is running on: carbon|pfslice|wildcat (default=carbon)");
 
 uint zhpe_no_rkeys = 1;
 module_param_named(no_rkeys, zhpe_no_rkeys, uint, S_IRUGO);
@@ -108,7 +115,7 @@ struct sw_page_grid     sw_pg[PAGE_GRID_ENTRIES];
 static DECLARE_WAIT_QUEUE_HEAD(poll_wqh);
 
 uint no_iommu = 0;
-module_param(no_iommu, uint, 0444);
+module_param(no_iommu, uint, S_IRUGO);
 MODULE_PARM_DESC(no_iommu, "System does not have an IOMMU (default=0)");
 
 #define TRACKER_MAX     (256)
@@ -124,11 +131,11 @@ uint genz_loopback = 1;
 module_param(genz_loopback, uint, S_IRUGO);
 MODULE_PARM_DESC(genz_loopback, "Gen-Z loopback mode (default=1)");
 
-static char *req_page_grid = "4K*20K,2M*12000,1G*2K,8G*1906,4K:1024,2M:1000,1G:5000,128T:3072";
+static char *req_page_grid = "default";
 module_param(req_page_grid, charp, 0444);
 MODULE_PARM_DESC(req_page_grid, "requester page grid allocations - page_sz{*:}page_cnt[, ...]");
 
-static char *rsp_page_grid = "128T:64,1G:1024,2M:25K,4K:30K";
+static char *rsp_page_grid = "default";
 module_param(rsp_page_grid, charp, 0444);
 MODULE_PARM_DESC(rsp_page_grid, "responder page grid allocations - page_sz:page_cnt[, ...]");
 
@@ -417,7 +424,7 @@ union zpages *_hsr_zpage_alloc(
 
 /*
  * dma_zpages_alloc - allocate a zpages structure that can be used for the
- * contiguous physical address space for queues. It uses dma_zalloc_coherent()
+ * contiguous physical address space for queues. It uses dma_alloc_coherent()
  * to allocate the space.
  *	sl - slice structure for the pci_dev->device.
 	size - size in bytes to be allocated for the dma
@@ -442,9 +449,9 @@ union zpages *_dma_zpages_alloc(
     if (!ret)
         goto done;
 
-    ret->dma.cpu_addr = dma_zalloc_coherent(&sl->pdev->dev, npages * PAGE_SIZE,
+    ret->dma.cpu_addr = dma_alloc_coherent(&sl->pdev->dev, npages * PAGE_SIZE,
 			&ret->dma.dma_addr, GFP_KERNEL);
-    debug(DEBUG_MEM, "dma_zalloc_coherent(size = %u, pa returned = 0x%llu, va returned = 0x%px\n", (unsigned int)(npages * PAGE_SIZE), ret->dma.dma_addr, ret->dma.cpu_addr);
+    debug(DEBUG_MEM, "dma_alloc_coherent(size = %u, pa returned = 0x%llu, va returned = 0x%px\n", (unsigned int)(npages * PAGE_SIZE), ret->dma.dma_addr, ret->dma.cpu_addr);
     /* RAM memory will always be WB unless you set the memory type. */
     ret->dma.page_type = DMA_PAGE;
     ret->dma.size = size;
@@ -764,6 +771,52 @@ int queue_io_rsp(struct io_entry *entry, size_t data_len, int status)
     return ret;
 }
 
+static int parse_platform(char *str)
+{
+	if (!str)
+		return -EINVAL;
+	if (strcmp(str, "pfslice") == 0) {
+                debug(DEBUG_PCI, "parse platform pfslice\n");
+		zhpe_platform = ZHPE_PFSLICE;
+		zhpe_req_zmmu_entries = PFSLICE_REQ_ZMMU_ENTRIES;
+		zhpe_rsp_zmmu_entries = PFSLICE_RSP_ZMMU_ENTRIES;
+		zhpe_xdm_queues_per_slice = PFSLICE_XDM_QUEUES_PER_SLICE;
+		zhpe_rdm_queues_per_slice = PFSLICE_RDM_QUEUES_PER_SLICE;
+		if (strcmp(req_page_grid, "default") == 0)
+			req_page_grid = "4K:384,2M:256,1G:256,128T:128";
+		if (strcmp(rsp_page_grid, "default") == 0)
+			rsp_page_grid = "4K:448,128T:64,1G:256,2M:256";
+		zhpe_no_avx = 0;
+        } else if (strcmp(str, "wildcat") == 0) {
+                debug(DEBUG_PCI, "parse platform wildcat\n");
+		zhpe_platform = ZHPE_WILDCAT;
+		zhpe_req_zmmu_entries = WILDCAT_REQ_ZMMU_ENTRIES;
+		zhpe_rsp_zmmu_entries = WILDCAT_RSP_ZMMU_ENTRIES;
+		zhpe_xdm_queues_per_slice = WILDCAT_XDM_QUEUES_PER_SLICE;
+		zhpe_rdm_queues_per_slice = WILDCAT_RDM_QUEUES_PER_SLICE;
+		if (strcmp(req_page_grid, "default") == 0)
+			req_page_grid = "4K*20K,2M*12000,1G*2K,8G*1906,4K:1024,2M:1000,1G:5000,128T:3072";
+		if (strcmp(rsp_page_grid, "default") == 0)
+			rsp_page_grid = "128T:64,1G:1024,2M:25K,4K:30K";
+		zhpe_no_avx = 0;
+        } else if (strcmp(str, "carbon") == 0) {
+                debug(DEBUG_PCI, "parse platform carbon\n");
+		zhpe_platform = ZHPE_CARBON;
+		zhpe_req_zmmu_entries = CARBON_REQ_ZMMU_ENTRIES;
+		zhpe_rsp_zmmu_entries = CARBON_RSP_ZMMU_ENTRIES;
+		zhpe_xdm_queues_per_slice = CARBON_XDM_QUEUES_PER_SLICE;
+		zhpe_rdm_queues_per_slice = CARBON_RDM_QUEUES_PER_SLICE;
+                if (strcmp(req_page_grid, "default") == 0)
+			req_page_grid = "4K*20K,2M*12000,1G*2K,8G*1906,4K:1024,2M:1000,1G:5000,128T:3072";
+                if (strcmp(rsp_page_grid, "default") == 0)
+			rsp_page_grid = "128T:64,1G:1024,2M:25K,4K:30K";
+		zhpe_no_avx = 1;
+        } else {
+		return -EINVAL;
+	}
+	return 0;
+}
+
 static int parse_page_grid_one(char *str, uint64_t max_page_count,
                                bool allow_cpu_visible,
                                struct sw_page_grid *pg)
@@ -975,8 +1028,8 @@ static int zhpe_release(struct inode *inode, struct file *file)
     zhpe_rmr_free_all(fdata);
     zhpe_notify_remote_uuids(fdata);
     zhpe_mmun_exit(fdata);
-    spin_lock_irqsave(&fdata->uuid_lock, flags);
     zhpe_free_remote_uuids(fdata);
+    spin_lock_irqsave(&fdata->uuid_lock, flags);
     (void)zhpe_free_local_uuid(fdata, true); /* also frees associated R-keys */
     spin_unlock_irqrestore(&fdata->uuid_lock, flags);
     zhpe_unbind_iommu(fdata);
@@ -1451,9 +1504,9 @@ static int zhpe_open(struct inode *inode, struct file *file)
     spin_lock_init(&fdata->xdm_queue_lock);
     /* xdm_queues tracks what queues are owned by this file_data */
     /* Revisit Perf: what is the tradeoff of size of bitmap vs. rbtree? */
-    bitmap_zero(fdata->xdm_queues, QUEUES_PER_SLICE*SLICES);
+    bitmap_zero(fdata->xdm_queues, zhpe_xdm_queues_per_slice*SLICES);
     spin_lock_init(&fdata->rdm_queue_lock);
-    bitmap_zero(fdata->rdm_queues, QUEUES_PER_SLICE*SLICES);
+    bitmap_zero(fdata->rdm_queues, zhpe_rdm_queues_per_slice*SLICES);
     /* we only allow one open per pid */
     if (pid_to_fdata(fdata->bridge, fdata->pid)) {
         ret = -EBUSY;
@@ -1523,19 +1576,42 @@ struct slice *slice_id_to_slice(struct file_data *fdata, int slice)
     return NULL;
 }
 
+#ifndef PCI_EXT_CAP_ID_DVSEC
+#define PCI_EXT_CAP_ID_DVSEC 0x23  /* Revisit: should be in pci.h */
+#endif
+
 static int zhpe_probe(struct pci_dev *pdev,
                       const struct pci_device_id *pdev_id)
 {
-    int ret;
+    int ret, pos;
     int l_slice_id;
     void __iomem *base_addr;
     struct bridge *br = &zhpe_bridge;
     struct slice *sl;
     phys_addr_t phys_base;
+    uint16_t devctl2;
 
     /* No setup for function 0 */
     if (PCI_FUNC(pdev->devfn) == 0) {
         return 0;
+    }
+
+    pos = pci_find_ext_capability(pdev, PCI_EXT_CAP_ID_DVSEC);
+    if (!pos) {
+        dev_warn(&pdev->dev, "%s: No DVSEC capability found\n",
+                 zhpe_driver_name);
+    }
+
+    /* Set atomic operations enable capability */
+    pcie_capability_set_word(pdev, PCI_EXP_DEVCTL2,
+                                 PCI_EXP_DEVCTL2_ATOMIC_REQ);
+    ret = pcie_capability_read_word(pdev, PCI_EXP_DEVCTL2, &devctl2);
+    if (ret) {
+        dev_warn(&pdev->dev, "%s:%s PCIe AtomicOp pcie_capability_read_word failed. ret = 0x%x\n",
+              zhpe_driver_name, __func__, ret);
+    } else if (!(devctl2 & PCI_EXP_DEVCTL2_ATOMIC_REQ)) {
+        dev_warn(&pdev->dev, "%s:%s PCIe AtomicOp capability enable failed. devctl2 = 0x%x\n",
+              zhpe_driver_name, __func__, (uint) devctl2);
     }
 
     /* Zero based slice ID */
@@ -1714,7 +1790,12 @@ static int __init zhpe_init(void)
     };
     uint                sl, pg, cnt, pg_index;
 
-    ret = -EINVAL;
+    ret = parse_platform(platform);
+    if (ret < 0) {
+        printk(KERN_WARNING "%s:%s:invalid platform parameter.\n",
+               zhpe_driver_name, __func__);
+        goto err_out;
+    }
     if (!(zhpe_no_avx || boot_cpu_has(X86_FEATURE_AVX))) {
         printk(KERN_WARNING "%s:%s:missing required AVX CPU feature.\n",
                zhpe_driver_name, __func__);
@@ -1755,16 +1836,16 @@ static int __init zhpe_init(void)
 
     debug(DEBUG_ZMMU, "%s:%s,%u: req calling parse_page_grid_opt(%s, %u, %px)\n",
           zhpe_driver_name, __func__, __LINE__,
-          req_page_grid, REQ_ZMMU_ENTRIES, sw_pg);
-    cnt = parse_page_grid_opt(req_page_grid, REQ_ZMMU_ENTRIES, true, sw_pg);
+          req_page_grid, zhpe_req_zmmu_entries, sw_pg);
+    cnt = parse_page_grid_opt(req_page_grid, zhpe_req_zmmu_entries, true, sw_pg);
     for (pg = 0; pg < cnt; pg++) {
         pg_index = zhpe_zmmu_req_page_grid_alloc(&zhpe_bridge, &sw_pg[pg]);
     }
 
     debug(DEBUG_ZMMU, "%s:%s,%u: rsp calling parse_page_grid_opt(%s, %u, %px)\n",
           zhpe_driver_name, __func__, __LINE__,
-          rsp_page_grid, RSP_ZMMU_ENTRIES, sw_pg);
-    cnt = parse_page_grid_opt(rsp_page_grid, RSP_ZMMU_ENTRIES, false, sw_pg);
+          rsp_page_grid, zhpe_rsp_zmmu_entries, sw_pg);
+    cnt = parse_page_grid_opt(rsp_page_grid, zhpe_rsp_zmmu_entries, false, sw_pg);
     for (pg = 0; pg < cnt; pg++) {
         pg_index = zhpe_zmmu_rsp_page_grid_alloc(&zhpe_bridge, &sw_pg[pg]);
     }

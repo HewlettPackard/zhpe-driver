@@ -1,0 +1,7 @@
+sudo touch /dev/hugepages/test1
+sudo truncate -s 2M /dev/hugepages/test1
+sudo chmod 666 /dev/hugepages/test1
+
+sudo touch /dev/hugepages/test2
+sudo truncate -s 1G /dev/hugepages/test2
+sudo chmod 666 /dev/hugepages/test2

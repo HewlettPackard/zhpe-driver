@@ -445,13 +445,21 @@ int zhpe_free_uuid_node(struct file_data *fdata, spinlock_t *lock,
 void zhpe_free_remote_uuids(struct file_data *fdata)
 {
     struct rb_node          *rb, *next;
+    struct rb_root          fd_remote_uuid_tree;
     struct uuid_node        *node;
     struct uuid_tracker     *uu;
     char                    str[UUID_STRING_LEN+1];
+    ulong                   flags;
 
-    /* caller must already hold uuid_lock */
+    spin_lock_irqsave(&fdata->uuid_lock, flags);
+ restart:
+    fd_remote_uuid_tree = fdata->fd_remote_uuid_tree;
+    fdata->fd_remote_uuid_tree = RB_ROOT;
+    spin_unlock_irqrestore(&fdata->uuid_lock, flags);
 
-    for (rb = rb_first_postorder(&fdata->fd_remote_uuid_tree); rb; rb = next) {
+    /* must not hold fdata->uuid_lock to avoid lock order inversion with
+       uu->remote->local_uuid_lock */
+    for (rb = rb_first_postorder(&fd_remote_uuid_tree); rb; rb = next) {
         node = container_of(rb, struct uuid_node, node);
         uu = node->tracker;
         debug(DEBUG_UUID, "%s:%s,%u:uuid = %s\n",
@@ -465,7 +473,10 @@ void zhpe_free_remote_uuids(struct file_data *fdata)
         zhpe_uuid_remove(uu); /* remove remote_uuid reference */
     }
 
-    fdata->fd_remote_uuid_tree = RB_ROOT;
+    spin_lock_irqsave(&fdata->uuid_lock, flags);
+    if (!RB_EMPTY_ROOT(&fdata->fd_remote_uuid_tree))
+        goto restart;
+    spin_unlock_irqrestore(&fdata->uuid_lock, flags);
 }
 
 void zhpe_notify_remote_uuids(struct file_data *fdata)
