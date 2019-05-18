@@ -76,7 +76,7 @@ static void zmmu_req_clear_all(struct req_zmmu *reqz, bool sync)
 
     /* caller must hold slice zmmu_lock & have done kernel_fpu_save() */
     zmmu_page_grid_clear_all(reqz->page_grid, NO_SYNC);
-    for (i = 0; i < REQ_ZMMU_ENTRIES; i++) {
+    for (i = 0; i < zhpe_req_zmmu_entries; i++) {
         iowrite32by(&zero, &reqz->pte[i]);
     }
 
@@ -91,7 +91,7 @@ static void zmmu_rsp_clear_all(struct rsp_zmmu *rspz, bool sync)
 
     /* caller must hold slice zmmu_lock & have done kernel_fpu_save() */
     zmmu_page_grid_clear_all(rspz->page_grid, NO_SYNC);
-    for (i = 0; i < RSP_ZMMU_ENTRIES; i++) {
+    for (i = 0; i < zhpe_rsp_zmmu_entries; i++) {
         iowrite32by(&zero, &rspz->pte[i]);
     }
 
@@ -147,13 +147,13 @@ void zhpe_zmmu_clear_all(struct bridge *br, bool free_radix_tree)
     debug(DEBUG_ZMMU, "%s:%s,%u:br=%px, free_radix_tree=%u\n",
           zhpe_driver_name, __func__, __LINE__, br, free_radix_tree);
     spin_lock_irqsave(&br->zmmu_lock, flags);
-    zmmu_clear_pg_info(&br->req_zmmu_pg, REQ_ZMMU_ENTRIES, free_radix_tree);
-    zmmu_clear_pg_info(&br->rsp_zmmu_pg, RSP_ZMMU_ENTRIES, free_radix_tree);
+    zmmu_clear_pg_info(&br->req_zmmu_pg, zhpe_req_zmmu_entries, free_radix_tree);
+    zmmu_clear_pg_info(&br->rsp_zmmu_pg, zhpe_rsp_zmmu_entries, free_radix_tree);
     spin_unlock_irqrestore(&br->zmmu_lock, flags);
 }
 
 static void zmmu_page_grid_setup_all(struct page_grid_info *pgi,
-                                     struct page_grid *pg, bool sync)
+                                     struct page_grid *pg, bool sync, char *nm)
 {
     struct page_grid tmp;
     struct sw_page_grid *sw_pg = pgi->pg;
@@ -161,9 +161,9 @@ static void zmmu_page_grid_setup_all(struct page_grid_info *pgi,
 
     /* caller must hold slice zmmu_lock & have done kernel_fpu_save() */
     for (i = 0; i < PAGE_GRID_ENTRIES; i++) {
-        debug(DEBUG_ZMMU, "%s:%s,%u:pg[%u]@%px:base_addr=0x%llx, page_size=%u, "
-              "page_count=%u, base_pte_idx=%u\n",
-              zhpe_driver_name, __func__, __LINE__, i, &pg[i],
+        debug(DEBUG_ZMMU, "%s:%s,%u:%s pg[%u]@%px:base_addr=0x%llx, "
+              "page_size=%u, page_count=%u, base_pte_idx=%u\n",
+              zhpe_driver_name, __func__, __LINE__, nm, i, &pg[i],
               sw_pg[i].page_grid.base_addr,
               sw_pg[i].page_grid.page_size,
               sw_pg[i].page_grid.page_count,
@@ -189,9 +189,9 @@ void zhpe_zmmu_setup_slice(struct slice *sl)
         kernel_fpu_begin();
     spin_lock_irqsave(&sl->zmmu_lock, flags);
     zmmu_page_grid_setup_all(&br->req_zmmu_pg, sl->bar->req_zmmu.page_grid,
-                             SYNC);
+                             SYNC, "req");
     zmmu_page_grid_setup_all(&br->rsp_zmmu_pg, sl->bar->rsp_zmmu.page_grid,
-                             SYNC);
+                             SYNC, "rsp");
     /* Revisit: setup req/rsp PTEs too */
     spin_unlock_irqrestore(&sl->zmmu_lock, flags);
     if (!zhpe_no_avx)

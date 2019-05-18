@@ -80,7 +80,8 @@ static inline void ioread16by(void *dst, const volatile void __iomem *src)
         *(d64 + 1) = ioread64(s64 + 1);
     } else {
     __asm__ __volatile__(
-        "vmovdqa    (%[s]), %%xmm0    \n\t"
+        "mfence     \n\t"
+        "vmovntdqa  (%[s]), %%xmm0    \n\t"
         "vmovdqa    %%xmm0,   (%[d])"
         :
         : [s] "r" (src), [d] "r" (dst)
@@ -99,7 +100,8 @@ static inline void iowrite16by(void *src, volatile void __iomem *dst)
     } else {
     __asm__ __volatile__(
         "vmovdqa    (%[s]), %%xmm0    \n\t"
-        "vmovdqa    %%xmm0,   (%[d])"
+        "vmovdqa    %%xmm0,   (%[d])  \n\t"
+        "mfence"
         :
         : [s] "r" (src), [d] "r" (dst)
         : "memory", "%xmm0"
@@ -118,7 +120,8 @@ static inline void ioread32by(void *dst, const volatile void __iomem *src)
         *(d64 + 3) = ioread64(s64 + 3);
     } else {
     __asm__ __volatile__(
-        "vmovdqa    (%[s]), %%ymm0    \n\t"
+        "mfence     \n\t"
+        "vmovntdqa  (%[s]), %%ymm0    \n\t"
         "vmovdqa    %%ymm0,   (%[d])"
         :
         : [s] "r" (src), [d] "r" (dst)
@@ -139,7 +142,8 @@ static inline void iowrite32by(void *src, volatile void __iomem *dst)
     } else {
     __asm__ __volatile__(
         "vmovdqa    (%[s]), %%ymm0    \n\t"
-        "vmovdqa    %%ymm0,   (%[d])"
+        "vmovdqa    %%ymm0,   (%[d])  \n\t"
+        "mfence"
         :
         : [s] "r" (src), [d] "r" (dst)
         : "memory", "%ymm0"

@@ -66,6 +66,13 @@ do {                                                    \
 
 #define DEBUG_TRACKER_SANE (0)
 
+/* platforms that the zhpe driver supports through the platform parameter */
+enum {
+    ZHPE_CARBON          = 0x1,
+    ZHPE_PFSLICE         = 0x2,
+    ZHPE_WILDCAT         = 0x3,
+};
+
 struct xdm_qcm_header {
     uint64_t cmd_q_base_addr  : 64; /* byte 0 */
     uint64_t cmpl_q_base_addr : 64;
@@ -197,12 +204,38 @@ struct big_hammer_containment {
     uint64_t rv1[3];              /* bytes 8 - 31 */
 } __attribute__ ((aligned (32)));
 
-#define REQ_ZMMU_ENTRIES             (128*1024)
-#define RSP_ZMMU_ENTRIES             (64*1024)
+/* Platform dependent values */
+
+/* Global platform specific variables */
+extern unsigned int zhpe_req_zmmu_entries;
+extern unsigned int zhpe_rsp_zmmu_entries;
+extern unsigned int zhpe_xdm_queues_per_slice;
+extern unsigned int zhpe_rdm_queues_per_slice;
+
+/* Carbon Simulator Platform */
+#define CARBON_REQ_ZMMU_ENTRIES             (128*1024)
+#define CARBON_RSP_ZMMU_ENTRIES             (64*1024)
+#define CARBON_XDM_QUEUES_PER_SLICE         256
+#define CARBON_RDM_QUEUES_PER_SLICE         256
+
+/* PFslice FPGA Platform */
+#define PFSLICE_REQ_ZMMU_ENTRIES             (1024)
+#define PFSLICE_RSP_ZMMU_ENTRIES             (1024)
+#define PFSLICE_XDM_QUEUES_PER_SLICE         16 	/* Revisit: temporary */
+#define PFSLICE_RDM_QUEUES_PER_SLICE         16 	/* Revisit: temporary */
+
+/* Wildcat Hardware Platform */
+#define WILDCAT_REQ_ZMMU_ENTRIES             (128*1024)
+#define WILDCAT_RSP_ZMMU_ENTRIES             (64*1024)
+#define WILDCAT_XDM_QUEUES_PER_SLICE         256
+#define WILDCAT_RDM_QUEUES_PER_SLICE         256
+
+#define MAX_REQ_ZMMU_ENTRIES         (128*1024)
+#define MAX_RSP_ZMMU_ENTRIES         (64*1024)
 #define CONTAINMENT_COUNTER_ALIASES  (128*1024)
 #define PAGE_GRID_ENTRIES            (16)
 
-#define REQ_PTE_SZ   (REQ_ZMMU_ENTRIES*sizeof(struct req_pte))
+#define REQ_PTE_SZ   (MAX_REQ_ZMMU_ENTRIES*sizeof(struct req_pte))
 #define PAGE_GRID_SZ (PAGE_GRID_ENTRIES*sizeof(struct page_grid))
 #define REQ_RV1_SZ       (0x500000 - (REQ_PTE_SZ + PAGE_GRID_SZ))
 #define REQ_BHC_SZ       (sizeof(struct big_hammer_containment))
@@ -212,8 +245,11 @@ struct big_hammer_containment {
 #define PAGE_GRID_MIN_PAGESIZE       12
 #define PAGE_GRID_MAX_PAGESIZE       48
 
+#define MAX_RDM_QUEUES_PER_SLICE	256
+#define MAX_XDM_QUEUES_PER_SLICE	256
+
 struct req_zmmu {
-    struct req_pte                pte[REQ_ZMMU_ENTRIES];
+    struct req_pte                pte[MAX_REQ_ZMMU_ENTRIES];
     struct page_grid              page_grid[PAGE_GRID_ENTRIES];
     uint8_t                       rv1[REQ_RV1_SZ];
     struct big_hammer_containment bhc;
@@ -226,7 +262,7 @@ struct req_zmmu {
 #define RSP_RV2_SZ       (0x2000000 - 0x400000 - PAGE_GRID_SZ)
 
 struct rsp_zmmu {
-    struct rsp_pte                pte[RSP_ZMMU_ENTRIES];
+    struct rsp_pte                pte[MAX_RSP_ZMMU_ENTRIES];
     uint8_t                       rv1[RSP_RV1_SZ];
     struct page_grid              page_grid[PAGE_GRID_ENTRIES];
     uint8_t                       rv2[RSP_RV2_SZ];
@@ -251,9 +287,6 @@ struct page_grid_info {
     struct rb_root      base_addr_tree;
 };
 
-/* Can be useful for testing to reduce the queues per slice. 256 in hw */
-#define QUEUES_PER_SLICE	256
-
 struct rdm_vector_list {
     struct list_head list;
     int              irq_index;
@@ -272,10 +305,10 @@ struct slice {
     /* Revisit: add s_link boolean */
     spinlock_t           xdm_slice_lock; /* locks alloc_count, alloced_bitmap */
     int                  xdm_alloc_count;
-    DECLARE_BITMAP(xdm_alloced_bitmap, QUEUES_PER_SLICE);
+    DECLARE_BITMAP(xdm_alloced_bitmap, MAX_XDM_QUEUES_PER_SLICE);
     spinlock_t           rdm_slice_lock; /* locks alloc_count, alloced_bitmap */
     int                  rdm_alloc_count;
-    DECLARE_BITMAP(rdm_alloced_bitmap, QUEUES_PER_SLICE);
+    DECLARE_BITMAP(rdm_alloced_bitmap, MAX_RDM_QUEUES_PER_SLICE);
     uint16_t             irq_vectors_count; /* number of interrupt vectors */
     struct list_head     irq_vectors[VECTORS_PER_SLICE]; /* per vector list
                                                             of queues sharing
@@ -407,9 +440,9 @@ struct file_data {
     struct zmap         *local_shared_zmap;
     struct zmap         *global_shared_zmap;
     spinlock_t          xdm_queue_lock;
-    DECLARE_BITMAP(xdm_queues, QUEUES_PER_SLICE*SLICES);
+    DECLARE_BITMAP(xdm_queues, MAX_XDM_QUEUES_PER_SLICE*SLICES);
     spinlock_t          rdm_queue_lock;
-    DECLARE_BITMAP(rdm_queues, QUEUES_PER_SLICE*SLICES);
+    DECLARE_BITMAP(rdm_queues, MAX_RDM_QUEUES_PER_SLICE*SLICES);
     pid_t               pid;        /* pid that allocated this file_data */
     struct mm_struct    *mm;
     struct mmu_notifier mmun;

@@ -37,7 +37,7 @@
 import json
 import sys
 import mmap
-from zhpe import zuuid, MR
+from zhpe import zuuid, MR, UU
 from tests import Tests
 from time import time
 from twisted.internet import reactor
@@ -88,7 +88,10 @@ class MyProtocol(Protocol):
             self.factory.peers.pop(self.remote_nodeid)
             if self.lc_ping.running:
                 self.lc_ping.stop()
-            self.factory.conn.do_UUID_FREE(self.remote_nodeid)
+            try:
+                self.factory.conn.do_UUID_FREE(self.remote_nodeid)
+            except OSError:
+                pass
         remote = self.remote_nodeid if self.remote_nodeid else self.remote_ip
         print('{} disconnected from {}'.format(self.nodeid, remote))
 
@@ -194,19 +197,27 @@ class MyProtocol(Protocol):
         else:
             if self.state == 'GETHELLO':
                 self.send_hello()
-                self.send_mrregs()
             else:
                 print('Starting ping to {}'.format(self.remote_nodeid))
                 self.lc_ping.start(PING_INTERVAL)
             self.state = 'READY'
             self.factory.peers[self.remote_nodeid] = self
-            self.factory.conn.do_UUID_IMPORT(self.remote_nodeid, 0, None)
+            if self.factory.bringup:
+                self.factory.conn.do_UUID_IMPORT(self.remote_nodeid, UU.IS_FAM, None)
+            else:
+                self.factory.conn.do_UUID_IMPORT(self.remote_nodeid, 0, None)
+            if self.factory.responder:
+                self.send_mrregs()
             ###inform our new peer about us
             self.send_addr(mine=True)
             ###and ask them for more peers
             self.send_getaddr()
 
     def handle_mrregs(self, mr):
+        if not self.factory.requester:
+            if self.factory.verbosity:
+                print('Ignoring mrregs - not requester')
+            return
         for v in mr:
             req = v[0]
             if req['__class__'] != 'req_MR_REG':
@@ -223,7 +234,8 @@ class MyProtocol(Protocol):
             rsp_zaddr = rsp['__value__']['rsp_zaddr']
             put_get_remote = MR.PUT_REMOTE|MR.GET_REMOTE
             test_remote = ((access & put_get_remote) == put_get_remote)
-            access |= MR.REQ_CPU
+            if self.factory.load_store:
+                access |= MR.REQ_CPU
             print('mr: rsp_zaddr={:#x}, sz={:#x}, access={:#x}'.format(
                 rsp_zaddr, sz, access))
             
@@ -235,21 +247,30 @@ class MyProtocol(Protocol):
                 mask = (-pg_sz) & ((1 << 64) - 1)
                 mmsz = (sz + (pg_sz - 1)) & mask
                 pg_off = rmr.req_addr & ~mask
-                rmm = mmap.mmap(conn.fno, mmsz, offset=rmr.offset)
-                t = Tests(self.factory.lmr, self.factory.lmm, rmr, rmm,
+                if self.factory.load_store:
+                    rmm = mmap.mmap(conn.fno, mmsz, offset=rmr.offset)
+                else:
+                    rmm = None
+                t = Tests(self.factory.lmr, self.factory.lmm, rmr, sz, rmm,
                           self.factory.xdm, self.factory.verbosity,
-                          self.factory.physaddr)
+                          self.factory.load_store, self.factory.physaddr)
                 t.all_tests()
             else:
                 print('skipping tests because mr not remote put/get')
+        # end for v
 
 class MyFactory(Factory):
-    def __init__(self, conn, lmr, lmm, xdm, verbosity, physaddr):
+    def __init__(self, conn, lmr, lmm, xdm, verbosity, bringup, load_store,
+                 requester, responder, physaddr):
         self.conn = conn
         self.lmr = lmr
         self.lmm = lmm
         self.xdm = xdm
         self.verbosity = verbosity
+        self.bringup = bringup
+        self.load_store = load_store
+        self.requester = requester
+        self.responder = responder
         self.physaddr = physaddr
         self.nodeid = conn.init.uuid
         super().__init__()

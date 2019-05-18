@@ -37,7 +37,7 @@
 #ifndef _ZHPE_QUEUE_H_
 #define _ZHPE_QUEUE_H_
 
-#include <linux/bitmap.h>	
+#include <linux/bitmap.h>
 #include <linux/kernel.h>
 #include <linux/spinlock.h>
 #include <linux/pci.h>

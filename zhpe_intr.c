@@ -48,7 +48,7 @@ int zhpe_get_irq_index(struct slice *sl, int queue)
             "zhpe_qet_irq_index: failed because slice is not valid\n");
 	return -1;
     }
-    if (queue < 0 || queue > QUEUES_PER_SLICE) {
+    if (queue < 0 || queue > zhpe_rdm_queues_per_slice) {
         debug(DEBUG_INTR,
             "zhpe_qet_irq_index: failed because queue %d is out of range\n",
             queue);
@@ -170,7 +170,7 @@ static irqreturn_t zhpe_intr_handler(int irq, void *data_ptr)
     int vector, irq_vector;
     int triggered;
 
-    /* Convert the irq to the interrupt vector in the range 0-31 */
+    /* Convert the irq to the intr vector in the range 0-VECTORS_PER_SLICE */
     vector = zhpe_irq_to_vector(irq, sl);
     irq_vector = (sl->id*VECTORS_PER_SLICE) + vector;
     debug(DEBUG_INTR, "%s: received interrupt irq %d maps to irq_vector %d\n",
@@ -206,7 +206,7 @@ int zhpe_register_interrupts(struct pci_dev *pdev, struct slice *sl)
 
 	nvec = pci_alloc_irq_vectors(pdev, 1, VECTORS_PER_SLICE,
 		PCI_IRQ_MSI);
-	if (nvec < 0) {
+	if (nvec <= 0) {
             debug(DEBUG_PCI, "%s: Request for MSI vectors failed.\n",
                   pci_name(pdev));
             ret = -1;

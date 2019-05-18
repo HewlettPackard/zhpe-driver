@@ -104,6 +104,25 @@ class MR(IntEnum):
     REQ_CPU_UC  = 3 << 28
     INDIVIDUAL  = 1 << 30
     KEY_VALID   = 1 << 31
+    G           = GET
+    P           = PUT
+    GR          = GET_REMOTE
+    PR          = PUT_REMOTE
+    I           = INDIVIDUAL
+    C           = REQ_CPU
+    GP          = G|P
+    GPI         = G|P|I
+    GRPR        = GR|PR
+    GRPRI       = GR|PR|I
+    GRPRIC      = GR|PR|I|C
+    GRIC        = GR|I|C
+    PGRI        = P|GR|I
+    GPGRPRI     = G|P|GR|PR|I
+    GPGRPRIC    = G|P|GR|PR|I|C
+
+class UU(IntEnum):
+    '''UUID_IMPORT uu_flags'''
+    IS_FAM      = 0x1
 
 class OP(Enum):
     INIT        = 0
@@ -479,6 +498,9 @@ class xdm_enqa(Structure):
                 ('payload',         c_byte * 52)
                 ]
 
+class xdm_cmd_by_bytes(Structure):
+    _fields_ = [('u64',             c_u64 * 8)]
+
 class xdm_cmd(Union):
     _fields_ = [('hdr',             xdm_cmd_hdr),
                 ('getput',          xdm_getput),
@@ -488,6 +510,7 @@ class xdm_cmd(Union):
                 ('atomic_two_op32', xdm_atomic_two_op32),
                 ('atomic_two_op64', xdm_atomic_two_op64),
                 ('enqa',            xdm_enqa),
+                ('cmd_by_bytes',    xdm_cmd_by_bytes)
                 ]
 
     cmd_names = ['NOP', 'ENQA', 'PUT', 'GET', 'PUT_IMM', 'GET_IMM', 'SYNC',
@@ -642,6 +665,8 @@ class XDMqcm(Structure):
                 ('_cmd_q_head_idx',    c_u64, 64),  # byte 0xc0
                 ('rv16',               c_u64 * 7),
                 ('_t_cmpl_q_tail_idx', c_u64, 64),  # byte 0x100
+                ('rv17',               c_u64 * 223),
+                ('xdm_cmd_buf',        xdm_cmd * 16), # byte 0x800
                 ]
 
     @property
@@ -722,6 +747,52 @@ class XDM():
         self.cmd_q_tail_shadow = self.qcm.cmd_q_tail_idx
         self.cmd_q_head_shadow = self.qcm.cmd_q_head_idx
         self.cmpl_q_tail_shadow = self.qcm.cmpl_q_tail_idx
+        self.cmd_buf_state = [0] * 16  # a list of 16 zeros
+        self.cur_buf = 0
+
+    def buffer_cmd(self, cmd):
+        # find a free buffer
+        found = None
+        while found is None:
+            for b in range(16):
+                if (self.cmd_buf_state[b] == 0):
+                    found = True
+                    break
+
+        b = self.cur_buf
+        self.cur_buf = b+1
+        if self.cur_buf >=16:
+            self.cur_buf = 0
+        # mark this buffer busy
+        self.cmd_buf_state[b] = 1
+        # Request id greater than the number of entries indicates buffer cmd
+        cmd.hdr.request_id = self.rsp_xqa.info.cmdq.ent + b
+
+        # Copy the command into the buffer
+        # Writing byte 0 triggers the command
+        cmds_64byte = [XDM_CMD.ENQA, XDM_CMD.PUT_IMM, XDM_CMD.ATM_SWAP, XDM_CMD.ATM_ADD, XDM_CMD.ATM_AND, XDM_CMD.ATM_OR, XDM_CMD.ATM_XOR, XDM_CMD.ATM_SMIN, XDM_CMD.ATM_UMIN, XDM_CMD.ATM_UMAX, XDM_CMD.ATM_CAS]
+        cmds_32byte = [XDM_CMD.PUT, XDM_CMD.GET]
+        cmds_16byte = [XDM_CMD.GET_IMM]
+        cmds_8byte =  [XDM_CMD.NOP, XDM_CMD.SYNC]
+
+        if cmd.opcode in cmds_64byte:
+            # optimally use two 32B stores
+            for n in range(7, -1, -1):
+                self.qcm.xdm_cmd_buf[b].cmd_by_bytes.u64[n] = cmd.cmd_by_bytes.u64[n]
+        elif cmd.opcode in cmds_32byte:
+            # optimally use one 32B store
+            for n in range(3, -1, -1):
+                self.qcm.xdm_cmd_buf[b].cmd_by_bytes.u64[n] = cmd.cmd_by_bytes.u64[n]
+        elif cmd.opcode in cmds_16byte:
+            # optimally use one 16B store
+            for n in range(1, -1, -1):
+                self.qcm.xdm_cmd_buf[b].cmd_by_bytes.u64[n] = cmd.cmd_by_bytes.u64[n]
+        elif cmd.opcode in cmds_8byte:
+            # optimally use one 8B store
+            self.qcm.xdm_cmd_buf[b].cmd_by_bytes.u64[0] = cmd.cmd_by_bytes.u64[0]
+        else:
+            print('buffer_cmd: ERROR: invalid opcode {}'.format(cmd.opcode))
+
 
     def queue_cmd(self, cmd):
         # Revisit: check for cmdq full
@@ -762,6 +833,14 @@ class XDM():
             raise XDMcompletionError('bad status',
                                      self.cmpl[t].hdr.request_id,
                                      self.cmpl[t].hdr.status)
+
+        # is this a buffer command?
+        if self.cmpl[t].hdr.request_id >= self.rsp_xqa.info.cmdq.ent:
+            b = self.cmpl[t].hdr.request_id - self.rsp_xqa.info.cmdq.ent
+            if b < 16:
+                # mark this buffer free
+                self.cmd_buf_state[b] = 0
+
         return self.cmpl[t]
 
 class rdm_cmpl_hdr(Structure):
@@ -900,38 +979,44 @@ class RDM():
         # Revisit: deal with race against HW writing new completions
         return self.cmpl[h]
 
-    def get_poll(self):
+    def get_poll(self, verbosity=False):
         cmpls = list()
         handled = False
         try:
               irq_vector = self.rsp_rqa.info.irq_vector
               triggered = self.conn.triggered[irq_vector]
-              print('get_poll: irq_vector is {} triggered is {}'.format(irq_vector, triggered))
+              if verbosity:
+                  print('get_poll: irq_vector is {} triggered is {}'.format(irq_vector, triggered))
               while handled == False:
                   if (self.conn.epoll[irq_vector] == None):
                       print("ERROR: epoll is None")
                       break
-                  print('get_poll: calling poll')
+                  if verbosity:
+                      print('get_poll: calling poll')
                   events = self.conn.epoll[irq_vector].poll(1)
                   for fd, event_type in events:
-                      print('event_type is {}'.format(event_type))
+                      if verbosity:
+                          print('event_type is {}'.format(event_type))
                       if event_type & select.EPOLLIN:
                           # Get triggered count
                           triggered = self.conn.triggered[irq_vector]
-                          print('triggered is {}'.format(triggered))
+                          if verbosity:
+                              print('triggered is {}'.format(triggered))
                           # Loop through all RDM that have this irq_vector
                           for rdm in self.conn.rdm_per_irq_index[irq_vector]:
                               cmpls.append(rdm.get_cmpl(wait=False))
-                              print('got cmpl')
-                              print('poll RDM cmpl: {}'.format(cmpls))
+                              if verbosity:
+                                  print('poll RDM cmpl: {}'.format(cmpls))
                           handled = True
                   break
         finally:
-               print('finally statement in get_poll')
+               if verbosity:
+                   print('finally statement in get_poll')
 #              self.conn.epoll_stop(irq_vector)
         # Write handled count
         self.conn.handled[irq_vector] = triggered
-        print('handled set to {}'.format(self.conn.handled[irq_vector]))
+        if verbosity:
+            print('handled set to {}'.format(self.conn.handled[irq_vector]))
         return cmpls
 
 class Connection():
@@ -1131,7 +1216,8 @@ class Connection():
             close(self.poll_file[irq_index])
 
     def epoll_start(self, irq_index, event):
-        print('epoll_start for index={}'.format(irq_index))
+        if self.verbosity:
+            print('epoll_start for index={}'.format(irq_index))
         if self.epoll[irq_index] == None:
             self.epoll[irq_index] = select.epoll()
             self.epoll[irq_index].register(self.poll_file[irq_index], event)
