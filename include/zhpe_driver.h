@@ -295,6 +295,11 @@ struct rdm_vector_list {
     void             *data;
 };
 
+struct rdm_vector_list_head {
+    spinlock_t       list_lock;
+    struct list_head list_head;
+};
+
 struct slice {
     struct func1_bar0   *bar;        /* kernel mapping of BAR */
     phys_addr_t         phys_base;   /* physical address of BAR */
@@ -310,9 +315,8 @@ struct slice {
     int                  rdm_alloc_count;
     DECLARE_BITMAP(rdm_alloced_bitmap, MAX_RDM_QUEUES_PER_SLICE);
     uint16_t             irq_vectors_count; /* number of interrupt vectors */
-    struct list_head     irq_vectors[VECTORS_PER_SLICE]; /* per vector list
-                                                            of queues sharing
-                                                            a vector */
+    /* per vector list of queues sharing a vector */
+    struct rdm_vector_list_head irq_vectors[VECTORS_PER_SLICE];
 };
 
 #define SLICE_VALID(s) ((s)->valid) /* bool SLICE_VALID(struct slice *s) */
@@ -583,7 +587,6 @@ bool _free_zmap_list(const char *callf, uint line, struct file_data *fdata);
 #define free_zmap_list(...) \
     _free_zmap_list(__func__, __LINE__, __VA_ARGS__)
 
-struct slice *slice_id_to_slice(struct file_data *fdata, int slice);
 struct file_data *pid_to_fdata(struct bridge *br, pid_t pid);
 
 #define arithcmp(_a, _b)        ((_a) < (_b) ? -1 : ((_a) > (_b) ? 1 : 0))

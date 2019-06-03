@@ -390,7 +390,7 @@ void _zpages_free(const char *callf, uint line, union zpages *zpages)
 }
 
 /*
- * hsr_zpages_alloc - allocate a zpages structure for a single page of
+ * hsr_zpage_alloc - allocate a zpages structure for a single page of
  * HSR registers. This is used to map the QCM application data for queues.
  * The space for the HSRs is already allocated and mapped by the pci probe
  * function.
@@ -1275,6 +1275,7 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
                 zhpe_driver_name, __func__, __LINE__);
         goto done;
     }
+    ret = -EINVAL;
     if (!(vma->vm_flags & VM_SHARED)) {
         printk(KERN_ERR "%s:%s,%u:vm_flags !VM_SHARED\n",
                 zhpe_driver_name, __func__, __LINE__);
@@ -1286,12 +1287,13 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
         goto done;
     }
     vma->vm_flags &= ~VM_MAYEXEC;
-    if (zmap == fdata->local_shared_zmap) {
+    if (zmap == fdata->global_shared_zmap) {
         if (vma->vm_flags & VM_WRITE) {
-            printk(KERN_ERR "%s:%s,%u:vm_flags VM_WRITE\n",
-                    zhpe_driver_name, __func__, __LINE__);
+            printk(KERN_ERR "%s:%s,%u:global_zhared_zmap:"
+                   "vm_flags VM_WRITE\n",
+                   zhpe_driver_name, __func__, __LINE__);
+            vma->vm_flags &= ~(VM_WRITE|VM_MAYWRITE);
         }
-        vma->vm_flags &= ~VM_MAYWRITE;
     }
 
     zpages = zmap->zpages;
@@ -1563,18 +1565,6 @@ static int zhpe_open(struct inode *inode, struct file *file)
 }
 
 #define ZHPE_ZMMU_XDM_RDM_HSR_BAR 0
-
-struct slice *slice_id_to_slice(struct file_data *fdata, int slice)
-{
-    struct slice *sl;
-    int i;
-
-    for (i = 0; i < SLICES; i++) {
-        if (fdata->bridge->slice[i].id == slice)
-            return sl;
-    }
-    return NULL;
-}
 
 #ifndef PCI_EXT_CAP_ID_DVSEC
 #define PCI_EXT_CAP_ID_DVSEC 0x23  /* Revisit: should be in pci.h */

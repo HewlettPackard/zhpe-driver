@@ -634,9 +634,9 @@ static int _xqueue_free(
 
 	slices = br->slice;
 
-	if (slice < 0 || slice > SLICES)
+	if (slice < 0 || slice >= SLICES)
 		return -1;
-	if (queue < 0 || queue > zhpe_xdm_queues_per_slice)
+	if (queue < 0 || queue >= zhpe_xdm_queues_per_slice)
 		return -1;
 	sl = &(slices[slice]);
 	if (test_bit(queue, sl->xdm_alloced_bitmap) == 0) {
@@ -698,17 +698,19 @@ static int _rqueue_free(
 	int slice,
 	int queue)
 {
-	struct slice     *slices;
 	struct slice     *sl;
 	struct rdm_qcm   *hw_qcm_addr;
 
-	slices = br->slice;
+	if (slice < 0 || slice >= SLICES)
+		return -1;
+	if (queue < 0 || queue >= zhpe_rdm_queues_per_slice)
+		return -1;
+	sl = &br->slice[slice];
+	if (!SLICE_VALID(sl))
+		return -1;
 
-	if (slice < 0 || slice > SLICES)
-		return -1;
-	if (queue < 0 || queue > zhpe_rdm_queues_per_slice)
-		return -1;
-	sl = &(slices[slice]);
+	zhpe_unregister_rdm_interrupt(sl, queue);
+
 	if (test_bit(queue, sl->rdm_alloced_bitmap) == 0) {
 		debug(DEBUG_RQUEUE,
 			"Tried to free unallocated queue %d on slice %d\n",
@@ -727,13 +729,13 @@ static int _rqueue_free(
 	}
 
 	/* Return queue to the bridge's free pool */
-	spin_lock (&slices[slice].rdm_slice_lock);
-	slices[slice].rdm_alloc_count--;
-	clear_bit(queue, slices[slice].rdm_alloced_bitmap);
-	spin_unlock (&slices[slice].rdm_slice_lock);
+	spin_lock (&sl->rdm_slice_lock);
+	sl->rdm_alloc_count--;
+	clear_bit(queue, sl->rdm_alloced_bitmap);
+	spin_unlock (&sl->rdm_slice_lock);
 
-	debug(DEBUG_RQUEUE, "Freed queue %d on slice %d qcm=0x%px\n",
-		queue, slice, hw_qcm_addr);
+	debug(DEBUG_RQUEUE, "%s:Freed queue %d on slice %d qcm=0x%px\n",
+	      __func__, queue, slice, hw_qcm_addr);
 	return 0;
 }
 
@@ -744,11 +746,12 @@ static int zhpe_rqueue_free(
 	int              slice = free_req->info.slice;
 	int              queue = free_req->info.queue;
 	int              ret;
-        struct slice     *sl;
 
-        sl = slice_id_to_slice(fdata, slice);
-        if (sl)
-                zhpe_unregister_rdm_interrupt(sl, queue);
+	if (slice < 0 || slice >= SLICES)
+		return -1;
+	if (queue < 0 || queue >= zhpe_rdm_queues_per_slice)
+		return -1;
+
 	spin_lock(&fdata->rdm_queue_lock);
 	if (test_bit((slice*zhpe_rdm_queues_per_slice) + queue,
 					fdata->rdm_queues) == 0 ) {

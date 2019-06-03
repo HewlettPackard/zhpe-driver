@@ -130,7 +130,7 @@ static void zmmu_clear_pg_info(struct page_grid_info *pgi, uint entries,
             radix_tree_iter_delete(&pgi->pg_pagesize_tree, &iter, slot);
         }
     } else {
-        INIT_RADIX_TREE(&pgi->pg_pagesize_tree, GFP_KERNEL);
+        INIT_RADIX_TREE(&pgi->pg_pagesize_tree, GFP_ATOMIC);
     }
     bitmap_zero(pgi->pg_bitmap, PAGE_GRID_ENTRIES);
     bitmap_zero(pgi->pg_cpu_visible_ps_bitmap, 64);
