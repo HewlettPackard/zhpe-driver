@@ -73,9 +73,9 @@ static struct zhpe_msg_state *msg_state_search(uint16_t msgid)
     struct zhpe_msg_state *state;
     struct rb_node *node;
     struct rb_root *root = &msg_rbtree;
+    ulong flags;
 
-    BUG_ON(!irqs_disabled());
-    spin_lock(&zhpe_msg_rbtree_lock);
+    spin_lock_irqsave(&zhpe_msg_rbtree_lock, flags);
     node = root->rb_node;
 
     while (node) {
@@ -95,7 +95,7 @@ static struct zhpe_msg_state *msg_state_search(uint16_t msgid)
     state = NULL;
 
  out:
-    spin_unlock(&zhpe_msg_rbtree_lock);
+    spin_unlock_irqrestore(&zhpe_msg_rbtree_lock, flags);
     return state;
 }
 
@@ -842,9 +842,9 @@ static irqreturn_t msg_rdm_interrupt_handler(int irq_index, void *data)
             }
         } while (more);
         /* read tail to prevent race with HW writing new completions */
-        tail = (rdm_qcm_read(rdmi->hw_qcm_addr,
+        tail = rdm_qcm_read(rdmi->hw_qcm_addr,
                             ZHPE_RDM_QCM_RCV_QUEUE_TAIL_TOGGLE_OFFSET) &
-                MAX_RDM_QLEN);
+            ZHPE_MAX_RDM_QLEN;
     } while (rdmi->cmplq_head_shadow != tail);
 
  out:

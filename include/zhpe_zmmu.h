@@ -173,6 +173,7 @@ int zhpe_zmmu_rsp_page_grid_alloc(struct bridge *br,
 int zhpe_zmmu_rsp_pte_alloc(struct zhpe_pte_info *info, uint64_t *rsp_zaddr,
                             uint32_t *pg_ps);
 void zhpe_zmmu_rsp_pte_free(struct zhpe_pte_info *info);
+void zhpe_zmmu_rsp_take_snapshot(struct bridge *br);
 
 int zhpe_user_req_ZMMU_REG(struct io_entry *entry);
 int zhpe_user_req_ZMMU_FREE(struct io_entry *entry);

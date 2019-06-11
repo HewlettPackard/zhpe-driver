@@ -1042,6 +1042,45 @@ int zhpe_zmmu_rsp_pte_alloc(struct zhpe_pte_info *info, uint64_t *rsp_zaddr,
     return ret;
 }
 
+void zhpe_zmmu_rsp_take_snapshot(struct bridge *br)
+{
+    uint                  sl;
+    struct rsp_zmmu       *rspz;
+    int                   slice_mask = ALL_SLICES;
+    int                   cur_mask;
+    int                   cur_snap;
+    int                   first_snap[SLICES];
+
+    if (zhpe_platform == ZHPE_CARBON)
+        return;
+
+    for (sl = 0; sl < SLICES; sl++) {
+        if (!SLICE_VALID(&br->slice[sl])) {
+            slice_mask &= ~(1 << sl);
+            continue;
+        }
+        rspz = &br->slice[sl].bar->rsp_zmmu;
+        first_snap[sl] = ioread64(&rspz->take_snapshot);
+        debug(DEBUG_ZMMU, "%s:%s,%u:sl %d snap %d\n",
+              zhpe_driver_name, __func__, __LINE__,
+              sl, first_snap[sl] & RSP_TAKE_SNAPSHOT_MASK);
+    }
+    while (slice_mask) {
+        cur_mask = slice_mask;
+        for (sl = ffs(cur_mask); sl ; sl = ffs(cur_mask)) {
+            sl--;
+            rspz = &br->slice[sl].bar->rsp_zmmu;
+            cur_snap = ioread64(&rspz->take_snapshot);
+            debug(DEBUG_ZMMU, "%s:%s,%u:sl %d snap %d\n",
+                  zhpe_driver_name, __func__, __LINE__,
+                  sl, cur_snap & RSP_TAKE_SNAPSHOT_MASK);
+            cur_mask &= ~(1 << sl);
+            if (((cur_snap - first_snap[sl]) & RSP_TAKE_SNAPSHOT_MASK) >= 2)
+                slice_mask &= ~(1 << sl);
+        }
+    }
+}
+
 void zhpe_zmmu_rsp_pte_free(struct zhpe_pte_info *info)
 {
     struct bridge         *br = info->fdata->bridge;
@@ -1056,7 +1095,6 @@ void zhpe_zmmu_rsp_pte_free(struct zhpe_pte_info *info)
         kernel_fpu_begin();
     for (sl = 0; sl < SLICES; sl++)
         _zmmu_rsp_pte_write_slice(&br->slice[sl], info, INVALID, NO_SYNC);
-    /* Revisit: perform TAKE_SNAPSHOT sequence */
     if (!zhpe_no_avx)
         kernel_fpu_end();
 

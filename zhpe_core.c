@@ -977,7 +977,6 @@ static int zhpe_bind_iommu(struct file_data *fdata)
     struct pci_dev *pdev;
 
     if (!no_iommu) {
-        spin_lock(&fdata->io_lock);
         for (s=0; s<SLICES; s++) {
             if (!SLICE_VALID(&(fdata->bridge->slice[s])))
                 continue;
@@ -988,7 +987,6 @@ static int zhpe_bind_iommu(struct file_data *fdata)
             }
             amd_iommu_set_invalid_ppr_cb(pdev, iommu_invalid_ppr_cb);
         }
-        spin_unlock(&fdata->io_lock);
     }
     return (ret);
 }
@@ -998,9 +996,8 @@ static void zhpe_unbind_iommu(struct file_data *fdata)
     int s;
     struct pci_dev *pdev;
 
-    spin_lock(&fdata->io_lock);
     if (!no_iommu) {
-	for (s=0; s<SLICES; s++) {
+        for (s=0; s<SLICES; s++) {
             if (!SLICE_VALID(&(fdata->bridge->slice[s])))
                 continue;
             pdev = fdata->bridge->slice[s].pdev;
@@ -1008,7 +1005,6 @@ static void zhpe_unbind_iommu(struct file_data *fdata)
             amd_iommu_set_invalid_ppr_cb(pdev, NULL);
         }
     }
-    spin_unlock(&fdata->io_lock);
     return;
 }
 
@@ -1488,12 +1484,14 @@ static int zhpe_open(struct inode *inode, struct file *file)
         goto done;
 
     fdata->pid = task_pid_nr(current); /* Associate this fdata with pid */
-    fdata->mm = NULL;
     fdata->free = file_data_free;
     atomic_set(&fdata->count, 1);
     spin_lock_init(&fdata->io_lock);
     init_waitqueue_head(&fdata->io_wqh);
     INIT_LIST_HEAD(&fdata->rd_list);
+    /* update the actual number of slices in the zhpe_attr */
+    global_shared_data->default_attr.num_slices =
+            atomic_read(&zhpe_bridge.num_slices);
     fdata->bridge = &zhpe_bridge;  /* Revisit MultiBridge: support multiple bridges */
     spin_lock_init(&fdata->uuid_lock);
     fdata->local_uuid = NULL;
@@ -1607,6 +1605,7 @@ static int zhpe_probe(struct pci_dev *pdev,
     /* Zero based slice ID */
     l_slice_id = atomic_inc_return(&slice_id) - 1;
     sl = &br->slice[l_slice_id];
+    atomic_inc(&br->num_slices);
 
     debug(DEBUG_PCI, "%s:%s device = %s, slice = %u\n",
           zhpe_driver_name, __func__, pci_name(pdev), l_slice_id);
@@ -1772,11 +1771,12 @@ static int __init zhpe_init(void)
     int                 ret;
     int                 i;
     struct zhpe_attr default_attr = {
-        .max_tx_queues      = MAX_TX_QUEUES,
-        .max_rx_queues      = MAX_RX_QUEUES,
-        .max_tx_qlen        = MAX_XDM_QLEN,
-        .max_rx_qlen        = MAX_RDM_QLEN,
-        .max_dma_len        = MAX_DMA_LEN,
+        .max_tx_queues      = zhpe_xdm_queues_per_slice*SLICES,
+        .max_rx_queues      = zhpe_rdm_queues_per_slice*SLICES,
+        .max_tx_qlen        = ZHPE_MAX_XDM_QLEN,
+        .max_rx_qlen        = ZHPE_MAX_RDM_QLEN,
+        .max_dma_len        = ZHPE_MAX_DMA_LEN,
+        .num_slices         = 0, /* updated on open() to actual */
     };
     uint                sl, pg, cnt, pg_index;
 
@@ -1807,6 +1807,7 @@ static int __init zhpe_init(void)
 	global_shared_data->triggered_counter[i] = 0;
 
     zhpe_bridge.gcid = genz_gcid;
+    atomic_set(&zhpe_bridge.num_slices, 0);
     spin_lock_init(&zhpe_bridge.zmmu_lock);
     for (sl = 0; sl < SLICES; sl++) {
         spin_lock_init(&zhpe_bridge.slice[sl].zmmu_lock);

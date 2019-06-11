@@ -41,7 +41,8 @@
 #include <zhpe.h>
 #include <zhpe_driver.h>
 
-static void umem_free(struct kref *ref);  /* forward reference */
+static void umem_kref_free(struct kref *ref);  /* forward reference */
+static void umem_free(struct zhpe_umem *umem);
 
 static inline int umem_cmp(uint64_t vaddr, uint64_t length, uint64_t access,
                            const struct zhpe_umem *u)
@@ -79,7 +80,8 @@ static struct zhpe_umem *umem_search(struct file_data *fdata,
         } else if (result > 0) {
             rnode = rnode->rb_right;
         } else {
-            if (rsp_zaddr == zhpe_zmmu_pte_addr(&unode->pte_info))
+            if (!(access & (ZHPE_MR_GET_REMOTE|ZHPE_MR_PUT_REMOTE)) ||
+                rsp_zaddr == zhpe_zmmu_pte_addr(&unode->pte_info))
                 goto out;
             else
                 goto fail;
@@ -125,7 +127,6 @@ static struct zhpe_umem *umem_insert(struct zhpe_umem *umem)
     /* add new node and rebalance tree */
     rb_link_node(&umem->node, parent, new);
     rb_insert_color(&umem->node, root);
-    umem->erase = true;
 
  out:
     spin_unlock_irqrestore(&fdata->mr_lock, flags);
@@ -134,7 +135,7 @@ static struct zhpe_umem *umem_insert(struct zhpe_umem *umem)
 
 static inline void umem_remove(struct zhpe_umem *umem)
 {
-    kref_put(&umem->refcount, umem_free);
+    kref_put(&umem->refcount, umem_kref_free);
 }
 
 /* Returns the offset of the umem start relative to the first page */
@@ -244,14 +245,9 @@ static void _zhpe_umem_release(struct zhpe_umem *umem)
     sg_free_table(&umem->sg_head);
     /* No mm if called from process cleanup */
     if (current->mm) {
-        /* drop/reacquire spin lock around mmap_sem; umem_free() not called
-         * from interrupt level so we don't need flags.
-         */
-        spin_unlock_irq(&fdata->mr_lock);
         down_write(&current->mm->mmap_sem);
         current->mm->pinned_vm -= umem->npages;
         up_write(&current->mm->mmap_sem);
-        spin_lock_irq(&fdata->mr_lock);
     }
 }
 
@@ -281,11 +277,11 @@ get_user_pages_compat(unsigned long start, unsigned long nr_pages,
  * @access: ZHPE_MR_xxx flags for memory being pinned
  * @dmasync: flush in-flight DMA when the memory region is written
  */
-noinline // Revisit: debug
+static noinline // Revisit: debug
 struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
                                 size_t size, uint64_t access, bool dmasync)
 {
-    struct zhpe_umem *umem, *found;
+    struct zhpe_umem *umem;
     struct zhpe_pte_info *info;
     struct page **page_list;
     struct vm_area_struct **vma_list;
@@ -299,7 +295,6 @@ struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
     unsigned long dma_attrs = 0;
     struct scatterlist *sg, *sg_list_start;
     bool first_page = true; /* Revisit: temporary */
-    ulong flags;
 
     if (dmasync)
         dma_attrs |= DMA_ATTR_WRITE_BARRIER;
@@ -338,21 +333,11 @@ struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
           zhpe_driver_name, __func__, __LINE__, vaddr,
           size, access);
 
-    found = umem_insert(umem);
-    if (found != umem) {
-        put_pid(umem->pid);
-        /* Undo the kref_get() for a duplicate umem from umem_insert(). */
-        kref_put(&umem->refcount, umem_free);
-        do_kfree(umem);
-        return ERR_PTR(-EEXIST);
-    }
-
     page_list = (struct page **)do__get_free_page(GFP_KERNEL, false);
     if (!page_list) {
-        put_pid(umem->pid);
-        do_kfree(umem);
         debug(DEBUG_MEMREG, "%s:%s,%u:failed to allocate page_list\n",
               zhpe_driver_name, __func__, __LINE__);
+        umem_free(umem);
         return ERR_PTR(-ENOMEM);
     }
 
@@ -456,11 +441,9 @@ struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
 
  out:
     up_write(&current->mm->mmap_sem);
-    if (ret < 0) {
-        spin_lock_irqsave(&fdata->mr_lock, flags);
-        umem_remove(umem);
-        spin_unlock_irqrestore(&fdata->mr_lock, flags);
-    } else
+    if (ret < 0)
+        umem_free(umem);
+    else
         umem->dirty = true;
 
     if (vma_list)
@@ -470,13 +453,9 @@ struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
     return ret < 0 ? ERR_PTR(ret) : umem;
 }
 
-static void umem_free(struct kref *ref)
+static void umem_free_zmmu(struct zhpe_umem *umem)
 {
-    /* caller must already hold fdata->mr_lock */
-    struct zhpe_umem *umem = container_of(ref, struct zhpe_umem, refcount);
     struct zhpe_pte_info *info = &umem->pte_info;
-    struct file_data *fdata = info->fdata;
-    struct rb_root   *root = &fdata->mr_tree;
     uint64_t         access;
     bool             local, remote, cpu_visible, individual;
 
@@ -485,43 +464,77 @@ static void umem_free(struct kref *ref)
     remote = !!(access & (ZHPE_MR_GET_REMOTE|ZHPE_MR_PUT_REMOTE));
     cpu_visible = !!(access & ZHPE_MR_REQ_CPU);
     individual = !!(access & ZHPE_MR_INDIVIDUAL);
+
     if (remote) {
         if (individual) {
             zhpe_zmmu_rsp_pte_free(info);
-            /* Revisit: do TAKE_SNAPSHOT IOMMU teardown seqence */
         }
     }
-    if (umem->erase)
-        rb_erase(&umem->node, root);
+}
+
+static void umem_free(struct zhpe_umem *umem)
+{
     _zhpe_umem_release(umem);
     put_pid(umem->pid);
     do_kfree(umem);
 }
 
+static void umem_kref_free(struct kref *ref)
+{
+    struct zhpe_umem *umem = container_of(ref, struct zhpe_umem, refcount);
+
+    umem_free_zmmu(umem);
+    zhpe_zmmu_rsp_take_snapshot(umem->pte_info.fdata->bridge);
+    umem_free(umem);
+}
+
 void zhpe_umem_free_all(struct file_data *fdata)
 {
-    struct rb_node *rb, *next;
-    struct zhpe_umem *umem;
+    struct zhpe_umem *umem, *next;
     struct zhpe_pte_info *info;
+    struct rb_root root;
     ulong flags;
 
+    /*
+     * This will be called once during teardown There should be no other threads
+     * trying to operate on the tree.
+     *
+     * The internals of the rbtree code have been necessarily exposed for
+     * performance reasons; it is known that the rb_root contains just
+     * a single pointer and there are no back references to it.
+     * Therefore, it should be safe to make a copy of the mr_tree's rb_root
+     * and reset it to an empty tree and then traverse the tree without locks.
+     * Which is useful, because umem_free_unlocked() can sleep.
+     *
+     * We do want to grab the mr_lock while copying the root, to make sure
+     * all the proper barriers have been used before we access the tree.
+     */
     spin_lock_irqsave(&fdata->mr_lock, flags);
+    root = fdata->mr_tree;
+    fdata->mr_tree = RB_ROOT;
+    spin_unlock_irqrestore(&fdata->mr_lock, flags);
 
-    for (rb = rb_first_postorder(&fdata->mr_tree); rb; rb = next) {
-        umem = container_of(rb, struct zhpe_umem, node);
+    /* First pass to free all the ZMMU entries. */
+    rbtree_postorder_for_each_entry_safe(umem, next, &root, node) {
         info = &umem->pte_info;
         debug(DEBUG_MEMREG, "%s:%s,%u:vaddr = 0x%016llx, "
               "len = 0x%zx, access = 0x%llx\n",
               zhpe_driver_name, __func__, __LINE__, umem->vaddr,
               info->length, info->access);
-        next = rb_next_postorder(rb);  /* must precede umem_free() */
-        umem->erase = false;
-        umem_free(&umem->refcount);
+        umem_free_zmmu(umem);
     }
-
-    fdata->mr_tree = RB_ROOT;
-
-    spin_unlock_irqrestore(&fdata->mr_lock, flags);
+    /* Do snapshot to ensure all memory transactions are complete. */
+    zhpe_zmmu_rsp_take_snapshot(fdata->bridge);
+    /* Second pass to free all the user mappings and data structures. */
+    rbtree_postorder_for_each_entry_safe(umem, next, &root, node) {
+        info = &umem->pte_info;
+        debug(DEBUG_MEMREG, "%s:%s,%u:vaddr = 0x%016llx, "
+              "len = 0x%zx, access = 0x%llx\n",
+              zhpe_driver_name, __func__, __LINE__, umem->vaddr,
+              info->length, info->access);
+        WARN_ON(kref_read(&umem->refcount) != 1);
+        umem_free(umem);
+    }
 }
 
 static inline int rmr_cmp(uint32_t dgcid, uint64_t rsp_zaddr,
@@ -792,7 +805,8 @@ int zhpe_user_req_MR_REG(struct io_entry *entry)
     uint64_t                physaddr = BASE_ADDR_ERROR;
     uint32_t                pg_ps = 0;
     bool                    local, remote, cpu_visible, individual, dmasync;
-    struct zhpe_umem        *umem;
+    struct zhpe_umem        *umem = NULL, *found;
+    bool                    zmmu_valid = false;
 
     CHECK_INIT_STATE(entry, status, out);
     vaddr = req->mr_reg.vaddr;
@@ -819,6 +833,7 @@ int zhpe_user_req_MR_REG(struct io_entry *entry)
     umem = zhpe_umem_get(entry->fdata, vaddr, len, access, dmasync);
     if (IS_ERR(umem)) {
         status = PTR_ERR(umem);
+        umem = NULL;
         goto out;
     }
     physaddr = umem->physaddr;
@@ -832,6 +847,17 @@ int zhpe_user_req_MR_REG(struct io_entry *entry)
             /* make sure a humongous responder ZMMU entry exists */
             ; /* Revisit: finish this */
         }
+        if (status >= 0)
+            zmmu_valid = true;
+    }
+
+    /* The last things is to insert the umem in the tree. */
+    found = umem_insert(umem);
+    if (found != umem) {
+        /* Remove extra ref from found. */
+        umem_remove(found);
+        status = -EEXIST;
+        goto out;
     }
 
     rsp->mr_reg.rsp_zaddr = rsp_zaddr;
@@ -839,6 +865,14 @@ int zhpe_user_req_MR_REG(struct io_entry *entry)
     rsp->mr_reg.physaddr = physaddr;
 
  out:
+    if (status < 0 && umem) {
+        if (zmmu_valid) {
+            umem_free_zmmu(umem);
+            zhpe_zmmu_rsp_take_snapshot(umem->pte_info.fdata->bridge);
+        }
+        umem_free(umem);
+    }
+
     debug(DEBUG_MEMREG, "%s:%s,%u:ret = %d rsp_zaddr = 0x%016llx, "
           "pg_ps=%u, physaddr = 0x%016llx\n",
           zhpe_driver_name, __func__, __LINE__, status,
@@ -850,6 +884,7 @@ int zhpe_user_req_MR_FREE(struct io_entry *entry)
 {
     union zhpe_req          *req = &entry->op.req;
     union zhpe_rsp          *rsp = &entry->op.rsp;
+    struct file_data        *fdata = entry->fdata;
     int                     status = 0;
     struct zhpe_umem        *umem;
     uint64_t                vaddr, len, access, rsp_zaddr;
@@ -861,16 +896,17 @@ int zhpe_user_req_MR_FREE(struct io_entry *entry)
     rsp_zaddr = req->mr_free.rsp_zaddr;
     CHECK_INIT_STATE(entry, status, out);
 
-    spin_lock_irqsave(&entry->fdata->mr_lock, flags);
-    umem = umem_search(entry->fdata, vaddr, len, access, rsp_zaddr);
+    spin_lock_irqsave(&fdata->mr_lock, flags);
+    umem = umem_search(fdata, vaddr, len, access, rsp_zaddr);
+    if (umem)
+        rb_erase(&umem->node, &fdata->mr_tree);
+    spin_unlock_irqrestore(&fdata->mr_lock, flags);
     if (!umem) {
         status = -EINVAL;
-        goto unlock;
+        goto out;
     }
     umem_remove(umem);
 
- unlock:
-    spin_unlock_irqrestore(&entry->fdata->mr_lock, flags);
  out:
     debug(DEBUG_MEMREG, "%s:%s,%u:ret = %d, vaddr = 0x%016llx, "
           "len = 0x%llx, access = 0x%llx, rsp_zaddr = 0x%016llx\n",
@@ -1039,4 +1075,43 @@ int zhpe_user_req_RMR_FREE(struct io_entry *entry)
           zhpe_driver_name, __func__, __LINE__, status,
           zhpe_uuid_str(uuid, str, sizeof(str)), rsp_zaddr, len, access);
     return queue_io_rsp(entry, sizeof(rsp->mr_free), status);
+}
+
+static void zhpe_mmun_release(struct mmu_notifier *mn, struct mm_struct *mm)
+{
+    struct file_data    *fdata = container_of(mn, struct file_data, mmun);
+
+    /*
+     * Clean up Responder ZMMU and memory registrations before pagetable
+     * is destroyed.
+     */
+    zhpe_umem_free_all(fdata);
+}
+
+static const struct mmu_notifier_ops zhpe_mmun_ops = {
+    .release            = zhpe_mmun_release,
+};
+
+int zhpe_mmun_init(struct file_data *fdata)
+{
+    int                 ret;
+    struct mm_struct    *mm = current->mm;
+
+    BUG_ON(fdata->mm);
+    fdata->mmun.ops = &zhpe_mmun_ops;
+
+    ret = mmu_notifier_register(&fdata->mmun, mm);
+    if (ret < 0)
+        return ret;
+
+    /* mmu_notifier_register() does a mmgrab() */
+    fdata->mm = mm;
+
+    return 0;
+}
+
+void zhpe_mmun_exit(struct file_data *fdata)
+{
+    if (fdata->mm)
+        mmu_notifier_unregister(&fdata->mmun, fdata->mm);
 }

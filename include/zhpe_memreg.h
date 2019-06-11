@@ -70,7 +70,6 @@ struct zhpe_umem {
     bool                  hugetlb;
     bool                  need_release;
     bool                  dirty;
-    bool                  erase;
     struct pid            *pid;
     struct work_struct    work;  /* Revisit: these next 3 were copied from */
     struct mm_struct      *mm;   /* ib_umem and are currently unused */

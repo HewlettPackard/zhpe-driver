@@ -58,13 +58,6 @@
 #endif
 #endif
 
-/* Hardware limits */
-#define MAX_TX_QUEUES      1024
-#define MAX_RX_QUEUES      1024
-#define MAX_XDM_QLEN       (BIT(16)-1)
-#define MAX_RDM_QLEN       (BIT(20)-1)
-#define MAX_DMA_LEN        (1U << 31)
-
 #define XDM_CMD_ADDR_OFFSET     0x00
 #define XDM_CMPL_ADDR_OFFSET    0x10
 #define XDM_PASID_OFFSET        0x18
