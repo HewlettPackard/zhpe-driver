@@ -129,18 +129,16 @@ class OP(Enum):
     MR_REG      = 1
     MR_FREE     = 2
     NOP         = 3
-    QALLOC      = 4
-    QFREE       = 5
-    RMR_IMPORT  = 6
-    RMR_FREE    = 7
-    ZMMU_REG    = 8
-    ZMMU_FREE   = 9
-    UUID_IMPORT = 10
-    UUID_FREE   = 11
-    XQUEUE_ALLOC= 12
-    XQUEUE_FREE = 13
-    RQUEUE_ALLOC= 14
-    RQUEUE_FREE = 15
+    RMR_IMPORT  = 4
+    RMR_FREE    = 5
+    ZMMU_REG    = 6
+    ZMMU_FREE   = 7
+    UUID_IMPORT = 8
+    UUID_FREE   = 9
+    XQUEUE_ALLOC= 10
+    XQUEUE_FREE = 11
+    RQUEUE_ALLOC= 12
+    RQUEUE_FREE = 13
     RESPONSE    = 0x80
     VERSION     = 1
     INDEX_MASK  = 0xffff
@@ -237,7 +235,8 @@ class zhpe_attr(Structure):
                 ('max_rx_queues',  c_u32),
                 ('max_tx_qlen',    c_u32),
                 ('max_rx_qlen',    c_u32),
-                ('max_dma_len',    c_u64)
+                ('max_dma_len',    c_u64),
+                ('num_slices',     c_u32)
                ]
 
 class global_shared_data(Structure):

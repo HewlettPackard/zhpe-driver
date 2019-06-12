@@ -172,6 +172,16 @@ def main():
             mm = mmap.mmap(-1, sz4K)
             v, l = zhpe.mmap_vaddr_len(mm)
             rsp = conn.do_MR_REG(v, l, MR.GPI)  # req: GET/PUT, 4K
+            # register the same thing memory twice to force EEXIST
+            try:
+                bad = conn.do_MR_REG(v, l, MR.GPI)  # req: GET/PUT, 4K
+            except OSError:
+                exc = True
+            if exc:
+                if args.verbosity:
+                    print('do_MR_REG: got expected error on 2nd MR_REG')
+            else:
+                print('fail: no error on 2nd MR_REG')
 
         if args.responder or args.loopback:
             mm2 = mmap.mmap(-1, sz4K)

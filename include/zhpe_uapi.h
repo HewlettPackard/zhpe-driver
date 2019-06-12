@@ -225,6 +225,7 @@ struct zhpe_attr {
     uint32_t            max_tx_qlen;
     uint32_t            max_rx_qlen;
     uint64_t            max_dma_len;
+    uint32_t            num_slices;
 };
 
 struct zhpe_key_data {

@@ -12,6 +12,7 @@ modules.order
 Module.symvers
 
 # Misc
+.gdbinit
 .cache.mk
 *~
 __pycache__/

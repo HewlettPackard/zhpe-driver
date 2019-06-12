@@ -48,7 +48,7 @@ int zhpe_get_irq_index(struct slice *sl, int queue)
             "zhpe_qet_irq_index: failed because slice is not valid\n");
 	return -1;
     }
-    if (queue < 0 || queue > zhpe_rdm_queues_per_slice) {
+    if (queue < 0 || queue >= zhpe_rdm_queues_per_slice) {
         debug(DEBUG_INTR,
             "zhpe_qet_irq_index: failed because queue %d is out of range\n",
             queue);
@@ -98,6 +98,7 @@ int zhpe_register_rdm_interrupt(struct slice *sl,
     int irq_index;
     int vector;
     struct rdm_vector_list *new_entry;
+    ulong flags;
 
     irq_index = zhpe_get_irq_index(sl, queue);
     if (irq_index < 0) {
@@ -120,7 +121,9 @@ int zhpe_register_rdm_interrupt(struct slice *sl,
 
     /* Get this queue's MSI interrupt vector (0 to VECTORS_PER_SLICE) */
     vector = zhpe_rdm_queue_to_vector(queue, sl);
-    list_add(&new_entry->list, &sl->irq_vectors[vector]);
+    spin_lock_irqsave(&sl->irq_vectors[vector].list_lock, flags);
+    list_add(&new_entry->list, &sl->irq_vectors[vector].list_head);
+    spin_unlock_irqrestore(&sl->irq_vectors[vector].list_lock, flags);
 
     debug(DEBUG_INTR,
           "%s:%s: added handler and data for slice %d and queue %d to vector %d\n",
@@ -133,16 +136,24 @@ void zhpe_unregister_rdm_interrupt(struct slice *sl, int queue)
     int vector;
     struct rdm_vector_list *tmp;
     struct list_head *pos, *q;
+    ulong flags;
 
     vector = zhpe_rdm_queue_to_vector(queue, sl);
-    list_for_each_safe(pos, q, &(sl->irq_vectors[vector])) {
+
+    spin_lock_irqsave(&sl->irq_vectors[vector].list_lock, flags);
+    list_for_each_safe(pos, q, &sl->irq_vectors[vector].list_head) {
         tmp = list_entry(pos, struct rdm_vector_list, list);
         if (tmp->queue == queue) {
+            debug(DEBUG_INTR,
+                  "%s:%s: removed handler and data for slice %d and queue %d"
+                  " from vector %d\n",
+                  zhpe_driver_name, __func__, sl->id, queue, vector);
             list_del(pos);
             do_kfree(tmp);
             break;
         }
     }
+    spin_unlock_irqrestore(&sl->irq_vectors[vector].list_lock, flags);
     return;
 }
 
@@ -169,6 +180,7 @@ static irqreturn_t zhpe_intr_handler(int irq, void *data_ptr)
     int ret = IRQ_HANDLED;
     int vector, irq_vector;
     int triggered;
+    ulong flags;
 
     /* Convert the irq to the intr vector in the range 0-VECTORS_PER_SLICE */
     vector = zhpe_irq_to_vector(irq, sl);
@@ -185,7 +197,8 @@ static irqreturn_t zhpe_intr_handler(int irq, void *data_ptr)
     }
 
     /* Call the secondary interrupt handler for each interested queue */
-    list_for_each(pos, &(sl->irq_vectors[vector])) {
+    spin_lock_irqsave(&sl->irq_vectors[vector].list_lock, flags);
+    list_for_each(pos, &sl->irq_vectors[vector].list_head) {
         entry = list_entry(pos, struct rdm_vector_list, list);
         if (entry->handler != NULL) {
             debug(DEBUG_INTR,
@@ -194,6 +207,7 @@ static irqreturn_t zhpe_intr_handler(int irq, void *data_ptr)
             ret |= (*entry->handler)(entry->irq_index, entry->data);
         }
     }
+    spin_unlock_irqrestore(&sl->irq_vectors[vector].list_lock, flags);
     return ret;
 }
 
@@ -231,8 +245,10 @@ int zhpe_register_interrupts(struct pci_dev *pdev, struct slice *sl)
 	}
 
 	/* Initialize the array of lists for each interrupt vector */
-	for (i=0; i < nvec; i++)
-		INIT_LIST_HEAD(&sl->irq_vectors[i]);
+	for (i=0; i < nvec; i++) {
+		spin_lock_init(&sl->irq_vectors[i].list_lock);
+		INIT_LIST_HEAD(&sl->irq_vectors[i].list_head);
+	}
 
 	debug(DEBUG_PCI, " INIT_LIST_HEAD irq_vectors list for %d lists\n", nvec);
 
@@ -259,6 +275,8 @@ void zhpe_free_interrupts(struct pci_dev *pdev)
     int i;
     struct list_head *pos, *q;
     struct rdm_vector_list *tmp;
+    struct list_head list_head;
+    ulong flags;
 
     for (i = 0; i < sl->irq_vectors_count; i++)
         free_irq(pci_irq_vector(pdev, i), sl);
@@ -267,7 +285,11 @@ void zhpe_free_interrupts(struct pci_dev *pdev)
 
     /* free space allocated for vector lists */
     for (i = 0; i < sl->irq_vectors_count; i++) {
-        list_for_each_safe(pos, q, &sl->irq_vectors[i]) {
+        INIT_LIST_HEAD(&list_head);
+        spin_lock_irqsave(&sl->irq_vectors[i].list_lock, flags);
+        list_splice_init(&sl->irq_vectors[i].list_head, &list_head);
+        spin_unlock_irqrestore(&sl->irq_vectors[i].list_lock, flags);
+        list_for_each_safe(pos, q, &list_head) {
             tmp = list_entry(pos, struct rdm_vector_list, list);
             list_del(pos);
             do_kfree(tmp);
@@ -304,6 +326,7 @@ static int zhpe_poll_open(struct inode *inode, struct file *file)
     struct rdm_vector_list *entry;
     int found_queue = 0;
     int vector;
+    ulong flags;
 
     /* Find the fdata associated with this open's pid */
     fdata = pid_to_fdata(br, pid);
@@ -317,7 +340,8 @@ static int zhpe_poll_open(struct inode *inode, struct file *file)
     sl = zhpe_irq_index_to_slice(fdata, irq_index);
     vector = irq_index % VECTORS_PER_SLICE; /* per slice vector */
     debug(DEBUG_PCI, "slice = %d irq_index = %d vector = %d\n", sl->id, irq_index, vector);
-    list_for_each(pos, &(sl->irq_vectors[vector])) {
+    spin_lock_irqsave(&sl->irq_vectors[vector].list_lock, flags);
+    list_for_each(pos, &(sl->irq_vectors[vector].list_head)) {
         entry = list_entry(pos, struct rdm_vector_list, list);
         debug(DEBUG_PCI, "entry->irq_index = %d\n", entry->irq_index);
         if (entry->irq_index == irq_index) {
@@ -325,6 +349,7 @@ static int zhpe_poll_open(struct inode *inode, struct file *file)
                 break;
         }
     }
+    spin_unlock_irqrestore(&sl->irq_vectors[vector].list_lock, flags);
     if (!found_queue) {
         debug(DEBUG_INTR, "zhpe_poll_open: trying to open a file without owning a queue on that vector %d\n",  vector);
         return -ENXIO;
@@ -523,7 +548,7 @@ void zhpe_cleanup_poll_devs(void)
 
 int zhpe_trigger(int irq_index, int *triggered)
 {
-    if (irq_index < 0 || irq_index > MAX_IRQ_VECTORS) {
+    if (irq_index < 0 || irq_index >= MAX_IRQ_VECTORS) {
         debug(DEBUG_MSG, "zhpe_trigger passed an out of range irq_index %d\n",
                 irq_index);
         return -1;

@@ -73,6 +73,8 @@ enum {
     ZHPE_WILDCAT         = 0x3,
 };
 
+extern int zhpe_platform;
+
 struct xdm_qcm_header {
     uint64_t cmd_q_base_addr  : 64; /* byte 0 */
     uint64_t cmpl_q_base_addr : 64;
@@ -212,28 +214,33 @@ extern unsigned int zhpe_rsp_zmmu_entries;
 extern unsigned int zhpe_xdm_queues_per_slice;
 extern unsigned int zhpe_rdm_queues_per_slice;
 
+
 /* Carbon Simulator Platform */
 #define CARBON_REQ_ZMMU_ENTRIES             (128*1024)
 #define CARBON_RSP_ZMMU_ENTRIES             (64*1024)
-#define CARBON_XDM_QUEUES_PER_SLICE         256
-#define CARBON_RDM_QUEUES_PER_SLICE         256
+#define CARBON_XDM_QUEUES_PER_SLICE         (256)
+#define CARBON_RDM_QUEUES_PER_SLICE         (256)
 
 /* PFslice FPGA Platform */
-#define PFSLICE_REQ_ZMMU_ENTRIES             (1024)
-#define PFSLICE_RSP_ZMMU_ENTRIES             (1024)
-#define PFSLICE_XDM_QUEUES_PER_SLICE         16 	/* Revisit: temporary */
-#define PFSLICE_RDM_QUEUES_PER_SLICE         16 	/* Revisit: temporary */
+#define PFSLICE_REQ_ZMMU_ENTRIES            (1024)
+#define PFSLICE_RSP_ZMMU_ENTRIES            (1024)
+#define PFSLICE_XDM_QUEUES_PER_SLICE        (256) 	/* Revisit: temporary */
+#define PFSLICE_RDM_QUEUES_PER_SLICE        (16) 	/* Revisit: temporary */
 
 /* Wildcat Hardware Platform */
-#define WILDCAT_REQ_ZMMU_ENTRIES             (128*1024)
-#define WILDCAT_RSP_ZMMU_ENTRIES             (64*1024)
-#define WILDCAT_XDM_QUEUES_PER_SLICE         256
-#define WILDCAT_RDM_QUEUES_PER_SLICE         256
+#define WILDCAT_REQ_ZMMU_ENTRIES            (128*1024)
+#define WILDCAT_RSP_ZMMU_ENTRIES            (64*1024)
+#define WILDCAT_XDM_QUEUES_PER_SLICE        (256)
+#define WILDCAT_RDM_QUEUES_PER_SLICE        (256)
 
-#define MAX_REQ_ZMMU_ENTRIES         (128*1024)
-#define MAX_RSP_ZMMU_ENTRIES         (64*1024)
-#define CONTAINMENT_COUNTER_ALIASES  (128*1024)
-#define PAGE_GRID_ENTRIES            (16)
+/* Platform values common to all platforms */
+#define ZHPE_MAX_XDM_QLEN                 (BIT(16)-1)
+#define ZHPE_MAX_RDM_QLEN                 (BIT(20)-1)
+#define ZHPE_MAX_DMA_LEN                  (1U << 31)
+#define MAX_REQ_ZMMU_ENTRIES              (128*1024)
+#define MAX_RSP_ZMMU_ENTRIES              (64*1024)
+#define CONTAINMENT_COUNTER_ALIASES       (128*1024)
+#define PAGE_GRID_ENTRIES                 (16)
 
 #define REQ_PTE_SZ   (MAX_REQ_ZMMU_ENTRIES*sizeof(struct req_pte))
 #define PAGE_GRID_SZ (PAGE_GRID_ENTRIES*sizeof(struct page_grid))
@@ -259,13 +266,17 @@ struct req_zmmu {
 };
 
 #define RSP_RV1_SZ       (0x400000 - 0x200000)
-#define RSP_RV2_SZ       (0x2000000 - 0x400000 - PAGE_GRID_SZ)
+#define RSP_RV2_SZ       (0x600000 - (0x400000 + PAGE_GRID_SZ))
+#define RSP_RV3_SZ       (0x2000000 - 0x600008)
+#define RSP_TAKE_SNAPSHOT_MASK (0x2FF)
 
 struct rsp_zmmu {
     struct rsp_pte                pte[MAX_RSP_ZMMU_ENTRIES];
     uint8_t                       rv1[RSP_RV1_SZ];
     struct page_grid              page_grid[PAGE_GRID_ENTRIES];
     uint8_t                       rv2[RSP_RV2_SZ];
+    uint64_t                      take_snapshot;
+    uint8_t                       rv3[RSP_RV3_SZ];
 };
 
 struct sw_page_grid {
@@ -295,6 +306,11 @@ struct rdm_vector_list {
     void             *data;
 };
 
+struct rdm_vector_list_head {
+    spinlock_t       list_lock;
+    struct list_head list_head;
+};
+
 struct slice {
     struct func1_bar0   *bar;        /* kernel mapping of BAR */
     phys_addr_t         phys_base;   /* physical address of BAR */
@@ -310,9 +326,8 @@ struct slice {
     int                  rdm_alloc_count;
     DECLARE_BITMAP(rdm_alloced_bitmap, MAX_RDM_QUEUES_PER_SLICE);
     uint16_t             irq_vectors_count; /* number of interrupt vectors */
-    struct list_head     irq_vectors[VECTORS_PER_SLICE]; /* per vector list
-                                                            of queues sharing
-                                                            a vector */
+    /* per vector list of queues sharing a vector */
+    struct rdm_vector_list_head irq_vectors[VECTORS_PER_SLICE];
 };
 
 #define SLICE_VALID(s) ((s)->valid) /* bool SLICE_VALID(struct slice *s) */
@@ -353,6 +368,7 @@ struct rdm_info {
 
 struct bridge {
     uint32_t              gcid;
+    atomic_t              num_slices;
     struct slice          slice[SLICES];
     spinlock_t            zmmu_lock;  /* global bridge zmmu lock */
     struct page_grid_info req_zmmu_pg;
@@ -583,7 +599,6 @@ bool _free_zmap_list(const char *callf, uint line, struct file_data *fdata);
 #define free_zmap_list(...) \
     _free_zmap_list(__func__, __LINE__, __VA_ARGS__)
 
-struct slice *slice_id_to_slice(struct file_data *fdata, int slice);
 struct file_data *pid_to_fdata(struct bridge *br, pid_t pid);
 
 #define arithcmp(_a, _b)        ((_a) < (_b) ? -1 : ((_a) > (_b) ? 1 : 0))
