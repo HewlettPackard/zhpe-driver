@@ -51,6 +51,7 @@
 #include <linux/pci.h>
 #include <linux/amd-iommu.h>
 #include <linux/cdev.h>
+#include <linux/delay.h>
 
 #if LINUX_VERSION_CODE >=  KERNEL_VERSION(4, 11, 0)
 #include <linux/sched/signal.h>
@@ -109,7 +110,9 @@ module_exit(zhpe_exit);
 
 MODULE_LICENSE("GPL");
 
-struct bridge    zhpe_bridge = { 0 };
+#define INVALID_GCID    (~0U)
+
+struct bridge    zhpe_bridge = { .gcid = INVALID_GCID };
 struct sw_page_grid     sw_pg[PAGE_GRID_ENTRIES];
 
 static DECLARE_WAIT_QUEUE_HEAD(poll_wqh);
@@ -123,7 +126,7 @@ MODULE_PARM_DESC(no_iommu, "System does not have an IOMMU (default=0)");
 /* Revisit Carbon: Gen-Z Global CID should come from bridge Core
  * Structure, but for now, it's a module parameter
  */
-uint genz_gcid = 0x0000001;  /* Revisit Carbon: carbon node 1 */
+uint genz_gcid = INVALID_GCID;
 module_param(genz_gcid, uint, S_IRUGO);
 MODULE_PARM_DESC(genz_gcid, "Gen-Z bridge global CID");
 
@@ -1568,6 +1571,84 @@ static int zhpe_open(struct inode *inode, struct file *file)
 #define PCI_EXT_CAP_ID_DVSEC 0x23  /* Revisit: should be in pci.h */
 #endif
 
+#define ZHPE_DVSEC_VSLICE_OFF     (0x2C)
+#define ZHPE_DVSEC_VSLICE_SHIFT   (0xF)
+#define ZHPE_DVSEC_VSLICE_MASK    (0x3)
+#define ZHPE_DVSEC_MBOX_CTRL_OFF  (0x30)
+#define ZHPE_DVSEC_MBOX_CTRL_TRIG (0x1)
+#define ZHPE_DVSEC_MBOX_CTRL_BE   (0xFF00)
+#define ZHPE_DVSEC_MBOX_CTRL_ERR  (0x4)
+#define ZHPE_DVSEC_MBOX_ADDR_OFF  (0x34)
+#define ZHPE_DVSEC_MBOX_DATAL_OFF (0x38)
+#define ZHPE_DVSEC_MBOX_DATAH_OFF (0x3C)
+#define ZHPE_CSR_CID              (0xC0)
+#define ZHPE_CSR_CID_SHIFT        (0x8)
+#define ZHPE_CSR_CID_MASK         (0xFFF)
+
+static int csr_access_rd(struct bridge *br, uint32_t csr, uint64_t *data)
+{
+    int                 ret = -EIO;
+    struct slice        *sl = &br->slice[0];
+    int                 pos;
+    uint32_t            val;
+    int                 i;
+
+    pos = pci_find_ext_capability(sl->pdev, PCI_EXT_CAP_ID_DVSEC);
+    if (!pos)
+        goto out;
+    pci_read_config_dword(sl->pdev, pos + ZHPE_DVSEC_MBOX_CTRL_OFF, &val);
+    if (val & ZHPE_DVSEC_MBOX_CTRL_TRIG) {
+        debugx(DEBUG_PCI, "Mailbox busy\n");
+        goto out;
+    }
+    pci_write_config_dword(sl->pdev, pos + ZHPE_DVSEC_MBOX_ADDR_OFF, csr);
+    pci_write_config_dword(sl->pdev, pos + ZHPE_DVSEC_MBOX_CTRL_OFF,
+                           ZHPE_DVSEC_MBOX_CTRL_BE | ZHPE_DVSEC_MBOX_CTRL_TRIG);
+    /* Wait 1-2 ms for completion. */
+    for (i = 0; i < 100; i++) {
+        pci_read_config_dword(sl->pdev, pos + ZHPE_DVSEC_MBOX_CTRL_OFF, &val);
+        debugx(DEBUG_PCI, "val 0x%x, loops %d\n", val, i);
+        if (!(val & ZHPE_DVSEC_MBOX_CTRL_TRIG)) {
+            if (val & ZHPE_DVSEC_MBOX_CTRL_ERR)
+                break;
+            /* Success */
+            ret = 0;
+            pci_read_config_dword(sl->pdev, pos + ZHPE_DVSEC_MBOX_DATAL_OFF,
+                                  &val);
+            *data = val;
+            pci_read_config_dword(sl->pdev, pos + ZHPE_DVSEC_MBOX_DATAH_OFF,
+                                  &val);
+            *data |= ((uint64_t)val) << 32;
+            break;
+        }
+        usleep_range(10, 20);
+    }
+out:
+
+    return ret;
+}
+
+static int csr_get_gcid(struct bridge *br)
+{
+    int                 ret = 0;
+    uint64_t            data;
+
+    if (br->gcid != INVALID_GCID)
+        return 0;
+    mutex_lock(&br->csr_mutex);
+    if (br->gcid != INVALID_GCID)
+        goto out;
+    ret = csr_access_rd(br, ZHPE_CSR_CID, &data);
+    if (ret < 0)
+        goto out;
+    debugx(DEBUG_PCI, "CID register 0x%llx\n", data);
+    br->gcid = (data >> ZHPE_CSR_CID_SHIFT) & ZHPE_CSR_CID_MASK;
+out:
+    mutex_unlock(&br->csr_mutex);
+
+    return ret;
+}
+
 static int zhpe_probe(struct pci_dev *pdev,
                       const struct pci_device_id *pdev_id)
 {
@@ -1575,7 +1656,7 @@ static int zhpe_probe(struct pci_dev *pdev,
     int l_slice_id;
     void __iomem *base_addr;
     struct bridge *br = &zhpe_bridge;
-    struct slice *sl;
+    struct slice *sl = NULL;
     phys_addr_t phys_base;
     uint16_t devctl2;
 
@@ -1584,26 +1665,48 @@ static int zhpe_probe(struct pci_dev *pdev,
         return 0;
     }
 
-    pos = pci_find_ext_capability(pdev, PCI_EXT_CAP_ID_DVSEC);
-    if (!pos) {
-        dev_warn(&pdev->dev, "%s: No DVSEC capability found\n",
-                 zhpe_driver_name);
-    }
-
-    /* Set atomic operations enable capability */
-    pcie_capability_set_word(pdev, PCI_EXP_DEVCTL2,
+    if (zhpe_platform != ZHPE_CARBON) {
+        /* Set atomic operations enable capability */
+        pcie_capability_set_word(pdev, PCI_EXP_DEVCTL2,
                                  PCI_EXP_DEVCTL2_ATOMIC_REQ);
-    ret = pcie_capability_read_word(pdev, PCI_EXP_DEVCTL2, &devctl2);
-    if (ret) {
-        dev_warn(&pdev->dev, "%s:%s PCIe AtomicOp pcie_capability_read_word failed. ret = 0x%x\n",
-              zhpe_driver_name, __func__, ret);
-    } else if (!(devctl2 & PCI_EXP_DEVCTL2_ATOMIC_REQ)) {
-        dev_warn(&pdev->dev, "%s:%s PCIe AtomicOp capability enable failed. devctl2 = 0x%x\n",
-              zhpe_driver_name, __func__, (uint) devctl2);
-    }
-
-    /* Zero based slice ID */
-    l_slice_id = atomic_inc_return(&slice_id) - 1;
+        ret = pcie_capability_read_word(pdev, PCI_EXP_DEVCTL2, &devctl2);
+        if (ret < 0) {
+            dev_warn(&pdev->dev,
+                     "%s:%s:PCIe AtomicOp pcie_capability_read_word failed."
+                     " ret = 0x%x\n",
+                     zhpe_driver_name, __func__, ret);
+            goto err_out;
+        } else if (!(devctl2 & PCI_EXP_DEVCTL2_ATOMIC_REQ)) {
+            dev_warn(&pdev->dev,
+                     "%s:%s:PCIe AtomicOp capability enable failed."
+                     " devctl2 = 0x%x\n",
+                     zhpe_driver_name, __func__, (uint) devctl2);
+            ret = -EIO;
+            goto err_out;
+        }
+        /* Get the virtual slice ID from the device. */
+        pos = pci_find_ext_capability(pdev, PCI_EXT_CAP_ID_DVSEC);
+        if (!pos) {
+            dev_warn(&pdev->dev, "%s:%s:No DVSEC capability found\n",
+                     zhpe_driver_name, __func__);
+            ret = -ENODEV;
+            goto err_out;
+        }
+        pci_read_config_dword(pdev, pos + ZHPE_DVSEC_VSLICE_OFF, &l_slice_id);
+        l_slice_id >>= ZHPE_DVSEC_VSLICE_SHIFT;
+        l_slice_id &= ZHPE_DVSEC_VSLICE_MASK;
+        dev_info(&pdev->dev, "%s:%s:vslice = %d\n",
+                 zhpe_driver_name, __func__, l_slice_id);
+        sl = &br->slice[l_slice_id];
+        if (SLICE_VALID(sl)) {
+            dev_warn(&pdev->dev, "%s:%s:slice %d already found\n",
+                     zhpe_driver_name, __func__, l_slice_id);
+            ret = -ENODEV;
+            goto err_out;
+        }
+    } else
+        /* Carbon:zero based slice ID */
+        l_slice_id = atomic_inc_return(&slice_id) - 1;
     sl = &br->slice[l_slice_id];
     atomic_inc(&br->num_slices);
 
@@ -1612,9 +1715,10 @@ static int zhpe_probe(struct pci_dev *pdev,
 
     ret = pci_enable_device(pdev);
     if (ret) {
-        debug(DEBUG_PCI, "%s:%s:pci_enable_device probe error %d for device %s\n",
+        debug(DEBUG_PCI,
+              "%s:%s:pci_enable_device probe error %d for device %s\n",
                zhpe_driver_name, __func__, ret, pci_name(pdev));
-        goto err_out;
+        goto err_invalid;
     }
 
     if (dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64))) {
@@ -1633,21 +1737,25 @@ static int zhpe_probe(struct pci_dev *pdev,
 
     base_addr = pci_iomap(pdev, ZHPE_ZMMU_XDM_RDM_HSR_BAR, sizeof(struct func1_bar0));
     if (!base_addr) {
-        debug(DEBUG_PCI, "%s:%s:cannot iomap bar %u registers of size %lu (requested size = %lu)\n",
-               zhpe_driver_name, __func__, ZHPE_ZMMU_XDM_RDM_HSR_BAR,
-               (unsigned long) pci_resource_len(pdev, ZHPE_ZMMU_XDM_RDM_HSR_BAR),
-               sizeof(struct func1_bar0));
+        debug(DEBUG_PCI,
+              "%s:%s:cannot iomap bar %u registers of size %lu"
+              " (requested size = %lu)\n",
+              zhpe_driver_name, __func__, ZHPE_ZMMU_XDM_RDM_HSR_BAR,
+              (unsigned long) pci_resource_len(pdev, ZHPE_ZMMU_XDM_RDM_HSR_BAR),
+              sizeof(struct func1_bar0));
         ret = -EINVAL;
         goto err_pci_release_regions;
     }
     phys_base = pci_resource_start(pdev, 0);
 
-    debug(DEBUG_PCI, "%s:%s bar = %u, start = 0x%lx, actual len = %lu, requested len = %lu, base_addr = 0x%lx\n",
-           zhpe_driver_name, __func__, 0,
-           (unsigned long) phys_base,
-           (unsigned long) pci_resource_len(pdev, 0),
-           sizeof(struct func1_bar0),
-           (unsigned long) base_addr);
+    debug(DEBUG_PCI,
+          "%s:%s bar = %u, start = 0x%lx, actual len = %lu,"
+          " requested len = %lu, base_addr = 0x%lx\n",
+          zhpe_driver_name, __func__, 0,
+          (unsigned long) phys_base,
+          (unsigned long) pci_resource_len(pdev, 0),
+          sizeof(struct func1_bar0),
+          (unsigned long) base_addr);
 
     sl->bar = base_addr;
     sl->phys_base = phys_base;
@@ -1655,21 +1763,37 @@ static int zhpe_probe(struct pci_dev *pdev,
     sl->pdev = pdev;
     sl->valid = true;
 
+    if (l_slice_id == 0) {
+        if (zhpe_platform != ZHPE_CARBON) {
+            ret = csr_get_gcid(br);
+            if (ret < 0 && zhpe_platform == ZHPE_PFSLICE)
+                goto err_pci_iounmap;
+        } else {
+            if (genz_gcid == INVALID_GCID) {
+                dev_warn(&pdev->dev, "%s:%s:genz_gcid not set\n",
+                         zhpe_driver_name, __func__);
+                ret = -EINVAL;
+                goto err_pci_iounmap;
+            }
+            br->gcid = genz_gcid;
+        }
+    }
+
     zhpe_zmmu_clear_slice(sl);
     zhpe_zmmu_setup_slice(sl);
 
     zhpe_xqueue_init(sl);
     if (zhpe_clear_xdm_qcm(sl->bar->xdm)) {
 	debug(DEBUG_PCI, "zhpe_clear_xdm_qcm failed\n");
-	ret = -1;
-	goto err_pci_release_regions;
+	ret = -EIO;
+	goto err_pci_iounmap;
     }
 
     zhpe_rqueue_init(sl);
     if (zhpe_clear_rdm_qcm(sl->bar->rdm)) {
 	debug(DEBUG_PCI, "zhpe_clear_rdm_qcm failed\n");
-	ret = -1;
-	goto err_pci_release_regions;
+	ret = -EIO;
+	goto err_pci_iounmap;
     }
 
     pci_set_drvdata(pdev, sl);
@@ -1678,8 +1802,9 @@ static int zhpe_probe(struct pci_dev *pdev,
     if (!no_iommu) {
         ret = amd_iommu_init_device(pdev, ZHPE_NUM_PASIDS);
         if (ret < 0) {
-            debug(DEBUG_PCI, "amd_iommu_init_device failed with error %d\n", ret);
-            goto err_pci_release_regions;
+            debug(DEBUG_PCI,
+                  "amd_iommu_init_device failed with error %d\n", ret);
+            goto err_pci_iounmap;
         }
     }
 
@@ -1708,15 +1833,19 @@ static int zhpe_probe(struct pci_dev *pdev,
         amd_iommu_free_device(pdev);
     }
 
-err_pci_release_regions:
+ err_pci_iounmap:
+    pci_iounmap(pdev, sl->bar);
+
+ err_pci_release_regions:
     pci_release_regions(pdev);
 
-err_pci_disable_device:
+ err_pci_disable_device:
     pci_disable_device(pdev);
 
-err_out:
+ err_invalid:
     sl->valid = false;
 
+ err_out:
     return ret;
 }
 
@@ -1806,12 +1935,12 @@ static int __init zhpe_init(void)
     for (i = 0; i < MAX_IRQ_VECTORS; i++)
 	global_shared_data->triggered_counter[i] = 0;
 
-    zhpe_bridge.gcid = genz_gcid;
     atomic_set(&zhpe_bridge.num_slices, 0);
     spin_lock_init(&zhpe_bridge.zmmu_lock);
     for (sl = 0; sl < SLICES; sl++) {
         spin_lock_init(&zhpe_bridge.slice[sl].zmmu_lock);
     }
+    mutex_init(&zhpe_bridge.csr_mutex);
     spin_lock_init(&zhpe_bridge.fdata_lock);
     INIT_LIST_HEAD(&zhpe_bridge.fdata_list);
 

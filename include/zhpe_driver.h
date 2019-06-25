@@ -401,6 +401,7 @@ struct bridge {
     struct page_grid_info rsp_zmmu_pg;
     struct xdm_info       msg_xdm;
     struct rdm_info       msg_rdm;
+    struct mutex          csr_mutex;   /* protect CSR mailbox */
     spinlock_t            fdata_lock;  /* protects fdata_list */
     struct list_head      fdata_list;
     wait_queue_head_t     zhpe_poll_wq[MAX_IRQ_VECTORS];
