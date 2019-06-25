@@ -43,6 +43,7 @@
 #include <linux/rbtree.h>
 #include <linux/interrupt.h>
 #include <linux/mmu_notifier.h>
+#include <linux/sched.h>
 
 extern uint zhpe_debug_flags;
 extern const char zhpe_driver_name[];
@@ -54,6 +55,10 @@ extern struct zhpe_global_shared_data *global_shared_data;
 #define debug(_mask, _fmt, ...) do {} while (0)
 #define debug_mem_add(_size)
 #define debug_mem_sub(_size)
+#define debugx_printk(_lvl, _func, _line, _pid, _fmt, ...)              \
+   do {} while (0)
+#define debugx_cond_action(_mask, _cond, _action)                       \
+   do {} while (0)
 #else
 #define  debug_cond(_mask,_cond,  _fmt, ...)            \
 do {                                                    \
@@ -62,7 +67,28 @@ do {                                                    \
 } while (0)
 #define debug(_mask, _fmt, ...) debug_cond(_mask, true, _fmt, ##__VA_ARGS__)
 
+#define debugx_printk(_lvl, _func, _line, _pid, _fmt, ...)              \
+    printk(_lvl "%s:%s,%u,%u:" _fmt, zhpe_driver_name,                  \
+           _func, _line, _pid, ##__VA_ARGS__)
+#define debugx_printk_std(_fmt, ...)                                    \
+    debugx_printk(KERN_DEBUG, __func__, __LINE__, task_pid_nr(current), \
+                 _fmt, ##__VA_ARGS__)
+#define debugx_cond_action(_mask, _cond, _action)                       \
+do {                                                                    \
+    if ((zhpe_debug_flags & (_mask)) && (_cond)) {                      \
+        _action;                                                        \
+    }                                                                   \
+} while (0)
 #endif /* defined(NDEBUG) */
+
+#define debugx_cond(_mask, _cond, _fmt, ...)                            \
+    debugx_cond_action(_mask, _cond,                                    \
+                      debugx_printk_std(_fmt, ##__VA_ARGS__))
+#define debugx(_mask, _fmt, ...)                                        \
+    debugx_cond(_mask, true, _fmt, ##__VA_ARGS__)
+#define debugx_caller(_mask, _callf, _line,  _fmt, ...)                 \
+    debugx_printk(KERN_DEBUG, _callf, _line,                            \
+                 task_pid_nr(current), _fmt, ##__VA_ARGS__)
 
 #define DEBUG_TRACKER_SANE (0)
 

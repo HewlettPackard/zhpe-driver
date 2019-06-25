@@ -33,11 +33,12 @@
  * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-#include <linux/cdev.h>
-#include <linux/poll.h>
-#include <linux/sched.h>
+
 #include <zhpe.h>
 #include <zhpe_driver.h>
+
+#include <linux/cdev.h>
+#include <linux/poll.h>
 
 int zhpe_get_irq_index(struct slice *sl, int queue)
 {

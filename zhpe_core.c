@@ -34,6 +34,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <zhpe.h>
+#include <zhpe_driver.h>
+
 #include <linux/fs.h>
 #include <linux/kernel.h>
 #include <linux/kmod.h>
@@ -47,15 +50,12 @@
 #include <linux/uaccess.h>
 #include <linux/pci.h>
 #include <linux/amd-iommu.h>
-#include <linux/interrupt.h>
 #include <linux/cdev.h>
 
 #if LINUX_VERSION_CODE >=  KERNEL_VERSION(4, 11, 0)
 #include <linux/sched/signal.h>
 #include <linux/sched/task.h>
 #endif
-#include <zhpe.h>
-#include <zhpe_driver.h>
 
 #ifndef NDEBUG
 module_param_named(debug, zhpe_debug_flags, uint, 0644);

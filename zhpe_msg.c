@@ -33,11 +33,9 @@
  * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
+
 #include <zhpe.h>
 #include <zhpe_driver.h>
-
-#include <linux/interrupt.h>
-#include <linux/sched.h>
 
 uint zhpe_kmsg_timeout;
 
