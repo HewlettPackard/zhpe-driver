@@ -486,6 +486,7 @@ struct file_data {
     spinlock_t          rdm_queue_lock;
     DECLARE_BITMAP(rdm_queues, MAX_RDM_QUEUES_PER_SLICE*SLICES);
     pid_t               pid;        /* pid that allocated this file_data */
+    struct zhpe_umem    *big_rsp_umem;
     struct mm_struct    *mm;
     struct mmu_notifier mmun;
 };
