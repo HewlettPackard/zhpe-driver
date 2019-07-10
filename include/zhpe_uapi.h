@@ -55,21 +55,25 @@ _EXTERN_C_BEG
 
 #define ZHPE_MR_GET             ((uint32_t)1 << 0)
 #define ZHPE_MR_PUT             ((uint32_t)1 << 1)
-#define ZHPE_MR_SEND            ZHPE_MR_PUT
+#define ZHPE_MR_SEND            ZHPE_MR_GET_REMOTE
 #define ZHPE_MR_RECV            ZHPE_MR_GET
 #define ZHPE_MR_GET_REMOTE      ((uint32_t)1 << 2)
 #define ZHPE_MR_PUT_REMOTE      ((uint32_t)1 << 3)
-#define ZHPE_MR_FLAG0           ((uint32_t)1 << 4) /* Usable by zhpeq */
+#define ZHPE_MR_FLAG0           ((uint32_t)1 << 4)  /* Usable by zhpeq */
 #define ZHPE_MR_FLAG1           ((uint32_t)1 << 5)
 #define ZHPE_MR_FLAG2           ((uint32_t)1 << 6)
-#define ZHPE_MR_FLAG3           ((uint32_t)1 << 7)
+#define ZHPE_MR_INDIVIDUAL      ((uint32_t)1 << 7)  /* individual ZMMU entry */
 #define ZHPE_MR_REQ_CPU         ((uint32_t)1 << 27) /* CPU visible mapping */
 #define ZHPE_MR_REQ_CPU_CACHE   ((uint32_t)3 << 28) /* CPU cache mode */
 #define ZHPE_MR_REQ_CPU_WB      ((uint32_t)0 << 28)
 #define ZHPE_MR_REQ_CPU_WC      ((uint32_t)1 << 28)
 #define ZHPE_MR_REQ_CPU_WT      ((uint32_t)2 << 28)
 #define ZHPE_MR_REQ_CPU_UC      ((uint32_t)3 << 28)
-#define ZHPE_MR_INDIVIDUAL      ((uint32_t)1 << 30) /* individual rsp ZMMU */
+#define ZHPE_MR_ZMMU_ONLY       ((uint32_t)1 << 31) /* rsp ZMMU only entry */
+
+/* Mask off user flags */
+#define ZHPE_MR_USER_MASK \
+    (~(ZHPE_MR_FLAG0 | ZHPE_MR_FLAG1 | ZHPE_MR_FLAG2))
 
 enum zhpe_hw_atomic {
     ZHPE_HW_ATOMIC_RETURN       = 0x01,
@@ -233,7 +237,7 @@ struct zhpe_key_data {
     uint64_t            zaddr;
     uint64_t            len;
     uint64_t            key;
-    uint8_t             access;
+    uint32_t            access;
 };
 
 _EXTERN_C_END

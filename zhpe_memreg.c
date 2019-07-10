@@ -811,7 +811,7 @@ int zhpe_user_req_MR_REG(struct io_entry *entry)
     CHECK_INIT_STATE(entry, status, out);
     vaddr = req->mr_reg.vaddr;
     len = req->mr_reg.len;
-    access = req->mr_reg.access;
+    access = req->mr_reg.access & ZHPE_MR_USER_MASK;
     local = !!(access & (ZHPE_MR_GET|ZHPE_MR_PUT));
     remote = !!(access & (ZHPE_MR_GET_REMOTE|ZHPE_MR_PUT_REMOTE));
     cpu_visible = !!(access & ZHPE_MR_REQ_CPU);
@@ -892,7 +892,7 @@ int zhpe_user_req_MR_FREE(struct io_entry *entry)
 
     vaddr = req->mr_free.vaddr;
     len = req->mr_free.len;
-    access = req->mr_free.access;
+    access = req->mr_free.access & ZHPE_MR_USER_MASK;
     rsp_zaddr = req->mr_free.rsp_zaddr;
     CHECK_INIT_STATE(entry, status, out);
 
@@ -937,7 +937,7 @@ int zhpe_user_req_RMR_IMPORT(struct io_entry *entry)
     CHECK_INIT_STATE(entry, status, out);
     rsp_zaddr = req->rmr_import.rsp_zaddr;
     len = req->rmr_import.len;
-    access = req->rmr_import.access;
+    access = req->rmr_import.access & ZHPE_MR_USER_MASK;
     remote = !!(access & (ZHPE_MR_GET_REMOTE|ZHPE_MR_PUT_REMOTE));
     writable = !!(access & ZHPE_MR_PUT_REMOTE);
     cpu_visible = !!(access & ZHPE_MR_REQ_CPU);
@@ -1054,7 +1054,7 @@ int zhpe_user_req_RMR_FREE(struct io_entry *entry)
 
     rsp_zaddr = req->rmr_free.rsp_zaddr;
     len = req->rmr_free.len;
-    access = req->rmr_free.access;
+    access = req->rmr_free.access & ZHPE_MR_USER_MASK;
     req_addr = req->rmr_free.req_addr;
     dgcid = zhpe_gcid_from_uuid(uuid);
     CHECK_INIT_STATE(entry, status, out);
