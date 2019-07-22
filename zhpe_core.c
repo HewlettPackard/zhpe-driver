@@ -1777,6 +1777,8 @@ static int zhpe_probe(struct pci_dev *pdev,
             }
             br->gcid = genz_gcid;
         }
+        dev_info(&pdev->dev, "%s:%s:gcid = %d\n",
+                 zhpe_driver_name, __func__, br->gcid);
     }
 
     zhpe_zmmu_clear_slice(sl);
