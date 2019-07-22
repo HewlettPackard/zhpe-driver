@@ -92,10 +92,10 @@ class MR(IntEnum):
     '''MR_REG access flags'''
     GET         = 1 << 0
     PUT         = 1 << 1
-    SEND        = GET_REMOTE
-    RECV        = GET
     GET_REMOTE  = 1 << 2
     PUT_REMOTE  = 1 << 3
+    SEND        = GET_REMOTE
+    RECV        = GET
     INDIVIDUAL  = 1 << 7
     REQ_CPU     = 1 << 27
     REQ_CPU_WB  = 0 << 28

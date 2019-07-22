@@ -34,6 +34,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
+#include <zhpe.h>
+#include <zhpe_driver.h>
+
 #include <linux/fs.h>
 #include <linux/kernel.h>
 #include <linux/kmod.h>
@@ -43,7 +46,6 @@
 #include <linux/module.h>
 #include <linux/poll.h>
 #include <linux/rbtree.h>
-#include <linux/sched.h>
 #include <linux/slab.h>
 #include <linux/version.h>
 #include <linux/uaccess.h>
@@ -53,9 +55,6 @@
 #include <linux/sched/signal.h>
 #include <linux/sched/task.h>
 #endif
-#include <zhpe.h>
-#include <zhpe_driver.h>
-
 
 /* Forward declarations */
 static int xdm_last_used_slice = SLICES-1;

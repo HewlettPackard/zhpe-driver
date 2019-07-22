@@ -55,10 +55,10 @@ _EXTERN_C_BEG
 
 #define ZHPE_MR_GET             ((uint32_t)1 << 0)
 #define ZHPE_MR_PUT             ((uint32_t)1 << 1)
-#define ZHPE_MR_SEND            ZHPE_MR_GET_REMOTE
-#define ZHPE_MR_RECV            ZHPE_MR_GET
 #define ZHPE_MR_GET_REMOTE      ((uint32_t)1 << 2)
 #define ZHPE_MR_PUT_REMOTE      ((uint32_t)1 << 3)
+#define ZHPE_MR_SEND            ZHPE_MR_GET_REMOTE
+#define ZHPE_MR_RECV            ZHPE_MR_GET
 #define ZHPE_MR_FLAG0           ((uint32_t)1 << 4)  /* Usable by zhpeq */
 #define ZHPE_MR_FLAG1           ((uint32_t)1 << 5)
 #define ZHPE_MR_FLAG2           ((uint32_t)1 << 6)
