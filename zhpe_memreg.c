@@ -1067,7 +1067,7 @@ int zhpe_user_req_RMR_IMPORT(struct io_entry *entry)
 
  addr:
     rmr->req_addr = req_addr;
-    rmr->mmap_pfn = ROUND_DOWN_PAGE(req_addr, BIT_ULL(pg_ps)) >> PAGE_SHIFT;
+    rmr->mmap_pfn = req_addr >> PAGE_SHIFT;
     rsp->rmr_import.req_addr = req_addr;
     rsp->rmr_import.offset = offset;
     rsp->rmr_import.pg_ps = pg_ps;

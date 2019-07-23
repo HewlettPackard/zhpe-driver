@@ -577,7 +577,7 @@ union zpages *_rmr_zpages_alloc(const char *callf, uint line,
         goto done;
 
     ret->rmrz.page_type = RMR_PAGE;
-    ret->rmrz.size = rmr->pte_info.length_adjusted;
+    ret->rmrz.size = rmr->pte_info.length;
     ret->rmrz.rmr = rmr;
 
  done:
@@ -1256,11 +1256,12 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
 
     offset = vma->vm_pgoff << PAGE_SHIFT;
     length = vma->vm_end - vma->vm_start;
-    debug(DEBUG_MMAP, "%s:%s,%u:vm_start=0x%lx, vm_end=0x%lx, offset=0x%lx\n",
-          zhpe_driver_name, __func__, __LINE__,
-          vma->vm_start, vma->vm_end, offset);
+    debugx(DEBUG_MMAP, "vm_start=0x%lx, vm_end=0x%lx, offset=0x%lx\n",
+           vma->vm_start, vma->vm_end, offset);
     spin_lock(&fdata->zmap_lock);
     list_for_each_entry(zmap, &fdata->zmap_list, list) {
+        debugx(DEBUG_MMAP, "zmap %px offset=0x%lx length=0x%lx\n",
+               zmap, zmap->offset, zmap->zpages->hdr.size);
         if (offset == zmap->offset &&
             length == zmap->zpages->hdr.size) {
             if (!zmap->owner || zmap->owner == fdata)
@@ -1270,8 +1271,7 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
     }
     spin_unlock(&fdata->zmap_lock);
     if (ret < 0) {
-        debug(DEBUG_MMAP, "%s:%s,%u:ret < 0 - zmap not found in zmap_list\n",
-                zhpe_driver_name, __func__, __LINE__);
+        debugx(DEBUG_MMAP, "ret < 0 - zmap not found in zmap_list\n");
         goto done;
     }
     ret = -EINVAL;
@@ -1360,10 +1360,8 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
             vma->vm_flags &= ~(VM_WRITE | VM_MAYWRITE);
             vma_set_page_prot(vma);
         }
-        debug(DEBUG_MMAP, "%s:%s,%u:RMR mmap_pfn=0x%lx, vm_page_prot=0x%lx\n",
-              zhpe_driver_name, __func__, __LINE__,
-              zpages->rmrz.rmr->mmap_pfn,
-              pgprot_val(vma->vm_page_prot));
+        debugx(DEBUG_MMAP, "RMR mmap_pfn=0x%lx, vm_page_prot=0x%lx\n",
+               zpages->rmrz.rmr->mmap_pfn, pgprot_val(vma->vm_page_prot));
         ret = io_remap_pfn_range(vma, vma->vm_start,
                                  zpages->rmrz.rmr->mmap_pfn,
                                  length, vma->vm_page_prot);
