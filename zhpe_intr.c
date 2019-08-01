@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2018-2019 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -103,16 +103,14 @@ int zhpe_register_rdm_interrupt(struct slice *sl,
 
     irq_index = zhpe_get_irq_index(sl, queue);
     if (irq_index < 0) {
-        debug(DEBUG_INTR, "%s:%s: get_irq_index failed with %d\n",
-              zhpe_driver_name, __func__, irq_index);
+        debug(DEBUG_INTR, "get_irq_index failed with %d\n", irq_index);
         return -1;
     }
 
     /* Add an entry to the linked list */
     new_entry = do_kmalloc(sizeof(*new_entry), GFP_KERNEL, true);
     if (new_entry == NULL) {
-        debug(DEBUG_INTR, "%s:%s: kmalloc failed\n",
-              zhpe_driver_name, __func__);
+        debug(DEBUG_INTR, "kmalloc failed\n");
         return -ENOMEM;
     }
     new_entry->irq_index = irq_index;
@@ -127,8 +125,8 @@ int zhpe_register_rdm_interrupt(struct slice *sl,
     spin_unlock_irqrestore(&sl->irq_vectors[vector].list_lock, flags);
 
     debug(DEBUG_INTR,
-          "%s:%s: added handler and data for slice %d and queue %d to vector %d\n",
-          zhpe_driver_name, __func__, sl->id, queue, vector);
+          "added handler and data for slice %d and queue %d to vector %d\n",
+          sl->id, queue, vector);
     return 0;
 }
 
@@ -146,9 +144,8 @@ void zhpe_unregister_rdm_interrupt(struct slice *sl, int queue)
         tmp = list_entry(pos, struct rdm_vector_list, list);
         if (tmp->queue == queue) {
             debug(DEBUG_INTR,
-                  "%s:%s: removed handler and data for slice %d and queue %d"
-                  " from vector %d\n",
-                  zhpe_driver_name, __func__, sl->id, queue, vector);
+                  "removed handler and data for slice %d and queue %d"
+                  " from vector %d\n", sl->id, queue, vector);
             list_del(pos);
             do_kfree(tmp);
             break;

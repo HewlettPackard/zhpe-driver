@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2017-2019 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -150,8 +150,8 @@ static bool _expected_saw(const char *callf, uint line,
     if (expected == saw)
         return true;
 
-    printk(KERN_ERR "%s,%u:%s:%s:expected 0x%lx saw 0x%lx\n",
-           callf, line, __func__, label, expected, saw);
+    zprintk_caller(KERN_ERR, callf, line, "%s:%s:expected 0x%lx saw 0x%lx\n",
+                   __func__, label, expected, saw);
 
     return false;
 }
@@ -169,8 +169,7 @@ void _do_kfree(const char *callf, uint line, void *ptr)
     ptr -= sizeof(void *);
     size = *(uintptr_t *)ptr;
     atomic64_sub(size, &mem_total);
-    debug(DEBUG_MEM, "%s:%s,%u:%s:ptr 0x%px size %lu\n",
-          zhpe_driver_name, callf, line, __func__, ptr, size);
+    debug(DEBUG_MEM, "ptr 0x%px size %lu\n", ptr, size);
     kfree(ptr);
 }
 
@@ -183,15 +182,15 @@ void *_do_kmalloc(const char *callf, uint line,
     ptr = kmalloc(size + sizeof(void *), flags);
     if (!ptr) {
         if (flags != GFP_ATOMIC)
-            printk(KERN_ERR "%s:%s,%d:%s:failed to allocate %lu bytes\n",
-                   zhpe_driver_name, callf, line, __func__, size);
+            zprintk_caller(KERN_ERR, callf, line,
+                           "%s:failed to allocate %lu bytes\n", __func__, size);
         return NULL;
     }
     ret = ptr + sizeof(void *);
     if (zero)
         memset(ret, 0, size);
-    debug(DEBUG_MEM, "%s:%s,%u:%s:ptr 0x%px ret 0x%px size %lu\n",
-          zhpe_driver_name, callf, line, __func__, ptr, ret, size);
+    debug_caller(DEBUG_MEM, callf, line, "%s:ptr 0x%px ret 0x%px size %lu\n",
+                 __func__, ptr, ret, size);
     atomic64_add(size, &mem_total);
     *(uintptr_t *)ptr = size;
 
@@ -210,9 +209,9 @@ void _do_free_pages(const char *callf, uint line, void *ptr, int order)
     atomic64_sub(size, &mem_total);
     page = virt_to_page(ptr);
     (void)page;
-    debug(DEBUG_MEM, "%s:%s,%u:%s:ptr/page/pfn 0x%px/0x%px/0x%lx size %lu\n",
-          zhpe_driver_name, callf, line, __func__,
-          ptr, page, page_to_pfn(page), size);
+    debug_caller(DEBUG_MEM, callf, line,
+                 "%s:ptr/page/pfn 0x%px/0x%px/0x%lx size %lu\n",
+                 __func__, ptr, page, page_to_pfn(page), size);
     free_pages((ulong)ptr, order);
 }
 
@@ -226,8 +225,8 @@ void *_do__get_free_pages(const char *callf, uint line,
     ret = (void *)__get_free_pages(flags, order);
     if (!ret) {
         if (flags != GFP_ATOMIC)
-            printk(KERN_ERR "%s:%s,%u:%s:failed to allocate %lu bytes\n",
-                   zhpe_driver_name, callf, line, __func__, size);
+            zprintk_caller(KERN_ERR, callf, line,
+                           "%s:failed to allocate %lu bytes\n", __func__, size);
         return NULL;
     }
     if (zero)
@@ -235,9 +234,9 @@ void *_do__get_free_pages(const char *callf, uint line,
     atomic64_add(size, &mem_total);
     page = virt_to_page(ret);
     (void)page;
-    debug(DEBUG_MEM, "%s:%s,%u:%s:ret/page/pfn 0x%px/0x%px/0x%lx size %lu\n",
-          zhpe_driver_name, callf, line, __func__,
-          ret, page, page_to_pfn(page), size);
+    debug_caller(DEBUG_MEM, callf, line,
+                 "%s:ret/page/pfn 0x%px/0x%px/0x%lx size %lu\n",
+                 __func__, ret, page, page_to_pfn(page), size);
 
     return ret;
 }
@@ -249,8 +248,8 @@ static inline void _put_io_entry(const char *callf, uint line,
 
     if (entry) {
         count = atomic_dec_return(&entry->count);
-        debug(DEBUG_COUNT, "%s:%s,%u:%s:entry 0x%px count %d\n",
-              zhpe_driver_name, callf, line, __func__, entry, count);
+        debug_caller(DEBUG_COUNT, callf, line, "%s:entry 0x%px count %d\n",
+                     __func__, entry, count);
         if (!count && entry->free)
             entry->free(callf, line, entry);
     }
@@ -270,8 +269,8 @@ static inline struct io_entry *_get_io_entry(const char *callf, uint line,
     count = atomic_inc_return(&entry->count);
     /* Override unused variable warning. */
     (void)count;
-    debug(DEBUG_COUNT, "%s:%s,%u:%s:entry 0x%px count %d\n",
-          zhpe_driver_name, callf, line, __func__, entry, count);
+    debug_caller(DEBUG_COUNT, callf, line, "%s:entry 0x%px count %d\n",
+                 __func__, entry, count);
 
     return entry;
 }
@@ -286,13 +285,12 @@ static void _free_io_lists(const char *callf, uint line,
     struct io_entry     *entry;
     int i = 0;
 
-    debug(DEBUG_RELEASE, "%s:%s,%u:%s:fdata 0x%px\n",
-          zhpe_driver_name, callf, line, __func__, fdata);
+    debug_caller(DEBUG_RELEASE, callf, line, "%s:fdata 0x%px\n",
+                 __func__, fdata);
 
     list_for_each_entry_safe(entry, next, &fdata->rd_list, list) {
-        debug(DEBUG_RELEASE, "%s:%s,%u:i %d entry 0x%px idx 0x%04x\n",
-              zhpe_driver_name, __func__, __LINE__, i, entry,
-              entry->op.hdr.index);
+        debug(DEBUG_RELEASE, "i %d entry 0x%px idx 0x%04x\n",
+              i, entry, entry->op.hdr.index);
         list_del_init(&entry->list);
         put_io_entry(entry);
         i++;
@@ -314,8 +312,8 @@ static inline void _put_file_data(const char *callf, uint line,
 
     if (fdata) {
         count = atomic_dec_return(&fdata->count);
-        debug(DEBUG_COUNT, "%s:%s,%u:%s:fdata 0x%px count %d\n",
-              zhpe_driver_name, callf, line, __func__, fdata, count);
+        debug_caller(DEBUG_COUNT, callf, line, "%s:fdata 0x%px count %d\n",
+                     __func__, fdata, count);
         if (!count && fdata->free)
             fdata->free(callf, line, fdata);
     }
@@ -335,8 +333,8 @@ static inline struct file_data *_get_file_data(const char *callf, uint line,
     count = atomic_inc_return(&fdata->count);
     /* Override unused variable warning. */
     (void)count;
-    debug(DEBUG_COUNT, "%s:%s,%u:%s:fdata 0x%px count %d\n",
-          zhpe_driver_name, callf, line, __func__, fdata, count);
+    debug_caller(DEBUG_COUNT, callf, line, "%s:fdata 0x%px count %d\n",
+                 __func__, fdata, count);
 
     return fdata;
 }
@@ -354,12 +352,11 @@ void queue_zpages_free(union zpages *zpages)
     for (i = 0; i < npages; i++) {
         page = virt_to_page(zpages->queue.pages[i]);
         if (page_count(page) != 1 || page_mapcount(page) != 0)
-            printk(KERN_WARNING
-                   "%s:%s,%u:i %lu ptr/page/pfn 0x%p/0x%p/0x%lx c %d/%d\n",
-                   zhpe_driver_name, __func__, __LINE__,
-                   i, zpages->queue.pages[i],
-                   page, page_to_pfn(page), page_count(page),
-                   page_mapcount(page));
+            zprintk(KERN_WARNING,
+                    "i %lu ptr/page/pfn 0x%p/0x%p/0x%lx c %d/%d\n",
+                    i, zpages->queue.pages[i],
+                    page, page_to_pfn(page), page_count(page),
+                    page_mapcount(page));
         do_free_pages(zpages->queue.pages[i], 0);
     }
 }
@@ -369,8 +366,7 @@ void _zpages_free(const char *callf, uint line, union zpages *zpages)
     if (!zpages)
         return;
 
-    debug(DEBUG_MEM, "%s:%s,%u:%s:zpages 0x%px\n",
-          zhpe_driver_name, callf, line, __func__, zpages);
+    debug_caller(DEBUG_MEM, callf, line, "%s:zpages 0x%px\n", __func__, zpages);
 
     /* Revisit: most of these need zap_vma_ptes(vma, addr, size); */
     switch (zpages->hdr.page_type) {
@@ -406,8 +402,7 @@ union zpages *_hsr_zpage_alloc(
 {
     union zpages       *ret = NULL;
 
-    debug(DEBUG_MEM, "%s:%s,%u:%s:page_type HSR_PAGE\n",
-          zhpe_driver_name, callf, line, __func__);
+    debug_caller(DEBUG_MEM, callf, line, "%s:page_type HSR_PAGE\n", __func__);
 
     /* kmalloc space for the return and an array of pages in the zpage struct */
     ret = do_kmalloc(sizeof(*ret), GFP_KERNEL, true);
@@ -419,8 +414,7 @@ union zpages *_hsr_zpage_alloc(
     ret->hsr.base_addr = base_addr;
 
  done:
-    debug(DEBUG_MEM, "%s:%s,%u:%s:ret 0x%px\n",
-          zhpe_driver_name, callf, line, __func__, ret);
+    debug_caller(DEBUG_MEM, callf, line, "%s:ret 0x%px\n", __func__, ret);
 
     return ret;
 }
@@ -441,8 +435,7 @@ union zpages *_dma_zpages_alloc(
     int                 order = 0;
     size_t              npages;
 
-    debug(DEBUG_MEM, "%s:%s,%u:%s:page_type DMA_PAGE\n",
-          zhpe_driver_name, callf, line, __func__);
+    debug_caller(DEBUG_MEM, callf, line, "%s:page_type DMA_PAGE\n", __func__);
 
     order = get_order(size);
     npages = 1UL << order;
@@ -465,8 +458,7 @@ union zpages *_dma_zpages_alloc(
     }
 
  done:
-    debug(DEBUG_MEM, "%s:%s,%u:%s:ret 0x%px\n",
-          zhpe_driver_name, callf, line, __func__, ret);
+    debug_caller(DEBUG_MEM, callf, line, "%s:ret 0x%px\n", __func__, ret);
 
     return ret;
 }
@@ -505,8 +497,9 @@ union zpages *_queue_zpages_alloc(
     size_t              npages;
     size_t              i;
 
-    debug(DEBUG_MEM, "%s:%s,%u:%s:page_type QUEUE_PAGE size %lu contig %d\n",
-          zhpe_driver_name, callf, line, __func__, size, contig);
+    debug_caller(DEBUG_MEM, callf, line,
+                 "%s:page_type QUEUE_PAGE size %lu contig %d\n",
+                 __func__, size, contig);
 
     if  (contig) {
         order = get_order(size);
@@ -552,8 +545,7 @@ union zpages *_queue_zpages_alloc(
     }
 
  done:
-    debug(DEBUG_MEM, "%s:%s,%u:%s:ret 0x%px\n",
-          zhpe_driver_name, callf, line, __func__, ret);
+    debug_caller(DEBUG_MEM, callf, line,"%s:ret 0x%px\n", __func__, ret);
 
     return ret;
 }
@@ -568,8 +560,7 @@ union zpages *_rmr_zpages_alloc(const char *callf, uint line,
 {
     union zpages       *ret = NULL;
 
-    debug(DEBUG_MEM, "%s:%s,%u:%s:page_type RMR_PAGE\n",
-          zhpe_driver_name, callf, line, __func__);
+    debug_caller(DEBUG_MEM, callf, line, "%s:page_type RMR_PAGE\n", __func__);
 
     /* kmalloc space for the return struct */
     ret = do_kmalloc(sizeof(*ret), GFP_KERNEL, true);
@@ -581,8 +572,7 @@ union zpages *_rmr_zpages_alloc(const char *callf, uint line,
     ret->rmrz.rmr = rmr;
 
  done:
-    debug(DEBUG_MEM, "%s:%s,%u:%s:ret 0x%px\n",
-          zhpe_driver_name, callf, line, __func__, ret);
+    debug_caller(DEBUG_MEM, callf, line, "%s:ret 0x%px\n", __func__, ret);
 
     return ret;
 }
@@ -592,9 +582,8 @@ void _zmap_free(const char *callf, uint line, struct zmap *zmap)
     if (!zmap)
         return;
 
-    debug(DEBUG_MEM, "%s:%s,%u:%s:zmap 0x%px offset 0x%lx\n",
-          zhpe_driver_name, callf, line, __func__,
-          zmap, zmap->offset);
+    debug_caller(DEBUG_MEM, callf, line, "%s:zmap 0x%px offset 0x%lx\n",
+                 __func__, zmap, zmap->offset);
 
     if (zmap->zpages)
         zpages_free(zmap->zpages);
@@ -612,8 +601,7 @@ struct zmap *_zmap_alloc(
     ulong               coff;
     size_t              size;
 
-    debug(DEBUG_MEM, "%s:%s,%u:%s:zpages 0x%px\n",
-          zhpe_driver_name, callf, line, __func__, zpages);
+    debug_caller(DEBUG_MEM, callf, line, "%s:zpages 0x%px\n", __func__, zpages);
     ret = _do_kmalloc(callf, line, sizeof(*ret), GFP_KERNEL, true);
     if (!ret) {
         ret = ERR_PTR(-ENOMEM);
@@ -651,8 +639,7 @@ struct zmap *_zmap_alloc(
     spin_unlock(&fdata->zmap_lock);
     if (list_empty(&ret->list)) {
         _zmap_free(callf, line, ret);
-        printk(KERN_ERR "%s:%s,%u:Out of file space.\n",
-               zhpe_driver_name, __func__, __LINE__);
+        zprintk(KERN_ERR, "Out of file space.\n");
         ret = ERR_PTR(-ENOSPC);
         goto done;
     }
@@ -668,8 +655,8 @@ bool _free_zmap_list(const char *callf, uint line,
     struct zmap         *zmap;
     struct zmap         *next;
 
-    debug(DEBUG_RELEASE, "%s:%s,%u:%s:fdata 0x%px\n",
-          zhpe_driver_name, callf, line, __func__, fdata);
+    debug_caller(DEBUG_RELEASE, callf, line, "%s:fdata 0x%px\n",
+                 __func__, fdata);
 
     spin_lock(&fdata->zmap_lock);
     list_for_each_entry_safe(zmap, next, &fdata->zmap_list, list) {
@@ -873,21 +860,19 @@ static uint parse_page_grid_opt(char *str, uint64_t max_page_count,
 
     for (s = str_copy; s; s = k) {
         k = strchr(s, ',');
-        debug(DEBUG_ZMMU, "%s:%s,%u: str=%px,s=%px,k=%px\n",
-              zhpe_driver_name, __func__, __LINE__,
-              str_copy, s, k);
+        debug(DEBUG_ZMMU, "str=%px,s=%px,k=%px\n", str_copy, s, k);
 
         if (k)
             *k++ = 0;
-        debug(DEBUG_ZMMU, "%s:%s,%u: calling parse_page_grid_one(s=%s,max_page_count=%llu, &pg[cnt]=%px)\n",
-              zhpe_driver_name, __func__, __LINE__,
+        debug(DEBUG_ZMMU,
+              "calling parse_page_grid_one"
+              "(s=%s,max_page_count=%llu, &pg[cnt]=%px)\n",
               s, max_page_count, &pg[cnt]);
         ret = parse_page_grid_one(s, max_page_count, allow_cpu_visible,
                                   &pg[cnt]);
-        debug(DEBUG_ZMMU, "%s:%s,%u:ret=%d, page_size=%u, page_count=%u, "
-              "cpu_visible=%d\n",
-              zhpe_driver_name, __func__, __LINE__, ret,
-              pg[cnt].page_grid.page_size, pg[cnt].page_grid.page_count,
+        debug(DEBUG_ZMMU,
+              "ret=%d, page_size=%u, page_count=%u, cpu_visible=%d\n",
+              ret, pg[cnt].page_grid.page_size, pg[cnt].page_grid.page_count,
               pg[cnt].cpu_visible);
         if (pg[cnt].cpu_visible) {
             bit = test_and_set_bit(pg[cnt].page_grid.page_size,
@@ -899,8 +884,7 @@ static uint parse_page_grid_opt(char *str, uint64_t max_page_count,
         if (!bit && ret == 0)
             cnt++;
         else
-            printk(KERN_WARNING "%s:%s:invalid page_grid parameter - %s\n",
-                   zhpe_driver_name, __func__, s);
+            zprintk(KERN_WARNING, "invalid page_grid parameter - %s\n", s);
         if (cnt == PAGE_GRID_ENTRIES)
             break;
     }
@@ -956,20 +940,20 @@ static int zhpe_user_req_INIT(struct io_entry *entry)
     spin_unlock_irqrestore(&fdata->uuid_lock, flags);
 
  out:
-    debug(DEBUG_IO, "%s:%s,%u:ret = %d uuid = %s, ro_rkey=0x%08x, rw_rkey=0x%08x\n",
-          zhpe_driver_name, __func__, __LINE__, status,
-          zhpe_uuid_str(&rsp->init.uuid, str, sizeof(str)), ro_rkey, rw_rkey);
+    debug(DEBUG_IO, "ret = %d uuid = %s, ro_rkey=0x%08x, rw_rkey=0x%08x\n",
+          status, zhpe_uuid_str(&rsp->init.uuid, str, sizeof(str)),
+          ro_rkey, rw_rkey);
     return queue_io_rsp(entry, sizeof(rsp->init), status);
 }
 
 /* This function called by IOMMU driver on PPR failure */
 static int iommu_invalid_ppr_cb(struct pci_dev *pdev, int pasid,
-            unsigned long address, u16 flags)
+                                unsigned long address, u16 flags)
 
 {
-    printk(KERN_WARNING "%s:%s IOMMU PRR failure device = %s, pasid = %d address = 0x%lx flags = %ux\n",
-          zhpe_driver_name, __func__, pci_name(pdev), pasid,
-          address, flags);
+    zprintk(KERN_WARNING,
+            "IOMMU PRR failure device = %s, pasid = %d address = 0x%lx"
+            " flags = %ux\n", pci_name(pdev), pasid, address, flags);
 
     return AMD_IOMMU_INV_PRI_RSP_INVALID;
 }
@@ -1038,8 +1022,7 @@ static int zhpe_release(struct inode *inode, struct file *file)
     spin_unlock(&fdata->bridge->fdata_lock);
     put_file_data(fdata);
 
-    debug(DEBUG_IO, "%s:%s,%u:ret = %d pid = %d\n",
-          zhpe_driver_name, __func__, __LINE__, 0, task_pid_vnr(current));
+    debug(DEBUG_IO, "ret = %d\n", 0);
 
     return 0;
 }
@@ -1090,9 +1073,7 @@ static ssize_t zhpe_read(struct file *file, char __user *buf, size_t len,
 
  done:
     debug_cond(DEBUG_IO, (ret /* != -EAGAIN*/),
-               "%s:%s,%u:ret = %ld len = %ld pid = %d\n",
-               zhpe_driver_name, __func__, __LINE__, ret, len,
-               task_pid_vnr(current));
+               "ret = %ld len = %ld\n", ret, len);
 
     return (ret < 0 ? ret : len);
 }
@@ -1116,8 +1097,7 @@ static ssize_t zhpe_write(struct file *file, const char __user *buf,
      */
     if (len < sizeof(*op_hdr)) {
         ret = -EINVAL;
-        printk(KERN_ERR "%s:%s,%u:Unexpected short write %lu\n",
-               zhpe_driver_name, __func__, __LINE__, len);
+        zprintk(KERN_ERR, "Unexpected short write %lu\n", len);
         goto done;
     }
 
@@ -1142,8 +1122,7 @@ static ssize_t zhpe_write(struct file *file, const char __user *buf,
 
 #define USER_REQ_HANDLER(_op)                           \
     case ZHPE_OP_ ## _op:                               \
-        debug(DEBUG_IO, "%s:%s:ZHPE_OP_" # _op,         \
-              zhpe_driver_name, __func__);               \
+        debug(DEBUG_IO, "ZHPE_OP_" # _op);              \
         op_len = sizeof(struct zhpe_req_ ## _op);       \
         if (len != op_len)                              \
             goto done;                                  \
@@ -1167,8 +1146,7 @@ static ssize_t zhpe_write(struct file *file, const char __user *buf,
     USER_REQ_HANDLER(RQFREE);
 
     default:
-        printk(KERN_ERR "%s:%s,%u:Unexpected opcode 0x%02x\n",
-               zhpe_driver_name, __func__, __LINE__, op_hdr->opcode);
+        zprintk(KERN_ERR, "Unexpected opcode 0x%02x\n", op_hdr->opcode);
         ret = -EIO;
         break;
     }
@@ -1185,10 +1163,7 @@ static ssize_t zhpe_write(struct file *file, const char __user *buf,
  done:
     put_io_entry(entry);
 
-    debug_cond(DEBUG_IO, (ret != -EAGAIN),
-               "%s:%s,%u:ret = %ld len = %ld pid = %d\n",
-               zhpe_driver_name, __func__, __LINE__, ret, len,
-               task_pid_vnr(current));
+    debug_cond(DEBUG_IO, (ret != -EAGAIN), "ret = %ld len = %ld\n", ret, len);
 
     return (ret < 0 ? ret : len);
 }
@@ -1256,12 +1231,12 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
 
     offset = vma->vm_pgoff << PAGE_SHIFT;
     length = vma->vm_end - vma->vm_start;
-    debugx(DEBUG_MMAP, "vm_start=0x%lx, vm_end=0x%lx, offset=0x%lx\n",
-           vma->vm_start, vma->vm_end, offset);
+    debug(DEBUG_MMAP, "vm_start=0x%lx, vm_end=0x%lx, offset=0x%lx\n",
+          vma->vm_start, vma->vm_end, offset);
     spin_lock(&fdata->zmap_lock);
     list_for_each_entry(zmap, &fdata->zmap_list, list) {
-        debugx(DEBUG_MMAP, "zmap %px offset=0x%lx length=0x%lx\n",
-               zmap, zmap->offset, zmap->zpages->hdr.size);
+        debug(DEBUG_MMAP, "zmap %px offset=0x%lx length=0x%lx\n",
+              zmap, zmap->offset, zmap->zpages->hdr.size);
         if (offset == zmap->offset &&
             length == zmap->zpages->hdr.size) {
             if (!zmap->owner || zmap->owner == fdata)
@@ -1271,26 +1246,22 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
     }
     spin_unlock(&fdata->zmap_lock);
     if (ret < 0) {
-        debugx(DEBUG_MMAP, "ret < 0 - zmap not found in zmap_list\n");
+        debug(DEBUG_MMAP, "ret < 0 - zmap not found in zmap_list\n");
         goto done;
     }
     ret = -EINVAL;
     if (!(vma->vm_flags & VM_SHARED)) {
-        printk(KERN_ERR "%s:%s,%u:vm_flags !VM_SHARED\n",
-                zhpe_driver_name, __func__, __LINE__);
+        zprintk(KERN_ERR, "vm_flags !VM_SHARED\n");
         goto done;
     }
     if (vma->vm_flags & VM_EXEC) {
-        printk(KERN_ERR "%s:%s,%u:vm_flags VM_EXEC\n",
-                zhpe_driver_name, __func__, __LINE__);
+        zprintk(KERN_ERR, "vm_flags VM_EXEC\n");
         goto done;
     }
     vma->vm_flags &= ~VM_MAYEXEC;
     if (zmap == fdata->global_shared_zmap) {
         if (vma->vm_flags & VM_WRITE) {
-            printk(KERN_ERR "%s:%s,%u:global_zhared_zmap:"
-                   "vm_flags VM_WRITE\n",
-                   zhpe_driver_name, __func__, __LINE__);
+            zprintk(KERN_ERR, "global_zhared_zmap:vm_flags VM_WRITE\n");
             vma->vm_flags &= ~(VM_WRITE|VM_MAYWRITE);
         }
     }
@@ -1307,8 +1278,7 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
             ret = vm_insert_page(vma, vaddr,
                                  virt_to_page(zpages->queue.pages[i]));
             if (ret < 0) {
-                printk(KERN_ERR "%s:%s,%u:vm_insert_page() returned %d\n",
-                       zhpe_driver_name, __func__, __LINE__, ret);
+                zprintk(KERN_ERR, "vm_insert_page() returned %d\n", ret);
                 goto done;
             }
         }
@@ -1324,8 +1294,7 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
                                 length);
         vma->vm_pgoff = pgoff;
         if (ret < 0) {
-            printk(KERN_ERR "%s:%s,%u:dma_mmap_coherent() returned %d\n",
-                   zhpe_driver_name, __func__, __LINE__, ret);
+            zprintk(KERN_ERR, "dma_mmap_coherent() returned %d\n", ret);
             goto done; /* BUG to break */
         }
         break;
@@ -1336,8 +1305,7 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
                                  length,
                                  vma->vm_page_prot);
         if (ret) {
-            printk(KERN_ERR "%s:%s,%u:HSR io_remap_pfn_range failed\n",
-                   zhpe_driver_name, __func__, __LINE__);
+            zprintk(KERN_ERR, "HSR io_remap_pfn_range returned %d\n", ret);
             goto done;
         }
         break;
@@ -1360,14 +1328,13 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
             vma->vm_flags &= ~(VM_WRITE | VM_MAYWRITE);
             vma_set_page_prot(vma);
         }
-        debugx(DEBUG_MMAP, "RMR mmap_pfn=0x%lx, vm_page_prot=0x%lx\n",
-               zpages->rmrz.rmr->mmap_pfn, pgprot_val(vma->vm_page_prot));
+        debug(DEBUG_MMAP, "RMR mmap_pfn=0x%lx, vm_page_prot=0x%lx\n",
+              zpages->rmrz.rmr->mmap_pfn, pgprot_val(vma->vm_page_prot));
         ret = io_remap_pfn_range(vma, vma->vm_start,
                                  zpages->rmrz.rmr->mmap_pfn,
                                  length, vma->vm_page_prot);
         if (ret) {
-            printk(KERN_ERR "%s:%s,%u:RMR io_remap_pfn_range returned %d\n",
-                   zhpe_driver_name, __func__, __LINE__, ret);
+            zprintk(KERN_ERR, "RMR io_remap_pfn_range returned %d\n", ret);
             goto done;
         }
         break;
@@ -1378,9 +1345,8 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
         if (vma->vm_private_data) {
             vma->vm_private_data = NULL;
         }
-        printk(KERN_ERR "%s:%s,%u:ret = %d:start 0x%lx end 0x%lx off 0x%lx\n",
-               zhpe_driver_name, __func__, __LINE__, ret,
-               vma->vm_start, vma->vm_end, vma->vm_pgoff);
+        zprintk(KERN_ERR, "ret = %d:start 0x%lx end 0x%lx off 0x%lx\n",
+                ret, vma->vm_start, vma->vm_end, vma->vm_pgoff);
     }
 
     return ret;
@@ -1409,16 +1375,14 @@ static int alloc_map_shared_data(struct file_data *fdata)
     fdata->local_shared_zpage =
         shared_zpage_alloc(sizeof(*local_shared_data), LOCAL_SHARED_PAGE);
     if (!fdata->local_shared_zpage) {
-        debug(DEBUG_IO, "%s:%s:queue_zpages_alloc failed.\n",
-               zhpe_driver_name, __func__);
+        debug(DEBUG_IO, "queue_zpages_alloc failed.\n");
         ret = -ENOMEM;
         goto done;
     }
     /* Add shared data to the zmap_list */
     fdata->local_shared_zmap = zmap_alloc(fdata, fdata->local_shared_zpage);
     if (IS_ERR(fdata->local_shared_zmap)) {
-        debug(DEBUG_IO, "%s:%s,%u: zmap_alloc failed\n",
-            zhpe_driver_name, __func__, __LINE__);
+        debug(DEBUG_IO, "zmap_alloc failed\n");
         ret = PTR_ERR(fdata->local_shared_zmap);
         fdata->local_shared_zmap = NULL;
         goto err_zpage_free;
@@ -1437,8 +1401,7 @@ static int alloc_map_shared_data(struct file_data *fdata)
     /* Map the global shared page for this process's address space. */
     fdata->global_shared_zmap = zmap_alloc(fdata, global_shared_zpage);
     if (IS_ERR(fdata->global_shared_zmap)) {
-        debug(DEBUG_IO, "%s:%s,%u: zmap_alloc failed\n",
-                zhpe_driver_name, __func__, __LINE__);
+        debug(DEBUG_IO, "zmap_alloc failed\n");
         ret = PTR_ERR(fdata->global_shared_zmap);
         fdata->global_shared_zmap = NULL;
             goto err_zpage_free;
@@ -1556,9 +1519,7 @@ static int zhpe_open(struct inode *inode, struct file *file)
     }
     file->private_data = fdata;
 
-    debug(DEBUG_IO, "%s:%s,%u:ret = %d, pid = %d, pasid = %u\n",
-          zhpe_driver_name, __func__, __LINE__, ret,
-          task_pid_vnr(current), (fdata) ? fdata->pasid : 0);
+    debug(DEBUG_IO, "ret = %d, pasid = %d\n", ret, (fdata ? fdata->pasid : -1));
 
     return ret;
 }
@@ -1596,7 +1557,7 @@ static int csr_access_rd(struct bridge *br, uint32_t csr, uint64_t *data)
         goto out;
     pci_read_config_dword(sl->pdev, pos + ZHPE_DVSEC_MBOX_CTRL_OFF, &val);
     if (val & ZHPE_DVSEC_MBOX_CTRL_TRIG) {
-        debugx(DEBUG_PCI, "Mailbox busy\n");
+        debug(DEBUG_PCI, "Mailbox busy\n");
         goto out;
     }
     pci_write_config_dword(sl->pdev, pos + ZHPE_DVSEC_MBOX_ADDR_OFF, csr);
@@ -1605,7 +1566,7 @@ static int csr_access_rd(struct bridge *br, uint32_t csr, uint64_t *data)
     /* Wait 1-2 ms for completion. */
     for (i = 0; i < 100; i++) {
         pci_read_config_dword(sl->pdev, pos + ZHPE_DVSEC_MBOX_CTRL_OFF, &val);
-        debugx(DEBUG_PCI, "val 0x%x, loops %d\n", val, i);
+        debug(DEBUG_PCI, "val 0x%x, loops %d\n", val, i);
         if (!(val & ZHPE_DVSEC_MBOX_CTRL_TRIG)) {
             if (val & ZHPE_DVSEC_MBOX_CTRL_ERR)
                 break;
@@ -1639,7 +1600,7 @@ static int csr_get_gcid(struct bridge *br)
     ret = csr_access_rd(br, ZHPE_CSR_CID, &data);
     if (ret < 0)
         goto out;
-    debugx(DEBUG_PCI, "CID register 0x%llx\n", data);
+    debug(DEBUG_PCI, "CID register 0x%llx\n", data);
     br->gcid = (data >> ZHPE_CSR_CID_SHIFT) & ZHPE_CSR_CID_MASK;
 out:
     mutex_unlock(&br->csr_mutex);
@@ -1670,35 +1631,41 @@ static int zhpe_probe(struct pci_dev *pdev,
         ret = pcie_capability_read_word(pdev, PCI_EXP_DEVCTL2, &devctl2);
         if (ret < 0) {
             dev_warn(&pdev->dev,
-                     "%s:%s:PCIe AtomicOp pcie_capability_read_word failed."
+                     "%s:%s,%u,%d:"
+                     "PCIe AtomicOp pcie_capability_read_word failed,"
                      " ret = 0x%x\n",
-                     zhpe_driver_name, __func__, ret);
+                     zhpe_driver_name, __func__, __LINE__, task_pid_nr(current),
+                     ret);
             goto err_out;
         } else if (!(devctl2 & PCI_EXP_DEVCTL2_ATOMIC_REQ)) {
             dev_warn(&pdev->dev,
-                     "%s:%s:PCIe AtomicOp capability enable failed."
-                     " devctl2 = 0x%x\n",
-                     zhpe_driver_name, __func__, (uint) devctl2);
+                     "%s:%s,%u,%d:"
+                     "PCIe AtomicOp capability enable failed, devctl2 = 0x%x\n",
+                     zhpe_driver_name, __func__, __LINE__, task_pid_nr(current),
+                     (uint)devctl2);
             ret = -EIO;
             goto err_out;
         }
         /* Get the virtual slice ID from the device. */
         pos = pci_find_ext_capability(pdev, PCI_EXT_CAP_ID_DVSEC);
         if (!pos) {
-            dev_warn(&pdev->dev, "%s:%s:No DVSEC capability found\n",
-                     zhpe_driver_name, __func__);
+            dev_warn(&pdev->dev, "%s:%s,%u,%d:No DVSEC capability found\n",
+                     zhpe_driver_name, __func__, __LINE__,
+                     task_pid_nr(current));
             ret = -ENODEV;
             goto err_out;
         }
         pci_read_config_dword(pdev, pos + ZHPE_DVSEC_VSLICE_OFF, &l_slice_id);
         l_slice_id >>= ZHPE_DVSEC_VSLICE_SHIFT;
         l_slice_id &= ZHPE_DVSEC_VSLICE_MASK;
-        dev_info(&pdev->dev, "%s:%s:vslice = %d\n",
-                 zhpe_driver_name, __func__, l_slice_id);
+        dev_info(&pdev->dev, "%s:%s,%u,%d:vslice = %d\n",
+                 zhpe_driver_name, __func__, __LINE__, task_pid_nr(current),
+                 l_slice_id);
         sl = &br->slice[l_slice_id];
         if (SLICE_VALID(sl)) {
-            dev_warn(&pdev->dev, "%s:%s:slice %d already found\n",
-                     zhpe_driver_name, __func__, l_slice_id);
+            dev_warn(&pdev->dev, "%s:%s,%u,%d:slice %d already found\n",
+                     zhpe_driver_name, __func__, __LINE__, task_pid_nr(current),
+                     l_slice_id);
             ret = -ENODEV;
             goto err_out;
         }
@@ -1708,14 +1675,12 @@ static int zhpe_probe(struct pci_dev *pdev,
     sl = &br->slice[l_slice_id];
     atomic_inc(&br->num_slices);
 
-    debug(DEBUG_PCI, "%s:%s device = %s, slice = %u\n",
-          zhpe_driver_name, __func__, pci_name(pdev), l_slice_id);
+    debug(DEBUG_PCI, "device = %s, slice = %u\n", pci_name(pdev), l_slice_id);
 
     ret = pci_enable_device(pdev);
     if (ret) {
-        debug(DEBUG_PCI,
-              "%s:%s:pci_enable_device probe error %d for device %s\n",
-               zhpe_driver_name, __func__, ret, pci_name(pdev));
+        debug(DEBUG_PCI, "pci_enable_device probe error %d for device %s\n",
+              ret, pci_name(pdev));
         goto err_invalid;
     }
 
@@ -1728,17 +1693,17 @@ static int zhpe_probe(struct pci_dev *pdev,
 
     ret = pci_request_regions(pdev, DRIVER_NAME);
     if (ret < 0) {
-        debug(DEBUG_PCI, "%s:%s:pci_request_regions error %d for device %s\n",
-               zhpe_driver_name, __func__, ret, pci_name(pdev));
+        debug(DEBUG_PCI, "pci_request_regions error %d for device %s\n",
+              ret, pci_name(pdev));
         goto err_pci_disable_device;
     }
 
     base_addr = pci_iomap(pdev, ZHPE_ZMMU_XDM_RDM_HSR_BAR, sizeof(struct func1_bar0));
     if (!base_addr) {
         debug(DEBUG_PCI,
-              "%s:%s:cannot iomap bar %u registers of size %lu"
+              "cannot iomap bar %u registers of size %lu"
               " (requested size = %lu)\n",
-              zhpe_driver_name, __func__, ZHPE_ZMMU_XDM_RDM_HSR_BAR,
+              ZHPE_ZMMU_XDM_RDM_HSR_BAR,
               (unsigned long) pci_resource_len(pdev, ZHPE_ZMMU_XDM_RDM_HSR_BAR),
               sizeof(struct func1_bar0));
         ret = -EINVAL;
@@ -1747,13 +1712,10 @@ static int zhpe_probe(struct pci_dev *pdev,
     phys_base = pci_resource_start(pdev, 0);
 
     debug(DEBUG_PCI,
-          "%s:%s bar = %u, start = 0x%lx, actual len = %lu,"
+          "bar = %u, start = 0x%lx, actual len = %lu,"
           " requested len = %lu, base_addr = 0x%lx\n",
-          zhpe_driver_name, __func__, 0,
-          (unsigned long) phys_base,
-          (unsigned long) pci_resource_len(pdev, 0),
-          sizeof(struct func1_bar0),
-          (unsigned long) base_addr);
+          0, (ulong)phys_base, (ulong) pci_resource_len(pdev, 0),
+          sizeof(struct func1_bar0), (ulong) base_addr);
 
     sl->bar = base_addr;
     sl->phys_base = phys_base;
@@ -1768,15 +1730,17 @@ static int zhpe_probe(struct pci_dev *pdev,
                 goto err_pci_iounmap;
         } else {
             if (genz_gcid == INVALID_GCID) {
-                dev_warn(&pdev->dev, "%s:%s:genz_gcid not set\n",
-                         zhpe_driver_name, __func__);
+                dev_warn(&pdev->dev, "%s:%s,%u,%d:genz_gcid not set\n",
+                         zhpe_driver_name, __func__, __LINE__,
+                         task_pid_nr(current));
                 ret = -EINVAL;
                 goto err_pci_iounmap;
             }
             br->gcid = genz_gcid;
         }
-        dev_info(&pdev->dev, "%s:%s:gcid = %d\n",
-                 zhpe_driver_name, __func__, br->gcid);
+        dev_info(&pdev->dev, "%s:%s,%u,%d:gcid = %d\n",
+                 zhpe_driver_name, __func__, __LINE__, task_pid_nr(current),
+                 br->gcid);
     }
 
     zhpe_zmmu_clear_slice(sl);
@@ -1860,8 +1824,7 @@ static void zhpe_remove(struct pci_dev *pdev)
 
     sl = (struct slice *) pci_get_drvdata(pdev);
 
-    debug(DEBUG_PCI, "%s:%s device = %s, slice = %u\n",
-          zhpe_driver_name, __func__, pci_name(pdev), sl->id);
+    debug(DEBUG_PCI, "device = %s, slice = %u\n", pci_name(pdev), sl->id);
 
     zhpe_free_interrupts(pdev);
     if (sl->id == 0) {
@@ -1911,20 +1874,18 @@ static int __init zhpe_init(void)
 
     ret = parse_platform(platform);
     if (ret < 0) {
-        printk(KERN_WARNING "%s:%s:invalid platform parameter.\n",
-               zhpe_driver_name, __func__);
+        zprintk(KERN_WARNING, "invalid platform parameter.\n");
         goto err_out;
     }
     if (!(zhpe_no_avx || boot_cpu_has(X86_FEATURE_AVX))) {
-        printk(KERN_WARNING "%s:%s:missing required AVX CPU feature.\n",
-               zhpe_driver_name, __func__);
+        zprintk(KERN_WARNING, "missing required AVX CPU feature.\n");
         goto err_out;
     }
     ret = -ENOMEM;
-    global_shared_zpage = shared_zpage_alloc(sizeof(*global_shared_data), GLOBAL_SHARED_PAGE);
+    global_shared_zpage = shared_zpage_alloc(sizeof(*global_shared_data),
+                                             GLOBAL_SHARED_PAGE);
     if (!global_shared_zpage) {
-        printk(KERN_WARNING "%s:%s:queue_zpages_alloc failed.\n",
-               zhpe_driver_name, __func__);
+        zprintk(KERN_WARNING, "queue_zpages_alloc failed.\n");
         goto err_out;
     }
     global_shared_data = global_shared_zpage->queue.pages[0];
@@ -1944,26 +1905,21 @@ static int __init zhpe_init(void)
     spin_lock_init(&zhpe_bridge.fdata_lock);
     INIT_LIST_HEAD(&zhpe_bridge.fdata_list);
 
-    debug(DEBUG_ZMMU, "%s:%s,%u: calling zhpe_zmmu_clear_all\n",
-          zhpe_driver_name, __func__, __LINE__);
+    debug(DEBUG_ZMMU, "calling zhpe_zmmu_clear_all\n");
     zhpe_zmmu_clear_all(&zhpe_bridge, false);
-    debug(DEBUG_ZMMU, "%s:%s,%u: calling zhpe_pasid_init\n",
-          zhpe_driver_name, __func__, __LINE__);
+    debug(DEBUG_ZMMU, "calling zhpe_pasid_init\n");
     zhpe_pasid_init();
-    debug(DEBUG_RKEYS, "%s:%s,%u: calling zhpe_rkey_init\n",
-          zhpe_driver_name, __func__, __LINE__);
+    debug(DEBUG_RKEYS, "calling zhpe_rkey_init\n");
     zhpe_rkey_init();
 
-    debug(DEBUG_ZMMU, "%s:%s,%u: req calling parse_page_grid_opt(%s, %u, %px)\n",
-          zhpe_driver_name, __func__, __LINE__,
+    debug(DEBUG_ZMMU, "req calling parse_page_grid_opt(%s, %u, %px)\n",
           req_page_grid, zhpe_req_zmmu_entries, sw_pg);
     cnt = parse_page_grid_opt(req_page_grid, zhpe_req_zmmu_entries, true, sw_pg);
     for (pg = 0; pg < cnt; pg++) {
         pg_index = zhpe_zmmu_req_page_grid_alloc(&zhpe_bridge, &sw_pg[pg]);
     }
 
-    debug(DEBUG_ZMMU, "%s:%s,%u: rsp calling parse_page_grid_opt(%s, %u, %px)\n",
-          zhpe_driver_name, __func__, __LINE__,
+    debug(DEBUG_ZMMU, "rsp calling parse_page_grid_opt(%s, %u, %px)\n",
           rsp_page_grid, zhpe_rsp_zmmu_entries, sw_pg);
     cnt = parse_page_grid_opt(rsp_page_grid, zhpe_rsp_zmmu_entries, false, sw_pg);
     for (pg = 0; pg < cnt; pg++) {
@@ -1977,18 +1933,15 @@ static int __init zhpe_init(void)
     /* Initiate call to zhpe_probe() for each zhpe PCI function */
     ret = pci_register_driver(&zhpe_pci_driver);
     if (ret < 0) {
-        printk(KERN_WARNING "%s:%s:pci_register_driver ret = %d\n",
-               zhpe_driver_name, __func__, ret);
+        zprintk(KERN_WARNING, "pci_register_driver ret = %d\n", ret);
         goto err_cleanup_poll_devs;
     }
 
     /* Create device. */
-    debug(DEBUG_IO, "%s:%s,%u: creating device\n",
-          zhpe_driver_name, __func__, __LINE__);
+    debug(DEBUG_IO, "creating device\n");
     ret = misc_register(&miscdev);
     if (ret < 0) {
-        printk(KERN_WARNING "%s:%s:misc_register() returned %d\n",
-               zhpe_driver_name, __func__, ret);
+        zprintk(KERN_WARNING, "misc_register() returned %d\n", ret);
         goto err_pci_unregister_driver;
     }
 
@@ -2034,6 +1987,5 @@ static void zhpe_exit(void)
     zhpe_pasid_exit();
     zhpe_uuid_exit();
 
-    printk(KERN_INFO "%s:%s mem_total %lld\n",
-           zhpe_driver_name, __func__, (llong)atomic64_read(&mem_total));
+    zprintk(KERN_INFO, "mem_total %lld\n", (llong)atomic64_read(&mem_total));
 }

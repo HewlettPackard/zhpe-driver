@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2018-2019 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -65,11 +65,11 @@ static int rdm_last_used_slice = SLICES-1;
  */
 void zhpe_xqueue_init(struct slice *sl)
 {
-	spin_lock_init(&sl->xdm_slice_lock);
-	bitmap_zero(sl->xdm_alloced_bitmap, MAX_XDM_QUEUES_PER_SLICE);
-	sl->xdm_alloc_count = 0;
+    spin_lock_init(&sl->xdm_slice_lock);
+    bitmap_zero(sl->xdm_alloced_bitmap, MAX_XDM_QUEUES_PER_SLICE);
+    sl->xdm_alloc_count = 0;
 
-	return;
+    return;
 }
 
 /*
@@ -77,11 +77,11 @@ void zhpe_xqueue_init(struct slice *sl)
  */
 void zhpe_rqueue_init(struct slice *sl)
 {
-	spin_lock_init(&sl->rdm_slice_lock);
-	bitmap_zero(sl->rdm_alloced_bitmap, MAX_RDM_QUEUES_PER_SLICE);
-	sl->rdm_alloc_count = 0;
+    spin_lock_init(&sl->rdm_slice_lock);
+    bitmap_zero(sl->rdm_alloced_bitmap, MAX_RDM_QUEUES_PER_SLICE);
+    sl->rdm_alloc_count = 0;
 
-	return;
+    return;
 }
 
 /*
@@ -91,7 +91,7 @@ void zhpe_rqueue_init(struct slice *sl)
  * ECC.
  */
 int xqcm_hsr_offsets[] =
-	{ 0x0, 0x08, 0x10, 0x18, 0x28, 0x40, 0x80, 0xc0, 0x100 };
+{ 0x0, 0x08, 0x10, 0x18, 0x28, 0x40, 0x80, 0xc0, 0x100 };
 #define XDM_A_MASK		0x0000000000008000
 #define XDM_ACC_MASK		0x00000000000007ff
 
@@ -102,95 +102,95 @@ int xqcm_hsr_offsets[] =
  * ECC.
  */
 int rqcm_hsr_offsets[] =
-	{ 0x0, 0x08, 0x40, 0x80, 0xc0 };
+{ 0x0, 0x08, 0x40, 0x80, 0xc0 };
 #define RDM_A_MASK		0x0000000000000001
 
 static DECLARE_WAIT_QUEUE_HEAD(wqA);
 
-void zhpe_debug_xdm_qcm(const char *func, uint line, const void *cqcm)
+void zhpe_debug_xdm_qcm(const char *callf, uint line, const void *cqcm)
 {
-	void            *qcm = (void *)cqcm;
-	uint            off;
-	uint64_t        cmd_addr;
-	uint64_t        cmpl_addr;
-	uint64_t        cmd_paddr;
-	uint64_t        cmpl_paddr;
-	uint64_t        cmd_vaddr;
-	uint64_t        cmpl_vaddr;
+    void            *qcm = (void *)cqcm;
+    uint            off;
+    uint64_t        cmd_addr;
+    uint64_t        cmpl_addr;
+    uint64_t        cmd_paddr;
+    uint64_t        cmpl_paddr;
+    uint64_t        cmd_vaddr;
+    uint64_t        cmpl_vaddr;
 
-	if (!(zhpe_debug_flags & DEBUG_XQUEUE))
-		return;
+    if (!(zhpe_debug_flags & DEBUG_XQUEUE))
+        return;
 
-	cmd_addr = xdm_qcm_read(qcm, XDM_CMD_ADDR_OFFSET) & ~0x1FULL;
-	cmpl_addr = xdm_qcm_read(qcm, XDM_CMPL_ADDR_OFFSET) & ~0x1FULL;
-	if (xdm_qcm_read(qcm, XDM_PASID_OFFSET) & XDM_PASID_QVIRT_FLAG) {
-		cmd_vaddr = cmd_addr;
-		cmpl_vaddr = cmpl_addr;
-		cmd_paddr = 0;
-		cmpl_paddr = 0;
-	} else {
-		cmd_paddr = cmd_addr;
-		cmpl_paddr = cmpl_addr;
-		cmd_vaddr = (uintptr_t)phys_to_virt(cmd_addr);
-		cmpl_vaddr = (uintptr_t)phys_to_virt(cmpl_addr);
-	}
+    cmd_addr = xdm_qcm_read(qcm, XDM_CMD_ADDR_OFFSET) & ~0x1FULL;
+    cmpl_addr = xdm_qcm_read(qcm, XDM_CMPL_ADDR_OFFSET) & ~0x1FULL;
+    if (xdm_qcm_read(qcm, XDM_PASID_OFFSET) & XDM_PASID_QVIRT_FLAG) {
+        cmd_vaddr = cmd_addr;
+        cmpl_vaddr = cmpl_addr;
+        cmd_paddr = 0;
+        cmpl_paddr = 0;
+    } else {
+        cmd_paddr = cmd_addr;
+        cmpl_paddr = cmpl_addr;
+        cmd_vaddr = (uintptr_t)phys_to_virt(cmd_addr);
+        cmpl_vaddr = (uintptr_t)phys_to_virt(cmpl_addr);
+    }
 
-	printk(KERN_DEBUG
-	       "%s,%u:xqcm %px cmd 0x%llx/0x%llx cmpl 0x%llx/0x%llx\n",
-	       func, line, qcm, cmd_vaddr, cmd_paddr, cmpl_vaddr, cmpl_paddr);
-	for (off = XDM_DUMP_08_START; off <= XDM_DUMP_08_END; off += 0x08)
-		printk(KERN_DEBUG "xqcm[0x%03x] = 0x%llx\n",
-		       off, xdm_qcm_read(qcm, off));
-	for (off = XDM_DUMP_40_START; off <= XDM_DUMP_40_END; off += 0x40)
-		printk(KERN_DEBUG "xqcm[0x%03x] = 0x%llx\n",
-		       off, xdm_qcm_read(qcm, off));
+    zprintk_caller(KERN_DEBUG, callf, line, 
+                   "xqcm %px cmd 0x%llx/0x%llx cmpl 0x%llx/0x%llx\n",
+                   qcm, cmd_vaddr, cmd_paddr, cmpl_vaddr, cmpl_paddr);
+    for (off = XDM_DUMP_08_START; off <= XDM_DUMP_08_END; off += 0x08)
+        zprintk(KERN_DEBUG, "xqcm[0x%03x] = 0x%llx\n",
+                off, xdm_qcm_read(qcm, off));
+    for (off = XDM_DUMP_40_START; off <= XDM_DUMP_40_END; off += 0x40)
+        zprintk(KERN_DEBUG, "xqcm[0x%03x] = 0x%llx\n",
+                off, xdm_qcm_read(qcm, off));
 }
 
-void zhpe_debug_rdm_qcm(const char *func, uint line, const void *cqcm)
+void zhpe_debug_rdm_qcm(const char *callf, uint line, const void *cqcm)
 {
-	void            *qcm = (void *)cqcm;
-	uint            off;
-	uint64_t        cmpl_addr;
-	uint64_t        cmpl_paddr;
-	uint64_t        cmpl_vaddr;
+    void            *qcm = (void *)cqcm;
+    uint            off;
+    uint64_t        cmpl_addr;
+    uint64_t        cmpl_paddr;
+    uint64_t        cmpl_vaddr;
 
-	if (!(zhpe_debug_flags & DEBUG_XQUEUE))
-		return;
+    if (!(zhpe_debug_flags & DEBUG_XQUEUE))
+        return;
 
-	cmpl_addr = rdm_qcm_read(qcm, RDM_CMPL_ADDR_OFFSET) & ~0x1FULL;
-	if (rdm_qcm_read(qcm, RDM_SIZE_OFFSET) & RDM_SIZE_QVIRT_FLAG) {
-		cmpl_vaddr = cmpl_addr;
-		cmpl_paddr = 0;
-	} else {
-		cmpl_paddr = cmpl_addr;
-		cmpl_vaddr = (uintptr_t)phys_to_virt(cmpl_addr);
-	}
+    cmpl_addr = rdm_qcm_read(qcm, RDM_CMPL_ADDR_OFFSET) & ~0x1FULL;
+    if (rdm_qcm_read(qcm, RDM_SIZE_OFFSET) & RDM_SIZE_QVIRT_FLAG) {
+        cmpl_vaddr = cmpl_addr;
+        cmpl_paddr = 0;
+    } else {
+        cmpl_paddr = cmpl_addr;
+        cmpl_vaddr = (uintptr_t)phys_to_virt(cmpl_addr);
+    }
 
-	printk(KERN_DEBUG "%s,%u:rqcm %px cmpl 0x%llx/0x%llx\n",
-	       func, line, qcm, cmpl_vaddr, cmpl_paddr);
-	for (off = RDM_DUMP_08_START; off <= RDM_DUMP_08_END; off += 0x08)
-		printk(KERN_DEBUG "rqcm[0x%03x] = 0x%llx\n",
-		       off, rdm_qcm_read(qcm, off));
-	for (off = RDM_DUMP_40_START; off <= RDM_DUMP_40_END; off += 0x40)
-		printk(KERN_DEBUG "rqcm[0x%03x] = 0x%llx\n",
-		       off, rdm_qcm_read(qcm, off));
+    zprintk_caller(KERN_DEBUG, callf, line, "rqcm %px cmpl 0x%llx/0x%llx\n",
+                   qcm, cmpl_vaddr, cmpl_paddr);
+    for (off = RDM_DUMP_08_START; off <= RDM_DUMP_08_END; off += 0x08)
+        zprintk(KERN_DEBUG, "rqcm[0x%03x] = 0x%llx\n",
+                off, rdm_qcm_read(qcm, off));
+    for (off = RDM_DUMP_40_START; off <= RDM_DUMP_40_END; off += 0x40)
+        zprintk(KERN_DEBUG, "rqcm[0x%03x] = 0x%llx\n",
+                off, rdm_qcm_read(qcm, off));
 }
 
 static int xdm_get_A_bit(struct xdm_qcm *qcm, uint16_t *acc)
 {
-	uint64_t a;
+    uint64_t a;
 
-	a = xdm_qcm_read(qcm, XDM_A_OFFSET);
-	*acc = (uint16_t)(a & XDM_ACC_MASK);
-	return((a & XDM_A_MASK) ? 1 : 0);
+    a = xdm_qcm_read(qcm, XDM_A_OFFSET);
+    *acc = (uint16_t)(a & XDM_ACC_MASK);
+    return((a & XDM_A_MASK) ? 1 : 0);
 }
 
 static int rdm_get_A_bit(struct rdm_qcm *qcm)
 {
-	uint64_t a;
+    uint64_t a;
 
-	a = rdm_qcm_read(qcm, RDM_A_OFFSET);
-	return((a & RDM_A_MASK) ? 1 : 0);
+    a = rdm_qcm_read(qcm, RDM_A_OFFSET);
+    return((a & RDM_A_MASK) ? 1 : 0);
 }
 
 #define COMMANDS_TO_BUSYWAIT	5
@@ -204,667 +204,664 @@ static int rdm_get_A_bit(struct rdm_qcm *qcm)
 #define MSLEEP		3
 static int xdm_wait(struct xdm_qcm *qcm, int wait_type, int wait_time)
 {
-	int bail_out = 0;
-	uint16_t acc;
+    int bail_out = 0;
+    uint16_t acc;
 
-	while(xdm_get_A_bit(qcm, &acc) == 1) {
-		switch (wait_type) {
-		case USLEEP_RANGE:
-			usleep_range(wait_time/2, wait_time);
-			break;
-		case MSLEEP:
-			msleep(wait_time);
-			break;
-		case BUSY_WAIT:
-			break;
-		}
-		if (bail_out++ > BAIL_OUT) { /* prevent an infinite loop */
-			debug(DEBUG_XQUEUE,
-				"xdm_wait: queue did not go idle. Active command count is %d\n",
-				acc);
-			zhpe_debug_xdm_qcm(__func__, __LINE__, qcm);
-			return -1;
-		}
-	}
-	return 0;
+    while(xdm_get_A_bit(qcm, &acc) == 1) {
+        switch (wait_type) {
+        case USLEEP_RANGE:
+            usleep_range(wait_time/2, wait_time);
+            break;
+        case MSLEEP:
+            msleep(wait_time);
+            break;
+        case BUSY_WAIT:
+            break;
+        }
+        if (bail_out++ > BAIL_OUT) { /* prevent an infinite loop */
+            debug(DEBUG_XQUEUE,
+                  "queue did not go idle. Active command count is %d\n", acc);
+            zhpe_debug_xdm_qcm(__func__, __LINE__, qcm);
+            return -1;
+        }
+    }
+    return 0;
 }
 
 static int xdm_wait_for_active_clear(struct xdm_qcm *qcm)
 {
-	int a;
-	uint16_t acc;
-	int wait_time;
+    int a;
+    uint16_t acc;
+    int wait_time;
 
-	/* Get active command count to calculate an estimated delay */
-	a = xdm_get_A_bit(qcm, &acc);
+    /* Get active command count to calculate an estimated delay */
+    a = xdm_get_A_bit(qcm, &acc);
 
-	/* Queue is not active */
-	if (!a)
-		return 0;
+    /* Queue is not active */
+    if (!a)
+        return 0;
 
-	/* If only a small number of commands, busy wait on the A bit */
-	if (acc < COMMANDS_TO_BUSYWAIT) {
-		return xdm_wait(qcm, BUSY_WAIT, 0);
-	}
-	/* Use usleep_range if commands could be processed in 20ms */
-	else if (acc < COMMANDS_IN_20MS) {
-		if (acc == 0) acc = 1; /* prevent divide by 0 */
-		wait_time = acc * USEC_WAIT_PER_COMMAND;
-		return xdm_wait(qcm, USLEEP_RANGE, wait_time);
-	}
-	/* There are more than 20ms of commands, use msleep() */
-	else {
-		return xdm_wait(qcm, MSLEEP, MSLEEP_WAIT);
-	}
+    /* If only a small number of commands, busy wait on the A bit */
+    if (acc < COMMANDS_TO_BUSYWAIT) {
+        return xdm_wait(qcm, BUSY_WAIT, 0);
+    }
+    /* Use usleep_range if commands could be processed in 20ms */
+    else if (acc < COMMANDS_IN_20MS) {
+        if (acc == 0) acc = 1; /* prevent divide by 0 */
+        wait_time = acc * USEC_WAIT_PER_COMMAND;
+        return xdm_wait(qcm, USLEEP_RANGE, wait_time);
+    }
+    /* There are more than 20ms of commands, use msleep() */
+    else {
+        return xdm_wait(qcm, MSLEEP, MSLEEP_WAIT);
+    }
 }
 
 static int clear_xdm_qcm(struct xdm_qcm *qcm)
 {
-	int h;
-	uint64_t junk;
-	int hsr_count;
+    int h;
+    uint64_t junk;
+    int hsr_count;
 
-        /* Set the master stop bit */
-        xdm_qcm_write_val(1, qcm, XDM_MASTER_STOP_OFFSET);
+    /* Set the master stop bit */
+    xdm_qcm_write_val(1, qcm, XDM_MASTER_STOP_OFFSET);
 
-	/* Read back to ensure synchronization. */
-	junk = xdm_qcm_read(qcm, XDM_MASTER_STOP_OFFSET);
+    /* Read back to ensure synchronization. */
+    junk = xdm_qcm_read(qcm, XDM_MASTER_STOP_OFFSET);
 
-	if (xdm_wait_for_active_clear(qcm)) {
-		return -1;
-	}
+    if (xdm_wait_for_active_clear(qcm)) {
+        return -1;
+    }
 
-        /* Write each qcm HSR that contains data. */
-	hsr_count = sizeof(xqcm_hsr_offsets)/sizeof(xqcm_hsr_offsets[0]);
-        for (h = 0; h < hsr_count; h++)
-            xdm_qcm_write_val(0, qcm, xqcm_hsr_offsets[h]);
-	return 0;
+    /* Write each qcm HSR that contains data. */
+    hsr_count = sizeof(xqcm_hsr_offsets)/sizeof(xqcm_hsr_offsets[0]);
+    for (h = 0; h < hsr_count; h++)
+        xdm_qcm_write_val(0, qcm, xqcm_hsr_offsets[h]);
+    return 0;
 }
 
 int zhpe_clear_xdm_qcm(
-	struct xdm_qcm * qcm)
+    struct xdm_qcm * qcm)
 {
-	int      q;
-	uint64_t junk;
+    int      q;
+    uint64_t junk;
 
-	debug(DEBUG_XQUEUE, "%s:%s,%u, qcm = 0x%px\n",
-		zhpe_driver_name, __func__, __LINE__, qcm);
+    debug(DEBUG_XQUEUE, "qcm = 0x%px\n", qcm);
 
-	/*
-	 * The XDM HSR space has 32MB for 256 QCM. Each QCM has an App
-	 * and a Kernel page for a total of 512 QCM. We write/read each
-	 * kernel HSR page (not the App) to initialize the ECC and contents
-	 * after a reset. Any errors are to be ignored.
-	 */
-	for (q = 0; q < zhpe_xdm_queues_per_slice*2; q = q+2) {
-		if (clear_xdm_qcm(&qcm[q]) != 0) {
-			debug(DEBUG_XQUEUE, "zhpe_clear_xdm_qcm: queue %d failed to clear\n", q);
-			return -1;
-		}
-	}
+    /*
+     * The XDM HSR space has 32MB for 256 QCM. Each QCM has an App
+     * and a Kernel page for a total of 512 QCM. We write/read each
+     * kernel HSR page (not the App) to initialize the ECC and contents
+     * after a reset. Any errors are to be ignored.
+     */
+    for (q = 0; q < zhpe_xdm_queues_per_slice*2; q = q+2) {
+        if (clear_xdm_qcm(&qcm[q]) != 0) {
+            debug(DEBUG_XQUEUE, "zhpe_clear_xdm_qcm: queue %d failed to clear\n", q);
+            return -1;
+        }
+    }
 
-	/* Read back one value to ensure synchronization. */
-	junk = xdm_qcm_read(&qcm[0], XDM_MASTER_STOP_OFFSET);
+    /* Read back one value to ensure synchronization. */
+    junk = xdm_qcm_read(&qcm[0], XDM_MASTER_STOP_OFFSET);
 
-	return 0;
+    return 0;
 }
 
 static int clear_rdm_qcm(struct rdm_qcm *qcm)
 {
-	int h;
-	int bail_out = 0;
-	uint64_t junk;
-	int hsr_count;
+    int h;
+    int bail_out = 0;
+    uint64_t junk;
+    int hsr_count;
 
-        /* Set the master stop bit */
-        rdm_qcm_write_val(1, qcm, RDM_MASTER_STOP_OFFSET);
+    /* Set the master stop bit */
+    rdm_qcm_write_val(1, qcm, RDM_MASTER_STOP_OFFSET);
 
-	/* Read back to ensure synchronization. */
-	junk = rdm_qcm_read(qcm, RDM_MASTER_STOP_OFFSET);
+    /* Read back to ensure synchronization. */
+    junk = rdm_qcm_read(qcm, RDM_MASTER_STOP_OFFSET);
 
-	/* Busy wait on the A bit */
-	while (rdm_get_A_bit(qcm) == 1) {
-		if (bail_out++ > 200) { /* prevent an infinite loop */
-			debug(DEBUG_RQUEUE, "clear_rdm_qcm: queue did not go idle.\n");
-			return -1;
-		}
-	}
+    /* Busy wait on the A bit */
+    while (rdm_get_A_bit(qcm) == 1) {
+        if (bail_out++ > 200) { /* prevent an infinite loop */
+            debug(DEBUG_RQUEUE, "clear_rdm_qcm: queue did not go idle.\n");
+            return -1;
+        }
+    }
 
-        /* Write each qcm HSR that contains data. */
-	hsr_count = sizeof(rqcm_hsr_offsets)/sizeof(rqcm_hsr_offsets[0]);
-        for (h = 0; h < hsr_count; h++)
-            rdm_qcm_write_val(0, qcm, rqcm_hsr_offsets[h]);
-	return 0;
+    /* Write each qcm HSR that contains data. */
+    hsr_count = sizeof(rqcm_hsr_offsets)/sizeof(rqcm_hsr_offsets[0]);
+    for (h = 0; h < hsr_count; h++)
+        rdm_qcm_write_val(0, qcm, rqcm_hsr_offsets[h]);
+    return 0;
 }
 
 int zhpe_clear_rdm_qcm(
-	struct rdm_qcm * qcm)
+    struct rdm_qcm * qcm)
 {
-	int      q;
-	uint64_t junk;
+    int      q;
+    uint64_t junk;
 
-	debug(DEBUG_RQUEUE, "%s:%s,%u, qcm = 0x%px\n",
-		zhpe_driver_name, __func__, __LINE__, qcm);
+    debug(DEBUG_RQUEUE, "qcm = 0x%px\n", qcm);
 
-	/*
-	 * The RDM HSR space has 32MB for 256 QCM. Each QCM has an App
-	 * and a Kernel page for a total of 512 QCM. We write/read each
-	 * kernel HSR page (not the App) to initialize the ECC and contents
-	 * after a reset. Any errors are to be ignored.
-	 */
-	for (q = 0; q < zhpe_rdm_queues_per_slice*2; q = q+2) {
-		if (clear_rdm_qcm(&qcm[q]) != 0) {
-			debug(DEBUG_RQUEUE, "zhpe_clear_rdm_qcm: queue %d failed to clear\n", q);
-			return -1;
-		}
-	}
+    /*
+     * The RDM HSR space has 32MB for 256 QCM. Each QCM has an App
+     * and a Kernel page for a total of 512 QCM. We write/read each
+     * kernel HSR page (not the App) to initialize the ECC and contents
+     * after a reset. Any errors are to be ignored.
+     */
+    for (q = 0; q < zhpe_rdm_queues_per_slice*2; q = q+2) {
+        if (clear_rdm_qcm(&qcm[q]) != 0) {
+            debug(DEBUG_RQUEUE, "zhpe_clear_rdm_qcm: queue %d failed to clear\n", q);
+            return -1;
+        }
+    }
 
-	/* Read back one value to ensure synchronization. */
-	junk = rdm_qcm_read(&qcm[0], RDM_MASTER_STOP_OFFSET);
+    /* Read back one value to ensure synchronization. */
+    junk = rdm_qcm_read(&qcm[0], RDM_MASTER_STOP_OFFSET);
 
-	return 0;
+    return 0;
 }
 
 static int distribute_irq(unsigned long *alloced_bitmap,
-        struct slice *sl, int *vector)
+                          struct slice *sl, int *vector)
 {
-        int q;
-        int min_vector, min;
-        int v;
-        int count;
-        int clump_size = MAX_RDM_QUEUES_PER_SLICE / sl->irq_vectors_count;
-        DECLARE_BITMAP(tmp_bitmap, MAX_RDM_QUEUES_PER_SLICE);
+    int q;
+    int min_vector, min;
+    int v;
+    int count;
+    int clump_size = MAX_RDM_QUEUES_PER_SLICE / sl->irq_vectors_count;
+    DECLARE_BITMAP(tmp_bitmap, MAX_RDM_QUEUES_PER_SLICE);
 
-        /* Make a copy of the alloced_bitmap for shifting */
-        bitmap_copy(tmp_bitmap, alloced_bitmap, MAX_RDM_QUEUES_PER_SLICE);
-        /*
-         * Choose a free queue that distributes across the clumped irqs.
-         * The hardware may support up to 32 MSI interrupt vectors. The
-         * queues will be mapped to an interrupt in order. E.g. queues
-         * 0-7 map to vector 0, 8-15 vector 1, etc for 32 MSI vectors.
-	 * Note that the actual number of MSI vectors that Linux allocated
-	 * is stored in sl->irq_vectors_count - it may not be 32.
-         */
-        /* Find which vector has the fewest queues assigned */
-        min_vector = min = -1;
-        for (v=0; v < sl->irq_vectors_count; v++) {
-                /* count bits set in bitmap for the given range */
-                count = bitmap_weight(tmp_bitmap, clump_size);
-                if (min == -1) {
-                        min_vector = v;
-                        min = count;
-                } else if (count < min) {
-                        /* Found a vector with fewer queues */
-                        min_vector = v;
-                        min = count;
-                }
-                /* Shift the bitmap to count the next clump */
-                bitmap_shift_right(tmp_bitmap, tmp_bitmap, clump_size,
-                        zhpe_rdm_queues_per_slice);
+    /* Make a copy of the alloced_bitmap for shifting */
+    bitmap_copy(tmp_bitmap, alloced_bitmap, MAX_RDM_QUEUES_PER_SLICE);
+    /*
+     * Choose a free queue that distributes across the clumped irqs.
+     * The hardware may support up to 32 MSI interrupt vectors. The
+     * queues will be mapped to an interrupt in order. E.g. queues
+     * 0-7 map to vector 0, 8-15 vector 1, etc for 32 MSI vectors.
+     * Note that the actual number of MSI vectors that Linux allocated
+     * is stored in sl->irq_vectors_count - it may not be 32.
+     */
+    /* Find which vector has the fewest queues assigned */
+    min_vector = min = -1;
+    for (v=0; v < sl->irq_vectors_count; v++) {
+        /* count bits set in bitmap for the given range */
+        count = bitmap_weight(tmp_bitmap, clump_size);
+        if (min == -1) {
+            min_vector = v;
+            min = count;
+        } else if (count < min) {
+            /* Found a vector with fewer queues */
+            min_vector = v;
+            min = count;
         }
-        /* Look for a free queue in that minimum range */
-        q = find_first_zero_bit(alloced_bitmap+(min_vector*clump_size),
-                                clump_size)
-			+ (min_vector*clump_size);
-        *vector = min_vector;
-        /* Return the chosen free queue */
-        return q;
+        /* Shift the bitmap to count the next clump */
+        bitmap_shift_right(tmp_bitmap, tmp_bitmap, clump_size,
+                           zhpe_rdm_queues_per_slice);
+    }
+    /* Look for a free queue in that minimum range */
+    q = find_first_zero_bit(alloced_bitmap+(min_vector*clump_size),
+                            clump_size)
+        + (min_vector*clump_size);
+    *vector = min_vector;
+    /* Return the chosen free queue */
+    return q;
 }
 
 int zhpe_rdm_queue_to_vector(int queue, struct slice *sl)
 {
-	int vector;
-	int clump_size = MAX_RDM_QUEUES_PER_SLICE / sl->irq_vectors_count;
+    int vector;
+    int clump_size = MAX_RDM_QUEUES_PER_SLICE / sl->irq_vectors_count;
 
-	vector = queue / clump_size;
+    vector = queue / clump_size;
 
-	return vector;
+    return vector;
 }
 
 static int xdm_choose_slice_queue(
-		struct bridge *br,
-		uint8_t       slice_mask,
-		int           *slice,
-		int           *queue)
+    struct bridge *br,
+    uint8_t       slice_mask,
+    int           *slice,
+    int           *queue)
 {
-	int i;
-	int q;
-	int s = (xdm_last_used_slice + 1) % SLICES;
-	struct slice *slices;
-	struct slice *cur_slice;
+    int i;
+    int q;
+    int s = (xdm_last_used_slice + 1) % SLICES;
+    struct slice *slices;
+    struct slice *cur_slice;
 
-	slices = br->slice;
+    slices = br->slice;
 
-	for (i = 0; i < SLICES; i++) {
-		if (slice_mask & (1<<s)) {
-			cur_slice = &slices[s];
-			/* make sure this slice is valid */
-			if (SLICE_VALID(cur_slice)) {
-				spin_lock (&cur_slice->xdm_slice_lock);
-				if (cur_slice->xdm_alloc_count < zhpe_xdm_queues_per_slice) {
-					/* Use this slice */
-					cur_slice->xdm_alloc_count++;
-					q = find_first_zero_bit(cur_slice->xdm_alloced_bitmap, zhpe_xdm_queues_per_slice);
-					set_bit(q, cur_slice->xdm_alloced_bitmap);
-					spin_unlock (&cur_slice->xdm_slice_lock);
-					xdm_last_used_slice = s;
-					*slice = s;
-					*queue = q;
-					return 0;
-				}
-				spin_unlock (&cur_slice->xdm_slice_lock);
-			}
-		}
-		s = (s + 1) % SLICES;
-	}
+    for (i = 0; i < SLICES; i++) {
+        if (slice_mask & (1<<s)) {
+            cur_slice = &slices[s];
+            /* make sure this slice is valid */
+            if (SLICE_VALID(cur_slice)) {
+                spin_lock (&cur_slice->xdm_slice_lock);
+                if (cur_slice->xdm_alloc_count < zhpe_xdm_queues_per_slice) {
+                    /* Use this slice */
+                    cur_slice->xdm_alloc_count++;
+                    q = find_first_zero_bit(cur_slice->xdm_alloced_bitmap, zhpe_xdm_queues_per_slice);
+                    set_bit(q, cur_slice->xdm_alloced_bitmap);
+                    spin_unlock (&cur_slice->xdm_slice_lock);
+                    xdm_last_used_slice = s;
+                    *slice = s;
+                    *queue = q;
+                    return 0;
+                }
+                spin_unlock (&cur_slice->xdm_slice_lock);
+            }
+        }
+        s = (s + 1) % SLICES;
+    }
 
-	/* Didn't find any queues available. */
-	return -ENOENT;
+    /* Didn't find any queues available. */
+    return -ENOENT;
 }
 
 static int rdm_choose_slice_queue(
-		struct bridge *br,
-		uint8_t       slice_mask,
-		int           *slice,
-		int           *queue,
-                int           *irq_vector)
+    struct bridge *br,
+    uint8_t       slice_mask,
+    int           *slice,
+    int           *queue,
+    int           *irq_vector)
 {
-	int i;
-	int q;
-	int s = (rdm_last_used_slice + 1) % SLICES;
-	struct slice *slices;
-	struct slice *cur_slice;
-        int vector;
+    int i;
+    int q;
+    int s = (rdm_last_used_slice + 1) % SLICES;
+    struct slice *slices;
+    struct slice *cur_slice;
+    int vector;
 
-	slices = br->slice;
+    slices = br->slice;
 
-	for (i = 0; i < SLICES; i++) {
-		if (slice_mask & (1<<s)) {
-			cur_slice = &slices[s];
+    for (i = 0; i < SLICES; i++) {
+        if (slice_mask & (1<<s)) {
+            cur_slice = &slices[s];
 
-                        debug(DEBUG_RQUEUE, "considering slice %d\n", s);
-			/* make sure this slice is valid */
-			if (SLICE_VALID(cur_slice)) {
-				spin_lock (&cur_slice->rdm_slice_lock);
-				if (cur_slice->rdm_alloc_count < zhpe_rdm_queues_per_slice) {
-					/* Use this slice */
-					cur_slice->rdm_alloc_count++;
-					q = distribute_irq(cur_slice->rdm_alloced_bitmap, cur_slice, &vector);
-					set_bit(q, cur_slice->rdm_alloced_bitmap);
-					spin_unlock (&cur_slice->rdm_slice_lock);
-					rdm_last_used_slice = s;
-					*slice = s;
-					*queue = q;
-					*irq_vector = (s*VECTORS_PER_SLICE)+vector;
-					debug(DEBUG_RQUEUE, "assigning slice %d queue %d irq_vector %d\n", *slice, *queue, *irq_vector);
-					return 0;
-				}
-				spin_unlock (&cur_slice->rdm_slice_lock);
-			}
-		}
-		s = (s + 1) % SLICES;
-	}
+            debug(DEBUG_RQUEUE, "considering slice %d\n", s);
+            /* make sure this slice is valid */
+            if (SLICE_VALID(cur_slice)) {
+                spin_lock (&cur_slice->rdm_slice_lock);
+                if (cur_slice->rdm_alloc_count < zhpe_rdm_queues_per_slice) {
+                    /* Use this slice */
+                    cur_slice->rdm_alloc_count++;
+                    q = distribute_irq(cur_slice->rdm_alloced_bitmap, cur_slice, &vector);
+                    set_bit(q, cur_slice->rdm_alloced_bitmap);
+                    spin_unlock (&cur_slice->rdm_slice_lock);
+                    rdm_last_used_slice = s;
+                    *slice = s;
+                    *queue = q;
+                    *irq_vector = (s*VECTORS_PER_SLICE)+vector;
+                    debug(DEBUG_RQUEUE, "assigning slice %d queue %d irq_vector %d\n", *slice, *queue, *irq_vector);
+                    return 0;
+                }
+                spin_unlock (&cur_slice->rdm_slice_lock);
+            }
+        }
+        s = (s + 1) % SLICES;
+    }
 
-	/* Didn't find any queues available. */
-	return -ENOENT;
+    /* Didn't find any queues available. */
+    return -ENOENT;
 }
 
 static void xdm_release_slice_queue(
-		struct bridge *br,
-		int           slice,
-		int           queue)
+    struct bridge *br,
+    int           slice,
+    int           queue)
 {
-	struct slice *slices;
-	struct slice *cur_slice;
+    struct slice *slices;
+    struct slice *cur_slice;
 
-	slices = br->slice;
-	cur_slice = &slices[slice];
+    slices = br->slice;
+    cur_slice = &slices[slice];
 
-	spin_lock (&cur_slice->xdm_slice_lock);
-	cur_slice->xdm_alloc_count--;
-	clear_bit(queue, cur_slice->xdm_alloced_bitmap);
-	spin_unlock (&cur_slice->xdm_slice_lock);
+    spin_lock (&cur_slice->xdm_slice_lock);
+    cur_slice->xdm_alloc_count--;
+    clear_bit(queue, cur_slice->xdm_alloced_bitmap);
+    spin_unlock (&cur_slice->xdm_slice_lock);
 }
 
 static void rdm_release_slice_queue(
-		struct bridge *br,
-		int           slice,
-		int           queue)
+    struct bridge *br,
+    int           slice,
+    int           queue)
 {
-	struct slice *slices;
-	struct slice *cur_slice;
+    struct slice *slices;
+    struct slice *cur_slice;
 
-	slices = br->slice;
-	cur_slice = &slices[slice];
+    slices = br->slice;
+    cur_slice = &slices[slice];
 
-	spin_lock (&cur_slice->rdm_slice_lock);
-	cur_slice->rdm_alloc_count--;
-	clear_bit(queue, cur_slice->rdm_alloced_bitmap);
-	spin_unlock (&cur_slice->rdm_slice_lock);
+    spin_lock (&cur_slice->rdm_slice_lock);
+    cur_slice->rdm_alloc_count--;
+    clear_bit(queue, cur_slice->rdm_alloced_bitmap);
+    spin_unlock (&cur_slice->rdm_slice_lock);
 }
 
 /* Allocate a queue from a slice according to the slice_mask. */
 static int alloc_xqueue(
-	struct bridge *br,
-	uint8_t slice_mask,
-	int     *slice,
-	int     *queue)
+    struct bridge *br,
+    uint8_t slice_mask,
+    int     *slice,
+    int     *queue)
 {
-	int ret;
-	uint8_t sm;
+    int ret;
+    uint8_t sm;
 
-	if (slice_mask == SLICE_DEMAND) {
-		/* seting the DEMAND flag without any slices is an error. */
-		return -1;
-	}
-	if (slice_mask == 0) {
-		/* Caller did not specify any specific slices so use all. */
-		sm = ALL_SLICES;
-		return xdm_choose_slice_queue(br, sm, slice, queue);
-	}
-	else {
-		/* Caller set a slice mask. Mask off DEMAND for now. */
-		sm = slice_mask & ALL_SLICES;
-		ret = xdm_choose_slice_queue(br, sm, slice, queue);
-		if (slice_mask & SLICE_DEMAND) {
-			/* Return if this is a demand */
-			return ret;
-		}
-		if (ret == 0) {
-			/* Found a queue in specified hint slices */
-			return ret;
-		}
-		else {
-			/* This is a hint so try again with un-tried slices. */
-			sm = sm^ALL_SLICES;
-			return xdm_choose_slice_queue(br, sm, slice, queue);
-		}
-	}
+    if (slice_mask == SLICE_DEMAND) {
+        /* seting the DEMAND flag without any slices is an error. */
+        return -1;
+    }
+    if (slice_mask == 0) {
+        /* Caller did not specify any specific slices so use all. */
+        sm = ALL_SLICES;
+        return xdm_choose_slice_queue(br, sm, slice, queue);
+    }
+    else {
+        /* Caller set a slice mask. Mask off DEMAND for now. */
+        sm = slice_mask & ALL_SLICES;
+        ret = xdm_choose_slice_queue(br, sm, slice, queue);
+        if (slice_mask & SLICE_DEMAND) {
+            /* Return if this is a demand */
+            return ret;
+        }
+        if (ret == 0) {
+            /* Found a queue in specified hint slices */
+            return ret;
+        }
+        else {
+            /* This is a hint so try again with un-tried slices. */
+            sm = sm^ALL_SLICES;
+            return xdm_choose_slice_queue(br, sm, slice, queue);
+        }
+    }
 }
 
 /* Allocate a queue from a slice according to the slice_mask. */
 static int alloc_rqueue(
-	struct bridge *br,
-	uint8_t slice_mask,
-	int     *slice,
-	int     *queue,
-        int     *irq_vector)
+    struct bridge *br,
+    uint8_t slice_mask,
+    int     *slice,
+    int     *queue,
+    int     *irq_vector)
 {
-	int ret;
-	uint8_t sm;
+    int ret;
+    uint8_t sm;
 
-	if (slice_mask == SLICE_DEMAND) {
-		/* seting the DEMAND flag without any slices is an error. */
-		return -1;
-	}
-	if (slice_mask == 0) {
-		/* Caller did not specify any specific slices so use all. */
-		sm = ALL_SLICES;
-		return rdm_choose_slice_queue(br, sm, slice, queue, irq_vector);
-	}
-	else {
-		/* Caller set a slice mask. Mask off DEMAND for now. */
-		sm = slice_mask & ALL_SLICES;
-		ret = rdm_choose_slice_queue(br, sm, slice, queue, irq_vector);
-		if (slice_mask & SLICE_DEMAND) {
-			/* Return if this is a demand */
-			return ret;
-		}
-		if (ret == 0) {
-			/* Found a queue in specified hint slices */
-			return ret;
-		}
-		else {
-			/* This is a hint so try again with un-tried slices. */
-			sm = sm^ALL_SLICES;
-			return rdm_choose_slice_queue(br, sm, slice, queue, irq_vector);
-		}
-	}
+    if (slice_mask == SLICE_DEMAND) {
+        /* seting the DEMAND flag without any slices is an error. */
+        return -1;
+    }
+    if (slice_mask == 0) {
+        /* Caller did not specify any specific slices so use all. */
+        sm = ALL_SLICES;
+        return rdm_choose_slice_queue(br, sm, slice, queue, irq_vector);
+    }
+    else {
+        /* Caller set a slice mask. Mask off DEMAND for now. */
+        sm = slice_mask & ALL_SLICES;
+        ret = rdm_choose_slice_queue(br, sm, slice, queue, irq_vector);
+        if (slice_mask & SLICE_DEMAND) {
+            /* Return if this is a demand */
+            return ret;
+        }
+        if (ret == 0) {
+            /* Found a queue in specified hint slices */
+            return ret;
+        }
+        else {
+            /* This is a hint so try again with un-tried slices. */
+            sm = sm^ALL_SLICES;
+            return rdm_choose_slice_queue(br, sm, slice, queue, irq_vector);
+        }
+    }
 }
 
 static int _xqueue_free(
-	struct bridge *br,
-	int slice,
-	int queue)
+    struct bridge *br,
+    int slice,
+    int queue)
 {
-	struct slice     *slices;
-	struct slice     *sl;
-	struct xdm_qcm   *hw_qcm_addr;
+    struct slice     *slices;
+    struct slice     *sl;
+    struct xdm_qcm   *hw_qcm_addr;
 
-	slices = br->slice;
+    slices = br->slice;
 
-	if (slice < 0 || slice >= SLICES)
-		return -1;
-	if (queue < 0 || queue >= zhpe_xdm_queues_per_slice)
-		return -1;
-	sl = &(slices[slice]);
-	if (test_bit(queue, sl->xdm_alloced_bitmap) == 0) {
-		debug(DEBUG_XQUEUE,
-			"Tried to free unallocated queue %d on slice %d\n",
-			queue, slice);
-		return -1;
-	}
+    if (slice < 0 || slice >= SLICES)
+        return -1;
+    if (queue < 0 || queue >= zhpe_xdm_queues_per_slice)
+        return -1;
+    sl = &(slices[slice]);
+    if (test_bit(queue, sl->xdm_alloced_bitmap) == 0) {
+        debug(DEBUG_XQUEUE,
+              "Tried to free unallocated queue %d on slice %d\n",
+              queue, slice);
+        return -1;
+    }
 
-	/*
-	 * Set master stop and clear the hardware queue. May wait to drain
-	 * the queue.
-	 */
-	hw_qcm_addr = &(sl->bar->xdm[(queue*2)]);
-	if (clear_xdm_qcm(hw_qcm_addr) != 0) {
-		debug(DEBUG_XQUEUE, "xqueue_free: queue %d failed to clear\n", queue);
-		return -1;
-	}
+    /*
+     * Set master stop and clear the hardware queue. May wait to drain
+     * the queue.
+     */
+    hw_qcm_addr = &(sl->bar->xdm[(queue*2)]);
+    if (clear_xdm_qcm(hw_qcm_addr) != 0) {
+        debug(DEBUG_XQUEUE, "xqueue_free: queue %d failed to clear\n", queue);
+        return -1;
+    }
 
-	/* Return queue to the bridge's free pool */
-	spin_lock (&slices[slice].xdm_slice_lock);
-	slices[slice].xdm_alloc_count--;
-	clear_bit(queue, slices[slice].xdm_alloced_bitmap);
-	spin_unlock (&slices[slice].xdm_slice_lock);
+    /* Return queue to the bridge's free pool */
+    spin_lock (&slices[slice].xdm_slice_lock);
+    slices[slice].xdm_alloc_count--;
+    clear_bit(queue, slices[slice].xdm_alloced_bitmap);
+    spin_unlock (&slices[slice].xdm_slice_lock);
 
-	debug(DEBUG_XQUEUE, "Freed queue %d on slice %d qcm=0x%px\n", queue, slice, hw_qcm_addr);
-	return 0;
+    debug(DEBUG_XQUEUE, "Freed queue %d on slice %d qcm=0x%px\n", queue, slice, hw_qcm_addr);
+    return 0;
 }
 
 static int zhpe_xqueue_free(
-	struct file_data *fdata,
-	struct zhpe_req_XQFREE *free_req)
+    struct file_data *fdata,
+    struct zhpe_req_XQFREE *free_req)
 {
-	int              slice = free_req->info.slice;
-	int              queue = free_req->info.queue;
-	int              ret;
+    int              slice = free_req->info.slice;
+    int              queue = free_req->info.queue;
+    int              ret;
 
-	spin_lock(&fdata->xdm_queue_lock);
-	if (test_bit((slice*zhpe_xdm_queues_per_slice) + queue,
-					fdata->xdm_queues) == 0 ) {
-		debug(DEBUG_XQUEUE,
-			"Cannot free un-owned queue %d on slice %d\n",
-			queue, slice);
-		ret = -1;
-                goto unlock;
-	}
-	/* Release ownership of the queue from this file_data */
-	clear_bit((slice*zhpe_xdm_queues_per_slice) + queue, fdata->xdm_queues);
+    spin_lock(&fdata->xdm_queue_lock);
+    if (test_bit((slice*zhpe_xdm_queues_per_slice) + queue,
+                 fdata->xdm_queues) == 0 ) {
+        debug(DEBUG_XQUEUE,
+              "Cannot free un-owned queue %d on slice %d\n",
+              queue, slice);
+        ret = -1;
+        goto unlock;
+    }
+    /* Release ownership of the queue from this file_data */
+    clear_bit((slice*zhpe_xdm_queues_per_slice) + queue, fdata->xdm_queues);
 
-	ret = _xqueue_free(fdata->bridge, slice, queue);
+    ret = _xqueue_free(fdata->bridge, slice, queue);
 
  unlock:
-	spin_unlock(&fdata->xdm_queue_lock);
-	return ret;
+    spin_unlock(&fdata->xdm_queue_lock);
+    return ret;
 }
 
 static int _rqueue_free(
-	struct bridge *br,
-	int slice,
-	int queue)
+    struct bridge *br,
+    int slice,
+    int queue)
 {
-	struct slice     *sl;
-	struct rdm_qcm   *hw_qcm_addr;
+    struct slice     *sl;
+    struct rdm_qcm   *hw_qcm_addr;
 
-	if (slice < 0 || slice >= SLICES)
-		return -1;
-	if (queue < 0 || queue >= zhpe_rdm_queues_per_slice)
-		return -1;
-	sl = &br->slice[slice];
-	if (!SLICE_VALID(sl))
-		return -1;
+    if (slice < 0 || slice >= SLICES)
+        return -1;
+    if (queue < 0 || queue >= zhpe_rdm_queues_per_slice)
+        return -1;
+    sl = &br->slice[slice];
+    if (!SLICE_VALID(sl))
+        return -1;
 
-	zhpe_unregister_rdm_interrupt(sl, queue);
+    zhpe_unregister_rdm_interrupt(sl, queue);
 
-	if (test_bit(queue, sl->rdm_alloced_bitmap) == 0) {
-		debug(DEBUG_RQUEUE,
-			"Tried to free unallocated queue %d on slice %d\n",
-			queue, slice);
-		return -1;
-	}
+    if (test_bit(queue, sl->rdm_alloced_bitmap) == 0) {
+        debug(DEBUG_RQUEUE,
+              "Tried to free unallocated queue %d on slice %d\n",
+              queue, slice);
+        return -1;
+    }
 
-	/*
-	 * Set master stop and clear the hardware queue. May wait to drain
-	 * the queue.
-	 */
-	hw_qcm_addr = &(sl->bar->rdm[(queue*2)]);
-	if (clear_rdm_qcm(hw_qcm_addr) != 0) {
-		debug(DEBUG_RQUEUE, "rqueue_free: queue %d failed to clear\n", queue);
-		return -1;
-	}
+    /*
+     * Set master stop and clear the hardware queue. May wait to drain
+     * the queue.
+     */
+    hw_qcm_addr = &(sl->bar->rdm[(queue*2)]);
+    if (clear_rdm_qcm(hw_qcm_addr) != 0) {
+        debug(DEBUG_RQUEUE, "rqueue_free: queue %d failed to clear\n", queue);
+        return -1;
+    }
 
-	/* Return queue to the bridge's free pool */
-	spin_lock (&sl->rdm_slice_lock);
-	sl->rdm_alloc_count--;
-	clear_bit(queue, sl->rdm_alloced_bitmap);
-	spin_unlock (&sl->rdm_slice_lock);
+    /* Return queue to the bridge's free pool */
+    spin_lock (&sl->rdm_slice_lock);
+    sl->rdm_alloc_count--;
+    clear_bit(queue, sl->rdm_alloced_bitmap);
+    spin_unlock (&sl->rdm_slice_lock);
 
-	debug(DEBUG_RQUEUE, "%s:Freed queue %d on slice %d qcm=0x%px\n",
-	      __func__, queue, slice, hw_qcm_addr);
-	return 0;
+    debug(DEBUG_RQUEUE, "Freed queue %d on slice %d qcm=0x%px\n",
+          queue, slice, hw_qcm_addr);
+    return 0;
 }
 
 static int zhpe_rqueue_free(
-	struct file_data *fdata,
-	struct zhpe_req_RQFREE *free_req)
+    struct file_data *fdata,
+    struct zhpe_req_RQFREE *free_req)
 {
-	int              slice = free_req->info.slice;
-	int              queue = free_req->info.queue;
-	int              ret;
+    int              slice = free_req->info.slice;
+    int              queue = free_req->info.queue;
+    int              ret;
 
-	if (slice < 0 || slice >= SLICES)
-		return -1;
-	if (queue < 0 || queue >= zhpe_rdm_queues_per_slice)
-		return -1;
+    if (slice < 0 || slice >= SLICES)
+        return -1;
+    if (queue < 0 || queue >= zhpe_rdm_queues_per_slice)
+        return -1;
 
-	spin_lock(&fdata->rdm_queue_lock);
-	if (test_bit((slice*zhpe_rdm_queues_per_slice) + queue,
-					fdata->rdm_queues) == 0 ) {
-		debug(DEBUG_RQUEUE,
-			"Cannot free un-owned queue %d on slice %d\n",
-			queue, slice);
-		ret = -1;
-                goto unlock;
-	}
-	/* Release ownership of the queue from this file_data */
-	clear_bit((slice*zhpe_rdm_queues_per_slice) + queue, fdata->rdm_queues);
+    spin_lock(&fdata->rdm_queue_lock);
+    if (test_bit((slice*zhpe_rdm_queues_per_slice) + queue,
+                 fdata->rdm_queues) == 0 ) {
+        debug(DEBUG_RQUEUE,
+              "Cannot free un-owned queue %d on slice %d\n",
+              queue, slice);
+        ret = -1;
+        goto unlock;
+    }
+    /* Release ownership of the queue from this file_data */
+    clear_bit((slice*zhpe_rdm_queues_per_slice) + queue, fdata->rdm_queues);
 
-	ret = _rqueue_free(fdata->bridge, slice, queue);
+    ret = _rqueue_free(fdata->bridge, slice, queue);
 
  unlock:
-	spin_unlock(&fdata->rdm_queue_lock);
-	return ret;
+    spin_unlock(&fdata->rdm_queue_lock);
+    return ret;
 }
 
 void zhpe_release_owned_xdm_queues(struct file_data *fdata)
 {
-	int ret = 0;
-	int bits = SLICES * zhpe_xdm_queues_per_slice;
-	int slice, queue, bit;
+    int ret = 0;
+    int bits = SLICES * zhpe_xdm_queues_per_slice;
+    int slice, queue, bit;
 
-	spin_lock(&fdata->xdm_queue_lock);
-	bit = find_first_bit(fdata->xdm_queues, bits);
-	while (1) {
-		if (bit >= bits)
-			break;
-		slice = bit / zhpe_xdm_queues_per_slice;
-		queue = bit % zhpe_xdm_queues_per_slice;
-		ret = _xqueue_free(fdata->bridge, slice, queue);
-		if (ret) {
-			debug(DEBUG_XQUEUE,
-				"zhpe_release_owed_xdm_queues failed to free queue %d on slice %d\n",
-				queue, slice);
-		}
-                clear_bit(bit, fdata->xdm_queues);
-		bit = find_next_bit(fdata->xdm_queues, bits, bit);
-	}
-	spin_unlock(&fdata->xdm_queue_lock);
+    spin_lock(&fdata->xdm_queue_lock);
+    bit = find_first_bit(fdata->xdm_queues, bits);
+    while (1) {
+        if (bit >= bits)
+            break;
+        slice = bit / zhpe_xdm_queues_per_slice;
+        queue = bit % zhpe_xdm_queues_per_slice;
+        ret = _xqueue_free(fdata->bridge, slice, queue);
+        if (ret) {
+            debug(DEBUG_XQUEUE,
+                  "zhpe_release_owed_xdm_queues failed to free queue %d on slice %d\n",
+                  queue, slice);
+        }
+        clear_bit(bit, fdata->xdm_queues);
+        bit = find_next_bit(fdata->xdm_queues, bits, bit);
+    }
+    spin_unlock(&fdata->xdm_queue_lock);
 
-	return;
+    return;
 }
 
 void zhpe_release_owned_rdm_queues(struct file_data *fdata)
 {
-	int ret = 0;
-	int bits = SLICES * zhpe_rdm_queues_per_slice;
-	int slice, queue, bit;
+    int ret = 0;
+    int bits = SLICES * zhpe_rdm_queues_per_slice;
+    int slice, queue, bit;
 
-	spin_lock(&fdata->rdm_queue_lock);
-	bit = find_first_bit(fdata->rdm_queues, bits);
-	while (1) {
-		if (bit >= bits)
-			break;
-		slice = bit / zhpe_rdm_queues_per_slice;
-		queue = bit % zhpe_rdm_queues_per_slice;
-		ret = _rqueue_free(fdata->bridge, slice, queue);
-		if (ret) {
-			debug(DEBUG_RQUEUE,
-				"zhpe_release_owed_rdm_queues failed to free queue %d on slice %d\n",
-				queue, slice);
-		}
-                clear_bit(bit, fdata->rdm_queues);
-		bit = find_next_bit(fdata->rdm_queues, bits, bit);
-	}
-	spin_unlock(&fdata->rdm_queue_lock);
+    spin_lock(&fdata->rdm_queue_lock);
+    bit = find_first_bit(fdata->rdm_queues, bits);
+    while (1) {
+        if (bit >= bits)
+            break;
+        slice = bit / zhpe_rdm_queues_per_slice;
+        queue = bit % zhpe_rdm_queues_per_slice;
+        ret = _rqueue_free(fdata->bridge, slice, queue);
+        if (ret) {
+            debug(DEBUG_RQUEUE,
+                  "zhpe_release_owed_rdm_queues failed to free queue %d on slice %d\n",
+                  queue, slice);
+        }
+        clear_bit(bit, fdata->rdm_queues);
+        bit = find_next_bit(fdata->rdm_queues, bits, bit);
+    }
+    spin_unlock(&fdata->rdm_queue_lock);
 
-	return;
+    return;
 }
 
 static int dma_zalloc_map(
-	struct slice *sl,
-	size_t q_size,
-	struct file_data *fdata,
-	union zpages **ret_zpage,
-	struct zmap **ret_zmap)
+    struct slice *sl,
+    size_t q_size,
+    struct file_data *fdata,
+    union zpages **ret_zpage,
+    struct zmap **ret_zmap)
 {
-	int ret = 0;
+    int ret = 0;
 
-	*ret_zpage = dma_zpages_alloc(sl, q_size);
-	if (!*ret_zpage) {
-		debug(DEBUG_XQUEUE, "zpage_alloc failed\n");
-                ret = -ENOMEM;
-		return ret;
-	}
-	if (ret_zmap) {  /* allocating and returning zmap is optional */
-		*ret_zmap = zmap_alloc(fdata, *ret_zpage);
-		if (IS_ERR(*ret_zmap)) {
-			debug(DEBUG_XQUEUE, "zmap_alloc failed\n");
-			ret = PTR_ERR(*ret_zmap);
-			zpages_free(*ret_zpage);
-		}
-	}
-	return ret;
+    *ret_zpage = dma_zpages_alloc(sl, q_size);
+    if (!*ret_zpage) {
+        debug(DEBUG_XQUEUE, "zpage_alloc failed\n");
+        ret = -ENOMEM;
+        return ret;
+    }
+    if (ret_zmap) {  /* allocating and returning zmap is optional */
+        *ret_zmap = zmap_alloc(fdata, *ret_zpage);
+        if (IS_ERR(*ret_zmap)) {
+            debug(DEBUG_XQUEUE, "zmap_alloc failed\n");
+            ret = PTR_ERR(*ret_zmap);
+            zpages_free(*ret_zpage);
+        }
+    }
+    return ret;
 }
 
 #define CMDS_PER_PAGE ((uint32_t)(PAGE_SIZE / ZHPE_HW_ENTRY_LEN))
 
 int zhpe_user_req_XQALLOC(struct io_entry *entry)
 {
-	int	 		  ret = -EINVAL;
-	struct zhpe_rsp_XQALLOC	  rsp;
+    int	 		  ret = -EINVAL;
+    struct zhpe_rsp_XQALLOC	  rsp;
 
-	CHECK_INIT_STATE(entry, ret, done);
+    CHECK_INIT_STATE(entry, ret, done);
 
-        ret = zhpe_req_XQALLOC(&entry->op.req.xqalloc, &rsp, entry->fdata);
+    ret = zhpe_req_XQALLOC(&entry->op.req.xqalloc, &rsp, entry->fdata);
 
  done:
-	/* Copy the response to the req/rsp union */
-	entry->op.rsp.xqalloc = rsp;
-	return queue_io_rsp(entry, sizeof(rsp), ret);
+    /* Copy the response to the req/rsp union */
+    entry->op.rsp.xqalloc = rsp;
+    return queue_io_rsp(entry, sizeof(rsp), ret);
 }
 
 static void xdm_qcm_setup(struct xdm_qcm *hw_qcm_addr,
@@ -873,245 +870,244 @@ static void xdm_qcm_setup(struct xdm_qcm *hw_qcm_addr,
                           int traffic_class, int priority,
                           bool cur_valid, uint pasid)
 {
-	struct xdm_qcm_header     qcm = { 0 };
-	uint64_t		  junk;
-	int                       offset;
+    struct xdm_qcm_header     qcm = { 0 };
+    uint64_t		  junk;
+    int                       offset;
 
-	/* Use a local qcm and then copy it to hardware */
-	qcm.cmd_q_base_addr = cmdq_dma_addr;
-	qcm.cmpl_q_base_addr = cmplq_dma_addr;
-	/* Value written into the size field is queue size minus one. */
-	qcm.cmd_q_size = cmdq_ent - 1; /* Revisit: change to -16 for command buffers */
-	qcm.cmpl_q_size = cmplq_ent - 1;
-	qcm.local_pasid = pasid;
-	qcm.fabric_pasid = pasid;
-	if (traffic_class > 15) {
-		debug(DEBUG_XQUEUE, "Invalid traffic_class: %d. Default to 0.\n",
-			traffic_class);
-		qcm.traffic_class = 0;
-	}
-	else {
-		/* Revisit: should we allow app control of traffic_class? */
-		qcm.traffic_class = traffic_class;
-	}
-	if (priority > 1) {
-		debug(DEBUG_XQUEUE, "Invalid priority: %d. Default to 0.\n",
-			priority);
-		qcm.priority = 0;
-	}
-	else {
-		qcm.priority = priority;
-	}
-         /* Use virt addresses with IOMMU and PASID */
-	qcm.virt_addr = !no_iommu && (pasid != NO_PASID);
-	qcm.q_virt_addr = 0;  /* Queues are physically addressed */
-	qcm.toggle_valid = cur_valid;
-        qcm.stop = 1;
-        qcm.master_stop = 0;
-	/* Write the first 4 64-byte words of the qcm to hardware */
-	for (offset=0; offset < 0x20; offset+=0x8) {
-		xdm_qcm_write(&qcm, hw_qcm_addr, offset);
-	}
-	/* Initialize the queue indicies. */
-	xdm_qcm_write(&qcm, hw_qcm_addr, ZHPE_XDM_QCM_CMD_QUEUE_TAIL_OFFSET);
-	xdm_qcm_write(&qcm, hw_qcm_addr, ZHPE_XDM_QCM_CMD_QUEUE_HEAD_OFFSET);
-	xdm_qcm_write(&qcm, hw_qcm_addr,
-		      ZHPE_XDM_QCM_CMPL_QUEUE_TAIL_TOGGLE_OFFSET);
+    /* Use a local qcm and then copy it to hardware */
+    qcm.cmd_q_base_addr = cmdq_dma_addr;
+    qcm.cmpl_q_base_addr = cmplq_dma_addr;
+    /* Value written into the size field is queue size minus one. */
+    qcm.cmd_q_size = cmdq_ent - 1; /* Revisit: change to -16 for command buffers */
+    qcm.cmpl_q_size = cmplq_ent - 1;
+    qcm.local_pasid = pasid;
+    qcm.fabric_pasid = pasid;
+    if (traffic_class > 15) {
+        debug(DEBUG_XQUEUE, "Invalid traffic_class: %d. Default to 0.\n",
+              traffic_class);
+        qcm.traffic_class = 0;
+    }
+    else {
+        /* Revisit: should we allow app control of traffic_class? */
+        qcm.traffic_class = traffic_class;
+    }
+    if (priority > 1) {
+        debug(DEBUG_XQUEUE, "Invalid priority: %d. Default to 0.\n",
+              priority);
+        qcm.priority = 0;
+    }
+    else {
+        qcm.priority = priority;
+    }
+    /* Use virt addresses with IOMMU and PASID */
+    qcm.virt_addr = !no_iommu && (pasid != NO_PASID);
+    qcm.q_virt_addr = 0;  /* Queues are physically addressed */
+    qcm.toggle_valid = cur_valid;
+    qcm.stop = 1;
+    qcm.master_stop = 0;
+    /* Write the first 4 64-byte words of the qcm to hardware */
+    for (offset=0; offset < 0x20; offset+=0x8) {
+        xdm_qcm_write(&qcm, hw_qcm_addr, offset);
+    }
+    /* Initialize the queue indicies. */
+    xdm_qcm_write(&qcm, hw_qcm_addr, ZHPE_XDM_QCM_CMD_QUEUE_TAIL_OFFSET);
+    xdm_qcm_write(&qcm, hw_qcm_addr, ZHPE_XDM_QCM_CMD_QUEUE_HEAD_OFFSET);
+    xdm_qcm_write(&qcm, hw_qcm_addr,
+                  ZHPE_XDM_QCM_CMPL_QUEUE_TAIL_TOGGLE_OFFSET);
 
-	/* Now set the stop bits to turn control over to application. */
-	xdm_qcm_write(&qcm, hw_qcm_addr, XDM_STOP_OFFSET);
-	xdm_qcm_write(&qcm, hw_qcm_addr, XDM_MASTER_STOP_OFFSET);
+    /* Now set the stop bits to turn control over to application. */
+    xdm_qcm_write(&qcm, hw_qcm_addr, XDM_STOP_OFFSET);
+    xdm_qcm_write(&qcm, hw_qcm_addr, XDM_MASTER_STOP_OFFSET);
 
-	/* Read back to ensure synchronization */
-	junk = xdm_qcm_read(hw_qcm_addr, XDM_MASTER_STOP_OFFSET);
+    /* Read back to ensure synchronization */
+    junk = xdm_qcm_read(hw_qcm_addr, XDM_MASTER_STOP_OFFSET);
 
-	zhpe_debug_xdm_qcm(__func__, __LINE__, hw_qcm_addr);
+    zhpe_debug_xdm_qcm(__func__, __LINE__, hw_qcm_addr);
 }
 
 static int xdm_queue_sizes(uint32_t *cmdq_ent, uint32_t *cmplq_ent,
                            size_t *cmdq_size, size_t *cmplq_size,
                            size_t *qcm_size)
 {
-	int ret = 0;
+    int ret = 0;
 
-	/* Validate the given queue length */
-	if (*cmdq_ent < 2 || *cmdq_ent > ZHPE_MAX_XDM_QLEN+1) {
-		debug(DEBUG_XQUEUE, "Invalid command queue entries %d\n",
-			*cmdq_ent);
-		ret = -EINVAL;
-		goto done;
-	}
-	/*
-	 * We force cmdq_ent to consume at least one kernel page and be
-	 * rounded up to the next power of 2.
-	 */
-        *cmdq_ent = max(*cmdq_ent, CMDS_PER_PAGE);
-        *cmdq_ent = roundup_pow_of_two(*cmdq_ent);
+    /* Validate the given queue length */
+    if (*cmdq_ent < 2 || *cmdq_ent > ZHPE_MAX_XDM_QLEN+1) {
+        debug(DEBUG_XQUEUE, "Invalid command queue entries %d\n",
+              *cmdq_ent);
+        ret = -EINVAL;
+        goto done;
+    }
+    /*
+     * We force cmdq_ent to consume at least one kernel page and be
+     * rounded up to the next power of 2.
+     */
+    *cmdq_ent = max(*cmdq_ent, CMDS_PER_PAGE);
+    *cmdq_ent = roundup_pow_of_two(*cmdq_ent);
 
-	if (*cmplq_ent < 2 || *cmplq_ent > ZHPE_MAX_XDM_QLEN+1) {
-		debug(DEBUG_XQUEUE, "Invalid completion queue entries %d\n",
-			*cmplq_ent);
-		ret = -EINVAL;
-		goto done;
-	}
-	/*
-	 * The completion queue must be greater than or equal to the command
-	 * queue and similarly rounded up.
-	 */
-        *cmplq_ent = max(*cmdq_ent, *cmplq_ent);
-        *cmplq_ent = roundup_pow_of_two(*cmplq_ent);
+    if (*cmplq_ent < 2 || *cmplq_ent > ZHPE_MAX_XDM_QLEN+1) {
+        debug(DEBUG_XQUEUE, "Invalid completion queue entries %d\n",
+              *cmplq_ent);
+        ret = -EINVAL;
+        goto done;
+    }
+    /*
+     * The completion queue must be greater than or equal to the command
+     * queue and similarly rounded up.
+     */
+    *cmplq_ent = max(*cmdq_ent, *cmplq_ent);
+    *cmplq_ent = roundup_pow_of_two(*cmplq_ent);
 
-	/* Compute sizes */
-	*qcm_size = PAGE_SIZE;
-	*cmdq_size = *cmdq_ent * ZHPE_HW_ENTRY_LEN;
-	*cmplq_size = *cmplq_ent * ZHPE_HW_ENTRY_LEN;
+    /* Compute sizes */
+    *qcm_size = PAGE_SIZE;
+    *cmdq_size = *cmdq_ent * ZHPE_HW_ENTRY_LEN;
+    *cmplq_size = *cmplq_ent * ZHPE_HW_ENTRY_LEN;
 
  done:
-	debug(DEBUG_XQUEUE, "compute sizes: ret=%d cmdq_ent=%u cmdq_size=0x%lx "
-              "cmplq_ent=%u cmplq_size=0x%lx qcm_size=0x%lx\n",
-              ret, *cmdq_ent, *cmdq_size, *cmplq_ent, *cmplq_size, *qcm_size);
-        return ret;
+    debug(DEBUG_XQUEUE, "compute sizes: ret=%d cmdq_ent=%u cmdq_size=0x%lx "
+          "cmplq_ent=%u cmplq_size=0x%lx qcm_size=0x%lx\n",
+          ret, *cmdq_ent, *cmdq_size, *cmplq_ent, *cmplq_size, *qcm_size);
+    return ret;
 }
 
 int zhpe_req_XQALLOC(
-	struct zhpe_req_XQALLOC *req,
-	struct zhpe_rsp_XQALLOC	*rsp,
-	struct file_data        *fdata)
+    struct zhpe_req_XQALLOC *req,
+    struct zhpe_rsp_XQALLOC	*rsp,
+    struct file_data        *fdata)
 {
-	int	 		  ret;
-	uint32_t                  cmdq_ent, cmplq_ent;
-	struct xdm_qcm            *hw_qcm_addr, *app_qcm_addr;
-        phys_addr_t               app_qcm_physaddr;
-	union zpages		  *qcm_zpage, *cmdq_zpage, *cmplq_zpage;
-	struct zmap		  *qcm_zmap, *cmdq_zmap, *cmplq_zmap;
-	size_t			  qcm_size = 0, cmdq_size = 0, cmplq_size = 0;
-	struct slice		  *sl;
-	int			  slice, queue;
+    int	 		  ret;
+    uint32_t                  cmdq_ent, cmplq_ent;
+    struct xdm_qcm            *hw_qcm_addr, *app_qcm_addr;
+    phys_addr_t               app_qcm_physaddr;
+    union zpages		  *qcm_zpage, *cmdq_zpage, *cmplq_zpage;
+    struct zmap		  *qcm_zmap, *cmdq_zmap, *cmplq_zmap;
+    size_t			  qcm_size = 0, cmdq_size = 0, cmplq_size = 0;
+    struct slice		  *sl;
+    int			  slice, queue;
 
-	debug(DEBUG_XQUEUE,
-	"xqalloc req cmdq_ent %d, cmplq_ent %d, traffic_class %d, priority %d, slice_mask 0x%x\n", req->cmdq_ent, req->cmplq_ent, req->traffic_class, req->priority, req->slice_mask);
+    debug(DEBUG_XQUEUE,
+          "xqalloc req cmdq_ent %d, cmplq_ent %d, traffic_class %d, priority %d, slice_mask 0x%x\n", req->cmdq_ent, req->cmplq_ent, req->traffic_class, req->priority, req->slice_mask);
 
-	cmdq_ent = req->cmdq_ent;
-	cmplq_ent = req->cmplq_ent;
-        ret = xdm_queue_sizes(&cmdq_ent, &cmplq_ent, &cmdq_size, &cmplq_size,
-                              &qcm_size);
-        if (ret)
-            goto done;
+    cmdq_ent = req->cmdq_ent;
+    cmplq_ent = req->cmplq_ent;
+    ret = xdm_queue_sizes(&cmdq_ent, &cmplq_ent, &cmdq_size, &cmplq_size,
+                          &qcm_size);
+    if (ret)
+        goto done;
 
-	rsp->info.cmdq.ent = cmdq_ent;
-	rsp->info.cmplq.ent = cmplq_ent;
-	rsp->info.cmdq.size = cmdq_size;
-	rsp->info.cmplq.size = cmplq_size;
-	rsp->info.qcm.size = qcm_size;
+    rsp->info.cmdq.ent = cmdq_ent;
+    rsp->info.cmplq.ent = cmplq_ent;
+    rsp->info.cmdq.size = cmdq_size;
+    rsp->info.cmplq.size = cmplq_size;
+    rsp->info.qcm.size = qcm_size;
 
-	debug(DEBUG_XQUEUE, "compute sizes cmdq_ent=%u cmdq_size=0x%lx "
-              "cmplq_ent=%u cmplq_size=0x%lx\n",
-              cmdq_ent, cmdq_size, cmplq_ent, cmplq_size);
+    debug(DEBUG_XQUEUE, "compute sizes cmdq_ent=%u cmdq_size=0x%lx "
+          "cmplq_ent=%u cmplq_size=0x%lx\n",
+          cmdq_ent, cmdq_size, cmplq_ent, cmplq_size);
 
-	/* Pick which slice has a free queue based on the slice_mask */
-	ret = alloc_xqueue(fdata->bridge, req->slice_mask,
-			&slice, &queue);
-	rsp->hdr.status = ret;
-	debug(DEBUG_XQUEUE,
-		"xqalloc rsp slice %d queue %d\n",
-		slice, queue);
-	if (ret) {
-		debug(DEBUG_XQUEUE,
-			"Request for slice_mask 0x%x failed\n",
-			req->slice_mask);
-		goto done;
-	}
-        /* set bit in this file_data as owner */
-        spin_lock(&fdata->xdm_queue_lock);
-        set_bit((slice*zhpe_xdm_queues_per_slice)+queue, fdata->xdm_queues);
-        spin_unlock(&fdata->xdm_queue_lock);
-	rsp->info.slice = slice;
-	rsp->info.queue = queue;
+    /* Pick which slice has a free queue based on the slice_mask */
+    ret = alloc_xqueue(fdata->bridge, req->slice_mask,
+                       &slice, &queue);
+    rsp->hdr.status = ret;
+    debug(DEBUG_XQUEUE,
+          "xqalloc rsp slice %d queue %d\n",
+          slice, queue);
+    if (ret) {
+        debug(DEBUG_XQUEUE,
+              "Request for slice_mask 0x%x failed\n",
+              req->slice_mask);
+        goto done;
+    }
+    /* set bit in this file_data as owner */
+    spin_lock(&fdata->xdm_queue_lock);
+    set_bit((slice*zhpe_xdm_queues_per_slice)+queue, fdata->xdm_queues);
+    spin_unlock(&fdata->xdm_queue_lock);
+    rsp->info.slice = slice;
+    rsp->info.queue = queue;
 
-	/* Get a pointer to the qcm chosen to initialize it's fields */
-	sl = &(fdata->bridge->slice[slice]);
-	hw_qcm_addr = &(sl->bar->xdm[queue*2]);
+    /* Get a pointer to the qcm chosen to initialize it's fields */
+    sl = &(fdata->bridge->slice[slice]);
+    hw_qcm_addr = &(sl->bar->xdm[queue*2]);
 
-	debug(DEBUG_XQUEUE, "hw_qcm_addr for slice %d queue %d queue init 0x%px\n",
-		slice, queue, hw_qcm_addr);
+    debug(DEBUG_XQUEUE, "hw_qcm_addr for slice %d queue %d queue init 0x%px\n",
+          slice, queue, hw_qcm_addr);
 
-	/* Allocate pages and map for qcm, cmdq, and cmplq */
-	ret = -ENOMEM;
-	/* Use the App Page in the zpage_alloc which is +1 from kernel page */
-        app_qcm_addr = hw_qcm_addr + 1;
-        app_qcm_physaddr = sl->phys_base +
-            ((void *)app_qcm_addr - (void *)sl->bar);
-	debug(DEBUG_XQUEUE, "app_qcm_physaddr %pxa\n", &app_qcm_physaddr);
-	qcm_zpage = hsr_zpage_alloc(app_qcm_physaddr);
-	if (!qcm_zpage) {
-		debug(DEBUG_XQUEUE, "zpage_alloc failed for qcm\n");
-		goto release_queue;
-	}
-	qcm_zmap = zmap_alloc(fdata, qcm_zpage);
-	if (IS_ERR(qcm_zmap)) {
-		debug(DEBUG_XQUEUE, "zmap_alloc failed for qcm\n");
-		ret = PTR_ERR(qcm_zmap);
-		qcm_zmap = NULL;
-		goto free_qcm_zpage;
-	}
-	rsp->info.qcm.off = qcm_zmap->offset;
+    /* Allocate pages and map for qcm, cmdq, and cmplq */
+    ret = -ENOMEM;
+    /* Use the App Page in the zpage_alloc which is +1 from kernel page */
+    app_qcm_addr = hw_qcm_addr + 1;
+    app_qcm_physaddr = sl->phys_base +
+        ((void *)app_qcm_addr - (void *)sl->bar);
+    debug(DEBUG_XQUEUE, "app_qcm_physaddr %pxa\n", &app_qcm_physaddr);
+    qcm_zpage = hsr_zpage_alloc(app_qcm_physaddr);
+    if (!qcm_zpage) {
+        debug(DEBUG_XQUEUE, "zpage_alloc failed for qcm\n");
+        goto release_queue;
+    }
+    qcm_zmap = zmap_alloc(fdata, qcm_zpage);
+    if (IS_ERR(qcm_zmap)) {
+        debug(DEBUG_XQUEUE, "zmap_alloc failed for qcm\n");
+        ret = PTR_ERR(qcm_zmap);
+        qcm_zmap = NULL;
+        goto free_qcm_zpage;
+    }
+    rsp->info.qcm.off = qcm_zmap->offset;
 
-	ret = dma_zalloc_map(sl, cmdq_size, fdata,
-			&cmdq_zpage, &cmdq_zmap);
-	if (ret != 0) {
-		debug(DEBUG_XQUEUE, "dma_zalloc_map failed for cmdq\n");
-		goto free_qcm_zmap;
-	}
-	rsp->info.cmdq.off = cmdq_zmap->offset;
+    ret = dma_zalloc_map(sl, cmdq_size, fdata,
+                         &cmdq_zpage, &cmdq_zmap);
+    if (ret != 0) {
+        debug(DEBUG_XQUEUE, "dma_zalloc_map failed for cmdq\n");
+        goto free_qcm_zmap;
+    }
+    rsp->info.cmdq.off = cmdq_zmap->offset;
 
-	ret = dma_zalloc_map(sl, cmplq_size, fdata,
-			&cmplq_zpage, &cmplq_zmap);
-	if (ret != 0) {
-		debug(DEBUG_XQUEUE, "dma_zalloc_map failed for cmplq\n");
-		goto free_cmdq_zmap;
-	}
-	rsp->info.cmplq.off = cmplq_zmap->offset;
+    ret = dma_zalloc_map(sl, cmplq_size, fdata,
+                         &cmplq_zpage, &cmplq_zmap);
+    if (ret != 0) {
+        debug(DEBUG_XQUEUE, "dma_zalloc_map failed for cmplq\n");
+        goto free_cmdq_zmap;
+    }
+    rsp->info.cmplq.off = cmplq_zmap->offset;
 
-        xdm_qcm_setup(hw_qcm_addr,
-                      cmdq_zpage->dma.dma_addr, cmplq_zpage->dma.dma_addr,
-                      rsp->info.cmdq.ent, rsp->info.cmplq.ent,
-                      req->traffic_class, req->priority, 1, fdata->pasid);
+    xdm_qcm_setup(hw_qcm_addr,
+                  cmdq_zpage->dma.dma_addr, cmplq_zpage->dma.dma_addr,
+                  rsp->info.cmdq.ent, rsp->info.cmplq.ent,
+                  req->traffic_class, req->priority, 1, fdata->pasid);
 
-	/* Set owner fields to valid value; can't fail after this. */
-        qcm_zmap->owner = fdata;
-        cmdq_zmap->owner = fdata;
-        cmplq_zmap->owner = fdata;
+    /* Set owner fields to valid value; can't fail after this. */
+    qcm_zmap->owner = fdata;
+    cmdq_zmap->owner = fdata;
+    cmplq_zmap->owner = fdata;
 
-	/* Make sure owner is seen before we advertise the queue anywhere. */
-	smp_wmb();
-	ret = 0;
-	goto done;
+    /* Make sure owner is seen before we advertise the queue anywhere. */
+    smp_wmb();
+    ret = 0;
+    goto done;
 
-	/* Handle errors */
+    /* Handle errors */
  free_cmdq_zmap:
-	zmap_free(cmdq_zmap);
+    zmap_free(cmdq_zmap);
  free_qcm_zmap:
-	zmap_free(qcm_zmap);
-	/* zmap_free also frees the zpage */
-	goto release_queue;
+    zmap_free(qcm_zmap);
+    /* zmap_free also frees the zpage */
+    goto release_queue;
  free_qcm_zpage:
-	zpages_free(qcm_zpage);
+    zpages_free(qcm_zpage);
  release_queue:
-	xdm_release_slice_queue(fdata->bridge, slice, queue);
-	spin_lock(&fdata->xdm_queue_lock);
-	clear_bit((slice*zhpe_xdm_queues_per_slice)+queue, fdata->xdm_queues);
-	spin_unlock(&fdata->xdm_queue_lock);
-done:
-	return ret;
+    xdm_release_slice_queue(fdata->bridge, slice, queue);
+    spin_lock(&fdata->xdm_queue_lock);
+    clear_bit((slice*zhpe_xdm_queues_per_slice)+queue, fdata->xdm_queues);
+    spin_unlock(&fdata->xdm_queue_lock);
+ done:
+    return ret;
 }
 
 int zhpe_kernel_XQALLOC(struct xdm_info *xdmi)
 {
     int ret = 0;
 
-    debug(DEBUG_XQUEUE, "%s:%s,%u: cmdq_ent=%u, cmplq_ent=%u\n",
-          zhpe_driver_name, __func__, __LINE__,
-          xdmi->cmdq_ent, xdmi->cmplq_ent);
+    debug(DEBUG_XQUEUE, "cmdq_ent=%u, cmplq_ent=%u\n",
+	  xdmi->cmdq_ent, xdmi->cmplq_ent);
     spin_lock_init(&xdmi->xdm_info_lock);
     ret = xdm_queue_sizes(&xdmi->cmdq_ent, &xdmi->cmplq_ent,
                           &xdmi->cmdq_size, &xdmi->cmplq_size,
@@ -1148,9 +1144,7 @@ int zhpe_kernel_XQALLOC(struct xdm_info *xdmi)
     xdmi->cmplq_head = 0;
     xdmi->cmplq_tail_shadow = 0;
     ret = 0;
-    debug(DEBUG_XQUEUE, "%s:%s,%u: slice=%d, queue=%d\n",
-          zhpe_driver_name, __func__, __LINE__,
-          xdmi->slice, xdmi->queue);
+    debug(DEBUG_XQUEUE, "slice=%d, queue=%d\n", xdmi->slice, xdmi->queue);
     goto done;
 
  free_cmdq_zpage:
@@ -1163,58 +1157,58 @@ int zhpe_kernel_XQALLOC(struct xdm_info *xdmi)
 
 int zhpe_user_req_XQFREE(struct io_entry *entry)
 {
-	int			ret = 0;
+    int			ret = 0;
 
-	CHECK_INIT_STATE(entry, ret, done);
+    CHECK_INIT_STATE(entry, ret, done);
 
-	ret = zhpe_req_XQFREE(&entry->op.req, &entry->op.rsp, entry->fdata);
+    ret = zhpe_req_XQFREE(&entry->op.req, &entry->op.rsp, entry->fdata);
 
-done:
-	return queue_io_rsp(entry, sizeof(&entry->op.rsp.xqfree), ret);
+ done:
+    return queue_io_rsp(entry, sizeof(&entry->op.rsp.xqfree), ret);
 
 }
 
 int zhpe_req_XQFREE(union zhpe_req *req,
-			union zhpe_rsp *rsp, struct file_data *fdata)
+                    union zhpe_rsp *rsp, struct file_data *fdata)
 {
-	int			ret = 0;
-	int			count = 3;
-	struct zmap		*zmap;
-	struct zmap		*next;
+    int			ret = 0;
+    int			count = 3;
+    struct zmap		*zmap;
+    struct zmap		*next;
 
-	debug(DEBUG_XQUEUE,
-              "xqfree req slice %d queue %d qcm.off 0x%llx cmd.off 0x%llx cmpl.off 0x%llx\n",
-              req->xqfree.info.slice, req->xqfree.info.queue,
-              req->xqfree.info.qcm.off, req->xqfree.info.cmdq.off,
-              req->xqfree.info.cmplq.off);
-        if (zhpe_xqueue_free(fdata, &req->xqfree)) {
-		/* zphe_xqueue_free can fail if the queue doesn't drain. */
-		ret = -EBUSY;
-		goto done;
-	}
+    debug(DEBUG_XQUEUE,
+          "xqfree req slice %d queue %d qcm.off 0x%llx cmd.off 0x%llx cmpl.off 0x%llx\n",
+          req->xqfree.info.slice, req->xqfree.info.queue,
+          req->xqfree.info.qcm.off, req->xqfree.info.cmdq.off,
+          req->xqfree.info.cmplq.off);
+    if (zhpe_xqueue_free(fdata, &req->xqfree)) {
+        /* zphe_xqueue_free can fail if the queue doesn't drain. */
+        ret = -EBUSY;
+        goto done;
+    }
 
-	spin_lock(&fdata->zmap_lock);
-	list_for_each_entry_safe(zmap, next, &fdata->zmap_list, list) {
-		if (zmap->offset == req->xqfree.info.qcm.off ||
-			zmap->offset == req->xqfree.info.cmdq.off ||
-			zmap->offset == req->xqfree.info.cmplq.off) {
-			if (zmap->owner != fdata) {
-				if (ret >= 0)
-					ret = -EACCES;
-			} else {
-				list_del_init(&zmap->list);
-				zmap_free(zmap);
-			}
-			if (--count == 0)
-				break;
-		}
-	}
-	spin_unlock(&fdata->zmap_lock);
-	if (ret >= 0 && count)
-		ret = -ENOENT;
+    spin_lock(&fdata->zmap_lock);
+    list_for_each_entry_safe(zmap, next, &fdata->zmap_list, list) {
+        if (zmap->offset == req->xqfree.info.qcm.off ||
+            zmap->offset == req->xqfree.info.cmdq.off ||
+            zmap->offset == req->xqfree.info.cmplq.off) {
+            if (zmap->owner != fdata) {
+                if (ret >= 0)
+                    ret = -EACCES;
+            } else {
+                list_del_init(&zmap->list);
+                zmap_free(zmap);
+            }
+            if (--count == 0)
+                break;
+        }
+    }
+    spin_unlock(&fdata->zmap_lock);
+    if (ret >= 0 && count)
+        ret = -ENOENT;
 
  done:
-	return ret;
+    return ret;
 }
 
 int zhpe_kernel_XQFREE(struct xdm_info *xdmi)
@@ -1238,233 +1232,232 @@ int zhpe_kernel_XQFREE(struct xdm_info *xdmi)
 #define RSPCTXID_UPPER_SLICE_SHIFT	10
 uint32_t zhpe_rspctxid_alloc(int slice, int queue)
 {
-	uint32_t rspctxid;
+    uint32_t rspctxid;
 
-	/* bits 0-1 select the RDM instance in the bridge - use the slice. */
-	/* bits 9:2 select the RDM queue number */
-	/* bits 10:24 are the same for all 256 completion queues */
-	/* Revisit FabricManager: 10:24 are 0 until we have a fabric manger interface */
-	rspctxid = (queue<<RSPCTXID_QUEUE_SHIFT)|slice;
-	return rspctxid;
+    /* bits 0-1 select the RDM instance in the bridge - use the slice. */
+    /* bits 9:2 select the RDM queue number */
+    /* bits 10:24 are the same for all 256 completion queues */
+    /* Revisit FabricManager: 10:24 are 0 until we have a fabric manger interface */
+    rspctxid = (queue<<RSPCTXID_QUEUE_SHIFT)|slice;
+    return rspctxid;
 }
 
 int zhpe_user_req_RQALLOC(struct io_entry *entry)
 {
-	int	 		  ret = -EINVAL;
-	struct zhpe_req_RQALLOC	  *req = &entry->op.req.rqalloc;
-	struct zhpe_rsp_RQALLOC	  rsp;
+    int	 		  ret = -EINVAL;
+    struct zhpe_req_RQALLOC	  *req = &entry->op.req.rqalloc;
+    struct zhpe_rsp_RQALLOC	  rsp;
 
-	CHECK_INIT_STATE(entry, ret, done);
+    CHECK_INIT_STATE(entry, ret, done);
 
-	ret = zhpe_req_RQALLOC(req, &rsp, entry->fdata);
+    ret = zhpe_req_RQALLOC(req, &rsp, entry->fdata);
 
-done:
-	/* Copy the response to the req/rsp union */
-	entry->op.rsp.rqalloc = rsp;
-	return queue_io_rsp(entry, sizeof(rsp), ret);
+ done:
+    /* Copy the response to the req/rsp union */
+    entry->op.rsp.rqalloc = rsp;
+    return queue_io_rsp(entry, sizeof(rsp), ret);
 }
 
 static void rdm_qcm_setup(struct rdm_qcm *hw_qcm_addr,
                           uint64_t dma_addr, uint cmplq_ent,
                           bool cur_valid, uint pasid)
 {
-	struct rdm_qcm_header     qcm = { 0 };
-	uint64_t		  junk;
-	int                       offset;
+    struct rdm_qcm_header     qcm = { 0 };
+    uint64_t		  junk;
+    int                       offset;
 
-	/* Use a local qcm and then copy it to hardware */
-	qcm.cmpl_q_base_addr = dma_addr;
-	/* The value written to the size field is queue size minus one */
-	qcm.cmpl_q_size = cmplq_ent - 1;
+    /* Use a local qcm and then copy it to hardware */
+    qcm.cmpl_q_base_addr = dma_addr;
+    /* The value written to the size field is queue size minus one */
+    qcm.cmpl_q_size = cmplq_ent - 1;
 
-	qcm.pasid = pasid;
-	qcm.intr_enable = 1;
-	qcm.q_virt_addr = 0;
-	qcm.toggle_valid = cur_valid;
-        qcm.stop = 1;
-        qcm.master_stop = 0;
-	/* Write the first 2 64-byte words of the qcm to hardware */
-	for (offset=0; offset < 0x10; offset+=0x8) {
-                rdm_qcm_write(&qcm, hw_qcm_addr, offset);
-	}
-	/* Initialize the queue indicies. */
-	rdm_qcm_write(&qcm, hw_qcm_addr,
-		      ZHPE_RDM_QCM_RCV_QUEUE_TAIL_TOGGLE_OFFSET);
-	rdm_qcm_write(&qcm, hw_qcm_addr, ZHPE_RDM_QCM_RCV_QUEUE_HEAD_OFFSET);
+    qcm.pasid = pasid;
+    qcm.intr_enable = 1;
+    qcm.q_virt_addr = 0;
+    qcm.toggle_valid = cur_valid;
+    qcm.stop = 1;
+    qcm.master_stop = 0;
+    /* Write the first 2 64-byte words of the qcm to hardware */
+    for (offset=0; offset < 0x10; offset+=0x8) {
+        rdm_qcm_write(&qcm, hw_qcm_addr, offset);
+    }
+    /* Initialize the queue indicies. */
+    rdm_qcm_write(&qcm, hw_qcm_addr,
+                  ZHPE_RDM_QCM_RCV_QUEUE_TAIL_TOGGLE_OFFSET);
+    rdm_qcm_write(&qcm, hw_qcm_addr, ZHPE_RDM_QCM_RCV_QUEUE_HEAD_OFFSET);
 
-	/* Now set the stop bits to turn control over to application. */
-        rdm_qcm_write(&qcm, hw_qcm_addr, RDM_STOP_OFFSET);
-        rdm_qcm_write(&qcm, hw_qcm_addr, RDM_MASTER_STOP_OFFSET);
+    /* Now set the stop bits to turn control over to application. */
+    rdm_qcm_write(&qcm, hw_qcm_addr, RDM_STOP_OFFSET);
+    rdm_qcm_write(&qcm, hw_qcm_addr, RDM_MASTER_STOP_OFFSET);
 
-	/* Read back to ensure synchronization */
-        junk = rdm_qcm_read(hw_qcm_addr, RDM_MASTER_STOP_OFFSET);
+    /* Read back to ensure synchronization */
+    junk = rdm_qcm_read(hw_qcm_addr, RDM_MASTER_STOP_OFFSET);
 
-	zhpe_debug_rdm_qcm(__func__, __LINE__, hw_qcm_addr);
+    zhpe_debug_rdm_qcm(__func__, __LINE__, hw_qcm_addr);
 }
 
 static int rdm_queue_sizes(uint32_t *cmplq_ent, size_t *cmplq_size,
                            size_t *qcm_size)
 {
-	int ret = 0;
+    int ret = 0;
 
-	/* Validate the given queue length */
-	if (*cmplq_ent < 2 || *cmplq_ent > ZHPE_MAX_RDM_QLEN+1) {
-		debug(DEBUG_RQUEUE, "Invalid completion queue entries %d\n",
-			*cmplq_ent);
-		ret = -EINVAL;
-		goto done;
-	}
-	/*
-	 * We force cmplq_ent to consume at least one kernel page and be
-	 * rounded up to the next power of 2.
-	 */
-        *cmplq_ent = max(*cmplq_ent, CMDS_PER_PAGE);
-        *cmplq_ent = roundup_pow_of_two(*cmplq_ent);
+    /* Validate the given queue length */
+    if (*cmplq_ent < 2 || *cmplq_ent > ZHPE_MAX_RDM_QLEN+1) {
+        debug(DEBUG_RQUEUE, "Invalid completion queue entries %d\n",
+              *cmplq_ent);
+        ret = -EINVAL;
+        goto done;
+    }
+    /*
+     * We force cmplq_ent to consume at least one kernel page and be
+     * rounded up to the next power of 2.
+     */
+    *cmplq_ent = max(*cmplq_ent, CMDS_PER_PAGE);
+    *cmplq_ent = roundup_pow_of_two(*cmplq_ent);
 
-	/* Compute sizes */
-	*qcm_size = PAGE_SIZE;
-	*cmplq_size = *cmplq_ent * ZHPE_HW_ENTRY_LEN;
+    /* Compute sizes */
+    *qcm_size = PAGE_SIZE;
+    *cmplq_size = *cmplq_ent * ZHPE_HW_ENTRY_LEN;
 
  done:
-	debug(DEBUG_RQUEUE, "compute sizes: ret=%d "
-              "cmplq_ent=%u cmplq_size=0x%lx qcm_size=0x%lx\n",
-              ret, *cmplq_ent, *cmplq_size, *qcm_size);
-        return ret;
+    debug(DEBUG_RQUEUE, "compute sizes: ret=%d "
+          "cmplq_ent=%u cmplq_size=0x%lx qcm_size=0x%lx\n",
+          ret, *cmplq_ent, *cmplq_size, *qcm_size);
+    return ret;
 }
 
 int zhpe_req_RQALLOC(struct zhpe_req_RQALLOC *req,
-			struct zhpe_rsp_RQALLOC *rsp,
-			struct file_data *fdata)
+                     struct zhpe_rsp_RQALLOC *rsp,
+                     struct file_data *fdata)
 {
-	int	 		  ret = -EINVAL;
-	uint32_t                  cmplq_ent;
-	size_t			  qcm_size = 0, cmplq_size = 0;
-	int			  slice, queue, irq_vector;
-	struct rdm_qcm            *hw_qcm_addr, *app_qcm_addr;
-        phys_addr_t               app_qcm_physaddr;
-	struct slice		  *sl;
-	union zpages		  *qcm_zpage, *cmplq_zpage;
-	struct zmap		  *qcm_zmap, *cmplq_zmap;
+    int	 		  ret = -EINVAL;
+    uint32_t                  cmplq_ent;
+    size_t			  qcm_size = 0, cmplq_size = 0;
+    int			  slice, queue, irq_vector;
+    struct rdm_qcm            *hw_qcm_addr, *app_qcm_addr;
+    phys_addr_t               app_qcm_physaddr;
+    struct slice		  *sl;
+    union zpages		  *qcm_zpage, *cmplq_zpage;
+    struct zmap		  *qcm_zmap, *cmplq_zmap;
 
-	debug(DEBUG_RQUEUE,
-	"rqalloc req cmplq_ent %d, slice_mask 0x%x\n", req->cmplq_ent, req->slice_mask);
+    debug(DEBUG_RQUEUE,
+          "rqalloc req cmplq_ent %d, slice_mask 0x%x\n", req->cmplq_ent, req->slice_mask);
 
-	cmplq_ent = req->cmplq_ent;
-        ret = rdm_queue_sizes(&cmplq_ent, &cmplq_size, &qcm_size);
-        if (ret)
-            goto done;
+    cmplq_ent = req->cmplq_ent;
+    ret = rdm_queue_sizes(&cmplq_ent, &cmplq_size, &qcm_size);
+    if (ret)
+        goto done;
 
-	rsp->info.cmplq.ent = cmplq_ent;
-	rsp->info.cmplq.size = cmplq_size;
-	rsp->info.qcm.size = qcm_size;
+    rsp->info.cmplq.ent = cmplq_ent;
+    rsp->info.cmplq.size = cmplq_size;
+    rsp->info.qcm.size = qcm_size;
 
-	debug(DEBUG_RQUEUE, "compute sizes cmplq_ent=%u cmplq_size=0x%lx\n",
-              cmplq_ent, cmplq_size);
+    debug(DEBUG_RQUEUE, "compute sizes cmplq_ent=%u cmplq_size=0x%lx\n",
+          cmplq_ent, cmplq_size);
 
-	/* Pick which slice has a free queue based on the slice_mask */
-	ret = alloc_rqueue(fdata->bridge, req->slice_mask,
-			&slice, &queue, &irq_vector);
-	rsp->hdr.status = ret;
-	debug(DEBUG_RQUEUE,
-		"rqalloc rsp slice %d queue %d irq_vector %d\n",
-		slice, queue, irq_vector);
-	if (ret) {
-		debug(DEBUG_RQUEUE,
-			"Request for slice_mask 0x%x failed\n",
-			req->slice_mask);
-		goto done;
-	}
-        /* set bit in this file_data as owner */
-        spin_lock(&fdata->rdm_queue_lock);
-        set_bit((slice*zhpe_rdm_queues_per_slice)+queue, fdata->rdm_queues);
-        spin_unlock(&fdata->rdm_queue_lock);
-	rsp->info.slice = slice;
-	rsp->info.queue = queue;
-	rsp->info.irq_vector = irq_vector;
-	rsp->info.rspctxid = zhpe_rspctxid_alloc(slice, queue);
+    /* Pick which slice has a free queue based on the slice_mask */
+    ret = alloc_rqueue(fdata->bridge, req->slice_mask,
+                       &slice, &queue, &irq_vector);
+    rsp->hdr.status = ret;
+    debug(DEBUG_RQUEUE,
+          "rqalloc rsp slice %d queue %d irq_vector %d\n",
+          slice, queue, irq_vector);
+    if (ret) {
+        debug(DEBUG_RQUEUE,
+              "Request for slice_mask 0x%x failed\n",
+              req->slice_mask);
+        goto done;
+    }
+    /* set bit in this file_data as owner */
+    spin_lock(&fdata->rdm_queue_lock);
+    set_bit((slice*zhpe_rdm_queues_per_slice)+queue, fdata->rdm_queues);
+    spin_unlock(&fdata->rdm_queue_lock);
+    rsp->info.slice = slice;
+    rsp->info.queue = queue;
+    rsp->info.irq_vector = irq_vector;
+    rsp->info.rspctxid = zhpe_rspctxid_alloc(slice, queue);
 
-	/* Get a pointer to the qcm chosen to initialize it's fields */
-	sl = &(fdata->bridge->slice[slice]);
-	hw_qcm_addr = &(sl->bar->rdm[queue*2]);
+    /* Get a pointer to the qcm chosen to initialize it's fields */
+    sl = &(fdata->bridge->slice[slice]);
+    hw_qcm_addr = &(sl->bar->rdm[queue*2]);
 
-	debug(DEBUG_RQUEUE, "hw_qcm_addr for slice %d queue %d queue init 0x%px\n",
-		slice, queue, hw_qcm_addr);
+    debug(DEBUG_RQUEUE, "hw_qcm_addr for slice %d queue %d queue init 0x%px\n",
+          slice, queue, hw_qcm_addr);
 
-	/* Allocate pages and map for qcm and cmplq */
-	ret = -ENOMEM;
-	/* Use the App Page in the zpage_alloc which is +1 from kernel page */
-        app_qcm_addr = hw_qcm_addr + 1;
-        app_qcm_physaddr = sl->phys_base +
-            ((void *)app_qcm_addr - (void *)sl->bar);
-	debug(DEBUG_RQUEUE, "app_qcm_physaddr %pxa\n", &app_qcm_physaddr);
-	qcm_zpage = hsr_zpage_alloc(app_qcm_physaddr);
-	if (!qcm_zpage) {
-		debug(DEBUG_RQUEUE, "zpage_alloc failed for qcm\n");
-		goto release_queue;
-	}
-	qcm_zmap = zmap_alloc(fdata, qcm_zpage);
-	if (IS_ERR(qcm_zmap)) {
-		debug(DEBUG_RQUEUE, "zmap_alloc failed for qcm\n");
-		ret = PTR_ERR(qcm_zmap);
-		qcm_zmap = NULL;
-		goto free_qcm_zpage;
-	}
-	rsp->info.qcm.off = qcm_zmap->offset;
+    /* Allocate pages and map for qcm and cmplq */
+    ret = -ENOMEM;
+    /* Use the App Page in the zpage_alloc which is +1 from kernel page */
+    app_qcm_addr = hw_qcm_addr + 1;
+    app_qcm_physaddr = sl->phys_base +
+        ((void *)app_qcm_addr - (void *)sl->bar);
+    debug(DEBUG_RQUEUE, "app_qcm_physaddr %pxa\n", &app_qcm_physaddr);
+    qcm_zpage = hsr_zpage_alloc(app_qcm_physaddr);
+    if (!qcm_zpage) {
+        debug(DEBUG_RQUEUE, "zpage_alloc failed for qcm\n");
+        goto release_queue;
+    }
+    qcm_zmap = zmap_alloc(fdata, qcm_zpage);
+    if (IS_ERR(qcm_zmap)) {
+        debug(DEBUG_RQUEUE, "zmap_alloc failed for qcm\n");
+        ret = PTR_ERR(qcm_zmap);
+        qcm_zmap = NULL;
+        goto free_qcm_zpage;
+    }
+    rsp->info.qcm.off = qcm_zmap->offset;
 
-	ret = dma_zalloc_map(sl, cmplq_size, fdata,
-			&cmplq_zpage, &cmplq_zmap);
-	if (ret != 0) {
-		debug(DEBUG_RQUEUE, "dma_zalloc_map failed for cmplq\n");
-		goto free_qcm_zmap;
-	}
-	rsp->info.cmplq.off = cmplq_zmap->offset;
+    ret = dma_zalloc_map(sl, cmplq_size, fdata,
+                         &cmplq_zpage, &cmplq_zmap);
+    if (ret != 0) {
+        debug(DEBUG_RQUEUE, "dma_zalloc_map failed for cmplq\n");
+        goto free_qcm_zmap;
+    }
+    rsp->info.cmplq.off = cmplq_zmap->offset;
 
-        rdm_qcm_setup(hw_qcm_addr, cmplq_zpage->dma.dma_addr,
-                      rsp->info.cmplq.ent, 1, fdata->pasid);
+    rdm_qcm_setup(hw_qcm_addr, cmplq_zpage->dma.dma_addr,
+                  rsp->info.cmplq.ent, 1, fdata->pasid);
 
-	/* Register the rdm second level interrupt handler */
-	ret = zhpe_register_rdm_interrupt(sl, queue,
-			zhpe_rdm_interrupt_handler, fdata->bridge);
-        if (ret != 0) {
-		debug(DEBUG_RQUEUE, "zhpe_register_rdm_interrupt failed with %d\n", ret);
-		goto free_cmplq_zmap;
-	}
+    /* Register the rdm second level interrupt handler */
+    ret = zhpe_register_rdm_interrupt(sl, queue,
+                                      zhpe_rdm_interrupt_handler, fdata->bridge);
+    if (ret != 0) {
+        debug(DEBUG_RQUEUE, "zhpe_register_rdm_interrupt failed with %d\n", ret);
+        goto free_cmplq_zmap;
+    }
 
-	/* Set owner fields to valid value; can't fail after this. */
-        qcm_zmap->owner = fdata;
-        cmplq_zmap->owner = fdata;
+    /* Set owner fields to valid value; can't fail after this. */
+    qcm_zmap->owner = fdata;
+    cmplq_zmap->owner = fdata;
 
-	/* Make sure owner is seen before we advertise the queue anywhere. */
-	smp_wmb();
+    /* Make sure owner is seen before we advertise the queue anywhere. */
+    smp_wmb();
 
-	ret = 0;
-	goto done;
+    ret = 0;
+    goto done;
 
-	/* Handle errors */
+    /* Handle errors */
  free_cmplq_zmap:
-	zmap_free(cmplq_zmap);
+    zmap_free(cmplq_zmap);
  free_qcm_zmap:
-	zmap_free(qcm_zmap);
-	/* zmap_free also frees the zpage */
-	goto release_queue;
+    zmap_free(qcm_zmap);
+    /* zmap_free also frees the zpage */
+    goto release_queue;
  free_qcm_zpage:
-	zpages_free(qcm_zpage);
+    zpages_free(qcm_zpage);
  release_queue:
-	rdm_release_slice_queue(fdata->bridge, slice, queue);
-	spin_lock(&fdata->rdm_queue_lock);
-	clear_bit((slice*zhpe_rdm_queues_per_slice)+queue, fdata->rdm_queues);
-	spin_unlock(&fdata->rdm_queue_lock);
+    rdm_release_slice_queue(fdata->bridge, slice, queue);
+    spin_lock(&fdata->rdm_queue_lock);
+    clear_bit((slice*zhpe_rdm_queues_per_slice)+queue, fdata->rdm_queues);
+    spin_unlock(&fdata->rdm_queue_lock);
  done:
-	return ret;
+    return ret;
 }
 
 int zhpe_kernel_RQALLOC(struct rdm_info *rdmi)
 {
     int ret = 0;
 
-    debug(DEBUG_RQUEUE, "%s:%s,%u: cmplq_ent=%u, slice_mask 0x%x\n",
-          zhpe_driver_name, __func__, __LINE__,
-          rdmi->cmplq_ent, rdmi->slice_mask);
+    debug(DEBUG_RQUEUE, "cmplq_ent=%u, slice_mask 0x%x\n",
+	  rdmi->cmplq_ent, rdmi->slice_mask);
     spin_lock_init(&rdmi->rdm_info_lock);
     ret = rdm_queue_sizes(&rdmi->cmplq_ent, &rdmi->cmplq_size, &rdmi->qcm_size);
     if (ret)
@@ -1489,8 +1482,7 @@ int zhpe_kernel_RQALLOC(struct rdm_info *rdmi)
     rdmi->cmplq_tail_shadow = 0;
     rdmi->cmplq_head_shadow = 0;
     ret = 0;
-    debug(DEBUG_RQUEUE, "%s:%s,%u: slice=%d, queue=%d, rspctxid=%u\n",
-          zhpe_driver_name, __func__, __LINE__,
+    debug(DEBUG_RQUEUE, "slice=%d, queue=%d, rspctxid=%u\n",
           rdmi->slice, rdmi->queue, rdmi->rspctxid);
     goto done;
 
@@ -1502,57 +1494,57 @@ int zhpe_kernel_RQALLOC(struct rdm_info *rdmi)
 
 int zhpe_user_req_RQFREE(struct io_entry *entry)
 {
-	int			ret = 0;
-	struct zhpe_rsp_RQFREE	rsp;
+    int			ret = 0;
+    struct zhpe_rsp_RQFREE	rsp;
 
-	CHECK_INIT_STATE(entry, ret, done);
-	ret = zhpe_req_RQFREE(&entry->op.req.rqfree, &rsp, entry->fdata);
+    CHECK_INIT_STATE(entry, ret, done);
+    ret = zhpe_req_RQFREE(&entry->op.req.rqfree, &rsp, entry->fdata);
 
-done:
-	entry->op.rsp.rqfree = rsp;
-	return queue_io_rsp(entry, sizeof(rsp), ret);
+ done:
+    entry->op.rsp.rqfree = rsp;
+    return queue_io_rsp(entry, sizeof(rsp), ret);
 }
 
 int zhpe_req_RQFREE(struct zhpe_req_RQFREE *req,
-			struct zhpe_rsp_RQFREE *rsp,
-			struct file_data *fdata)
+                    struct zhpe_rsp_RQFREE *rsp,
+                    struct file_data *fdata)
 {
-	int			ret = 0;
-	struct zmap		*zmap;
-	struct zmap		*next;
-	int			count = 2; /* qcm and cmplq */
+    int			ret = 0;
+    struct zmap		*zmap;
+    struct zmap		*next;
+    int			count = 2; /* qcm and cmplq */
 
-	debug(DEBUG_RQUEUE,
-              "rqfree req slice %d queue %d qcm.off 0x%llx cmpl.off 0x%llx\n",
-              req->info.slice, req->info.queue,
-              req->info.qcm.off, req->info.cmplq.off);
-        if (zhpe_rqueue_free(fdata, req)) {
-		/* zphe_rqueue_free can fail if the queue doesn't drain. */
-		ret = -EBUSY;
-		goto done;
-	}
+    debug(DEBUG_RQUEUE,
+          "rqfree req slice %d queue %d qcm.off 0x%llx cmpl.off 0x%llx\n",
+          req->info.slice, req->info.queue,
+          req->info.qcm.off, req->info.cmplq.off);
+    if (zhpe_rqueue_free(fdata, req)) {
+        /* zphe_rqueue_free can fail if the queue doesn't drain. */
+        ret = -EBUSY;
+        goto done;
+    }
 
-	spin_lock(&fdata->zmap_lock);
-	list_for_each_entry_safe(zmap, next, &fdata->zmap_list, list) {
-		if (zmap->offset == req->info.qcm.off ||
-			zmap->offset == req->info.cmplq.off) {
-			if (zmap->owner != fdata) {
-				if (ret >= 0)
-					ret = -EACCES;
-			} else {
-				list_del_init(&zmap->list);
-				zmap_free(zmap);
-			}
-			if (--count == 0)
-				break;
-		}
-	}
-	spin_unlock(&fdata->zmap_lock);
-	if (ret >= 0 && count)
-		ret = -ENOENT;
+    spin_lock(&fdata->zmap_lock);
+    list_for_each_entry_safe(zmap, next, &fdata->zmap_list, list) {
+        if (zmap->offset == req->info.qcm.off ||
+            zmap->offset == req->info.cmplq.off) {
+            if (zmap->owner != fdata) {
+                if (ret >= 0)
+                    ret = -EACCES;
+            } else {
+                list_del_init(&zmap->list);
+                zmap_free(zmap);
+            }
+            if (--count == 0)
+                break;
+        }
+    }
+    spin_unlock(&fdata->zmap_lock);
+    if (ret >= 0 && count)
+        ret = -ENOENT;
 
  done:
-	return ret;
+    return ret;
 }
 
 int zhpe_kernel_RQFREE(struct rdm_info *rdmi)
