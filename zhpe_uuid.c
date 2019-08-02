@@ -398,7 +398,7 @@ static int _free_uuid_node(struct file_data *fdata, struct rb_root *root,
     /* caller must already hold the appropriate spinlock for root */
     node = uuid_node_search(root, uuid, teardown);
     if (!node) {
-        ret = -EINVAL;
+        ret = -ENOENT;
         goto out;
     }
 
@@ -740,7 +740,7 @@ int zhpe_user_req_UUID_FREE(struct io_entry *entry)
     int                     status = 0;
     struct zhpe_msg_state   *state;
     uuid_t                  *uuid = &req->uuid_free.uuid;
-    bool                    local;
+    bool                    local = false;
     ulong                   flags;
     char                    str[UUID_STRING_LEN+1];
     uint32_t                uu_flags = 0;
@@ -748,7 +748,7 @@ int zhpe_user_req_UUID_FREE(struct io_entry *entry)
     CHECK_INIT_STATE(entry, status, out);
     uu = zhpe_uuid_search(uuid);
     if (!uu) {
-        status = -EINVAL;
+        status = -ENOENT;
         goto out;
     }
 
@@ -775,6 +775,7 @@ int zhpe_user_req_UUID_FREE(struct io_entry *entry)
         status = _free_uuid_node(fdata, &uu->remote->local_uuid_tree,
                                  &fdata->local_uuid->uuid, false);
         spin_unlock_irqrestore(&uu->remote->local_uuid_lock, flags);
+        debug(DEBUG_UUID, "_free_uuid_node status=%d\n", status);
         /* send msg to release UUID on remote node - this can sleep a while */
         uu_flags = uu->remote->uu_flags;
         if (!(uu_flags & UUID_IS_FAM)) {
@@ -782,13 +783,14 @@ int zhpe_user_req_UUID_FREE(struct io_entry *entry)
                                         &fdata->local_uuid->uuid, uuid, true);
             if (IS_ERR(state)) {
                 status = PTR_ERR(state);
-                debug(DEBUG_MSG, "zhpe_msg_send_UUID_FREE status=%d\n", status);
+                debug(DEBUG_UUID, "zhpe_msg_send_UUID_FREE status=%d\n",
+                      status);
             }
         }
     }
 
  out:
-    debug(DEBUG_UUID, "ret = %d uuid = %s uu_flags = 0x%x\n",
-          status, zhpe_uuid_str(uuid, str, sizeof(str)), uu_flags);
+    debug(DEBUG_UUID, "ret = %d uuid = %s uu_flags = 0x%x local %d\n",
+          status, zhpe_uuid_str(uuid, str, sizeof(str)), uu_flags, local);
     return queue_io_rsp(entry, sizeof(rsp->uuid_free), status);
 }

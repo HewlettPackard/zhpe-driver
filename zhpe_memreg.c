@@ -935,7 +935,7 @@ int zhpe_user_req_MR_FREE(struct io_entry *entry)
         rb_erase(&umem->node, &fdata->mr_tree);
     spin_unlock_irqrestore(&fdata->mr_lock, flags);
     if (!umem) {
-        status = -EINVAL;
+        status = -ENOENT;
         goto out;
     }
     umem_remove(umem);
@@ -1085,7 +1085,7 @@ int zhpe_user_req_RMR_FREE(struct io_entry *entry)
     spin_lock_irqsave(&entry->fdata->mr_lock, flags);
     rmr = rmr_search(entry->fdata, dgcid, rsp_zaddr, len, access, req_addr);
     if (!rmr) {
-        status = -EINVAL;
+        status = -ENOENT;
         goto unlock;
     }
     rmr_remove(rmr, false);
