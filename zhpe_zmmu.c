@@ -1081,23 +1081,3 @@ void zhpe_zmmu_rsp_pte_free(struct zhpe_pte_info *info)
     zmmu_pte_erase(info);
     spin_unlock_irqrestore(&br->zmmu_lock, flags);
 }
-
-int zhpe_user_req_ZMMU_REG(struct io_entry *entry)
-{
-#if 0
-    union zhpe_req          *req = &entry->op.req;
-    union zhpe_rsp          *rsp = &entry->op.rsp;
-    int                     status = 0;
-#endif
-    return -ENOSYS;
-}
-
-int zhpe_user_req_ZMMU_FREE(struct io_entry *entry)
-{
-#if 0
-    union zhpe_req          *req = &entry->op.req;
-    union zhpe_rsp          *rsp = &entry->op.rsp;
-    int                     status = 0;
-#endif
-    return -ENOSYS;
-}
