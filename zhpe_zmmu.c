@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2018-2019 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -201,7 +201,7 @@ void zhpe_zmmu_setup_slice(struct slice *sl)
 static void zmmu_req_pte_write(struct zhpe_rmr *rmr,
                                struct req_zmmu *reqz, bool valid, bool sync)
 {
-    struct zhpe_pte_info *info = &rmr->pte_info;
+    struct zhpe_pte_info *info = rmr->pte_info;
     struct req_pte pte = { 0 }, tmp;
     uint i, first = info->pte_index, last = first + info->zmmu_pages - 1;
     uint64_t addr, ps;
@@ -210,7 +210,7 @@ static void zmmu_req_pte_write(struct zhpe_rmr *rmr,
     /* caller must hold slice zmmu_lock & have done kernel_fpu_save() */
     if (info->zmmu_pages == 0 || info->pg == NULL)
         return;  /* no PTEs to write */
-    pte.pasid = info->fdata->pasid;
+    pte.pasid = rmr->fdata->pasid;
     pte.space_type = info->space_type;
     /* Revisit: traffic_class, dc_grp */
     pte.dgcid = rmr->dgcid;
@@ -246,15 +246,16 @@ static void zmmu_rsp_pte_write(struct zhpe_pte_info *info,
     uint i, first = info->pte_index, last = first + info->zmmu_pages - 1;
     uint64_t va, window_sz, length, ps, offset;
     bool writable = !!(info->access & ZHPE_MR_PUT_REMOTE);
+    struct file_data *fdata = container_of(info, struct zhpe_umem, pte_info)->fdata;
 
     /* caller must hold slice zmmu_lock & have done kernel_fpu_save() */
     if (info->zmmu_pages == 0 || info->pg == NULL)
         return;  /* no PTEs to write */
-    pte.pasid = info->fdata->pasid;
+    pte.pasid = fdata->pasid;
     pte.space_type = info->space_type;
     pte.rke = !zhpe_no_rkeys;
-    pte.ro_rkey = info->fdata->ro_rkey;
-    pte.rw_rkey = (writable) ? info->fdata->rw_rkey : ZHPE_UNUSED_RKEY;
+    pte.ro_rkey = fdata->ro_rkey;
+    pte.rw_rkey = (writable) ? fdata->rw_rkey : ZHPE_UNUSED_RKEY;
     pte.v = valid;
     va = info->addr;
     ps = BIT_ULL(info->pg->page_grid.page_size);
@@ -903,10 +904,11 @@ static void _zmmu_req_pte_write_slice(struct slice *sl,
 int zhpe_zmmu_req_pte_alloc(struct zhpe_rmr *rmr, uint64_t *req_addr,
                             uint32_t *pg_ps)
 {
-    struct zhpe_pte_info  *info = &rmr->pte_info;
-    struct bridge         *br = info->fdata->bridge;
+    struct zhpe_pte_info  *info = rmr->pte_info;
+    struct bridge         *br = rmr->fdata->bridge;
     struct page_grid_info *pgi = &br->req_zmmu_pg;
     struct sw_page_grid   *sw_pg;
+    struct rb_node        *rb;
     uint                  sl;
     int                   ret;
     ulong                 flags;
@@ -918,9 +920,22 @@ int zhpe_zmmu_req_pte_alloc(struct zhpe_rmr *rmr, uint64_t *req_addr,
         goto unlock;
     }
 
+    /* check if this PTE already exists */
+    for(rb = rb_first(&sw_pg->pte_tree); rb; rb = rb_next(rb)) {
+        struct zhpe_pte_info *this = container_of(rb, struct zhpe_pte_info, node);
+        if(info->dgcid == this->dgcid && info->addr == this->addr) {
+            kref_get(&this->refcount);
+            rmr->pte_info = this;
+            ret = 0; /* don't write to the slices, but this wasn't really a *failure* */
+            goto unlock;
+        }
+    }
+
     ret = zmmu_find_pte_range(info, sw_pg);
     if (ret < 0)
         goto unlock;
+
+    kref_init(&info->refcount);
 
     *req_addr = zhpe_zmmu_pte_addr(info);
     *pg_ps = sw_pg->page_grid.page_size;
@@ -940,16 +955,21 @@ int zhpe_zmmu_req_pte_alloc(struct zhpe_rmr *rmr, uint64_t *req_addr,
  unlock:
     spin_unlock_irqrestore(&br->zmmu_lock, flags);
 
+    do_kfree(info); /* was allocated in RMR_IMPORT */
+
     debug(DEBUG_ZMMU, "%s:%s,%u:ret=%d, addr=0x%llx\n",
           zhpe_driver_name, __func__, __LINE__,
           ret, info->addr);
     return ret;
 }
 
+static void _empty_destructor(struct kref *ref) {
+}
+
 void zhpe_zmmu_req_pte_free(struct zhpe_rmr *rmr)
 {
-    struct zhpe_pte_info  *info = &rmr->pte_info;
-    struct bridge         *br = info->fdata->bridge;
+    struct zhpe_pte_info  *info = rmr->pte_info;
+    struct bridge         *br = rmr->fdata->bridge;
     uint                  sl;
     ulong                 flags;
 
@@ -957,17 +977,20 @@ void zhpe_zmmu_req_pte_free(struct zhpe_rmr *rmr)
           zhpe_driver_name, __func__, __LINE__,
           info->pte_index, info->zmmu_pages);
 
-    if (!zhpe_no_avx)
-        kernel_fpu_begin();
-    for (sl = 0; sl < SLICES; sl++)
-        _zmmu_req_pte_write_slice(&br->slice[sl], rmr, INVALID, NO_SYNC);
+    if(kref_put(&info->refcount, _empty_destructor)) {
+        if (!zhpe_no_avx)
+            kernel_fpu_begin();
+        for (sl = 0; sl < SLICES; sl++)
+            _zmmu_req_pte_write_slice(&br->slice[sl], rmr, INVALID, NO_SYNC);
+        if (!zhpe_no_avx)
+            kernel_fpu_end();
 
-    if (!zhpe_no_avx)
-        kernel_fpu_end();
+        spin_lock_irqsave(&br->zmmu_lock, flags);
+        zmmu_pte_erase(info);
+        spin_unlock_irqrestore(&br->zmmu_lock, flags);
 
-    spin_lock_irqsave(&br->zmmu_lock, flags);
-    zmmu_pte_erase(info);
-    spin_unlock_irqrestore(&br->zmmu_lock, flags);
+        do_kfree(info);
+    }
 }
 
 static void _zmmu_rsp_pte_write_slice(struct slice *sl,
@@ -1000,7 +1023,7 @@ static void _zmmu_rsp_pte_write_slice(struct slice *sl,
 int zhpe_zmmu_rsp_pte_alloc(struct zhpe_pte_info *info, uint64_t *rsp_zaddr,
                             uint32_t *pg_ps)
 {
-    struct bridge         *br = info->fdata->bridge;
+    struct bridge         *br = container_of(info, struct zhpe_umem, pte_info)->fdata->bridge;
     struct page_grid_info *pgi = &br->rsp_zmmu_pg;
     struct sw_page_grid   *sw_pg;
     uint                  sl;
@@ -1083,7 +1106,7 @@ void zhpe_zmmu_rsp_take_snapshot(struct bridge *br)
 
 void zhpe_zmmu_rsp_pte_free(struct zhpe_pte_info *info)
 {
-    struct bridge         *br = info->fdata->bridge;
+    struct bridge         *br = container_of(info, struct zhpe_umem, pte_info)->fdata->bridge;
     uint                  sl;
     ulong                 flags;
 

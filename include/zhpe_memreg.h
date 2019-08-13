@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2018-2019 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -46,7 +46,8 @@ struct sw_page_grid;
 struct zhpe_uuid_tracker;
 
 struct zhpe_pte_info {
-    struct file_data      *fdata;
+    struct kref           refcount; /* only used when owned by a zhpe_rmr */
+    uint32_t              dgcid; /* only used when owned by a zhpe_rmr */
     uint64_t              addr;
     uint64_t              access;
     size_t                length;
@@ -61,6 +62,7 @@ struct zhpe_pte_info {
 
 struct zhpe_umem {
     struct zhpe_pte_info  pte_info;
+    struct file_data      *fdata;
     struct rb_node        node;  /* within fdata->mr_tree */
     struct kref           refcount;
     uint64_t              vaddr;
@@ -80,7 +82,8 @@ struct zhpe_umem {
 };
 
 struct zhpe_rmr {
-    struct zhpe_pte_info  pte_info;
+    struct zhpe_pte_info  *pte_info;
+    struct file_data      *fdata;
     struct rb_node        fd_node;  /* within fdata->fd_rmr_tree */
     struct rb_node        un_node;  /* within fdata->fd_remote_uuid_tree->un_rmr_tree */
     struct kref           refcount;

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2017-2019 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -577,7 +577,7 @@ union zpages *_rmr_zpages_alloc(const char *callf, uint line,
         goto done;
 
     ret->rmrz.page_type = RMR_PAGE;
-    ret->rmrz.size = rmr->pte_info.length_adjusted;
+    ret->rmrz.size = rmr->pte_info->length_adjusted;
     ret->rmrz.rmr = rmr;
 
  done:
@@ -1343,7 +1343,7 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
         break;
     case RMR_PAGE:
         rmr = zpages->rmrz.rmr;
-        cache_flags = rmr->pte_info.access & ZHPE_MR_REQ_CPU_CACHE;
+        cache_flags = rmr->pte_info->access & ZHPE_MR_REQ_CPU_CACHE;
         switch (cache_flags) {
             /* ZHPE_MR_REQ_CPU_WB is the default, so nothing to do */
         case ZHPE_MR_REQ_CPU_WC:
