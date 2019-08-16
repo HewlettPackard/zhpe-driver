@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2018-2019 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -79,8 +79,8 @@ void zhpe_rkey_init(void)
         int i;
         uint32_t ro_rkey, rw_rkey;
 
-        debug(DEBUG_RKEYS, "%s:%s,%u: RKEY_TOTAL=%ld, RKEY_RAND_BYTES=%d, RKEY_BASE_MASK=0x%x, RKEY_DEBUG_ALLOC=%d\n",
-              zhpe_driver_name, __func__, __LINE__,
+        debug(DEBUG_RKEYS, "RKEY_TOTAL=%ld, RKEY_RAND_BYTES=%d,"
+              " RKEY_BASE_MASK=0x%x, RKEY_DEBUG_ALLOC=%d\n",
               RKEY_TOTAL, RKEY_RAND_BYTES, RKEY_BASE_MASK, RKEY_DEBUG_ALLOC);
         for (i = 0; i < RKEY_DEBUG_ALLOC; i++)
             zhpe_rkey_alloc(&ro_rkey, &rw_rkey);
@@ -99,8 +99,7 @@ void zhpe_rkey_exit(void)
     for (rb = rb_first_postorder(&rki.rbtree); rb; rb = next) {
         struct rkey_node *rkn = rb_entry(rb, struct rkey_node, rb);
 
-        debug(DEBUG_RKEYS, "%s:%s,%u:rkey_base=0x%05x, rkn_count=%u\n",
-              zhpe_driver_name, __func__, __LINE__,
+        debug(DEBUG_RKEYS, "rkey_base=0x%05x, rkn_count=%u\n",
               rkn->rkey_base, rkn_count(rkn));
         next = rb_next_postorder(rb);  /* must precede kfree() */
         do_kfree(rkn);
@@ -329,10 +328,9 @@ int zhpe_rkey_alloc(uint32_t *ro_rkey, uint32_t *rw_rkey)
         do_kfree(new_rkn);
  out:
 #if RKEY_DEBUG_ALL
-    debug(DEBUG_RKEYS, "%s:%s,%u: ret=%d, allocated=%d, rand=0x%05x (bytes=%02x:%02x:%02x), ro_rkey=0x%08x, rw_rkey=0x%08x\n",
-          zhpe_driver_name, __func__, __LINE__,
-          ret, allocated, rand,
-          rand_bytes[2], rand_bytes[1], rand_bytes[0],
+    debug(DEBUG_RKEYS, "ret=%d, allocated=%d, rand=0x%05x"
+          " (bytes=%02x:%02x:%02x), ro_rkey=0x%08x, rw_rkey=0x%08x\n",
+          ret, allocated, rand, rand_bytes[2], rand_bytes[1], rand_bytes[0],
           *ro_rkey, *rw_rkey);
 #endif
     return ret;
@@ -380,8 +378,8 @@ void zhpe_rkey_print_all(void)
 #if RKEY_DEBUG_ALL
         struct rkey_node *rkn = rb_entry(node, struct rkey_node, rb);
 
-        debug(DEBUG_RKEYS, "%s:%s,%u:rkey_base=0x%05x, count=%u, bitmap=%s, rkn_count=%u, rkn=%pxx, left=%pxx, right=%pxx\n",
-              zhpe_driver_name, __func__, __LINE__,
+        debug(DEBUG_RKEYS, "rkey_base=0x%05x, count=%u, bitmap=%s,"
+              " rkn_count=%u, rkn=%px, left=%px, right=%px\n",
               rkn->rkey_base, rkn->count,
               rkey_bitmap_str(rkn->bitmap, str, sizeof(str)),
               rkn_count(rkn), rkn, rkn->rb.rb_left, rkn->rb.rb_right);
@@ -389,8 +387,7 @@ void zhpe_rkey_print_all(void)
         nodes++;
     }
 
-    debug(DEBUG_RKEYS, "%s:%s,%u: allocated=%d, nodes=%u\n",
-          zhpe_driver_name, __func__, __LINE__,
+    debug(DEBUG_RKEYS, "allocated=%d, nodes=%u\n",
           atomic_read(&rki.allocated), nodes);
     spin_unlock_irqrestore(&rki.rk_lock, flags);
 }

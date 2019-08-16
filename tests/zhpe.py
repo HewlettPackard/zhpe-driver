@@ -94,9 +94,9 @@ class MR(IntEnum):
     PUT         = 1 << 1
     GET_REMOTE  = 1 << 2
     PUT_REMOTE  = 1 << 3
-    INDIVIDUAL  = 1 << 7
     SEND        = GET_REMOTE
     RECV        = GET
+    INDIVIDUAL  = 1 << 7
     REQ_CPU     = 1 << 27
     REQ_CPU_WB  = 0 << 28
     REQ_CPU_WC  = 1 << 28
@@ -130,14 +130,12 @@ class OP(Enum):
     NOP         = 3
     RMR_IMPORT  = 4
     RMR_FREE    = 5
-    ZMMU_REG    = 6
-    ZMMU_FREE   = 7
-    UUID_IMPORT = 8
-    UUID_FREE   = 9
-    XQUEUE_ALLOC= 10
-    XQUEUE_FREE = 11
-    RQUEUE_ALLOC= 12
-    RQUEUE_FREE = 13
+    UUID_IMPORT = 6
+    UUID_FREE   = 7
+    XQUEUE_ALLOC= 8
+    XQUEUE_FREE = 9
+    RQUEUE_ALLOC= 10
+    RQUEUE_FREE = 11
     RESPONSE    = 0x80
     VERSION     = 1
     INDEX_MASK  = 0xffff
@@ -1038,11 +1036,15 @@ class Connection():
         return self._file.fileno()
 
     def write(self, req):
+#       with memoryview(req) as view:
+#           print('req bytes = {}'.format(view.nbytes))
         self._index += 1  # Revisit: this isn't atomic
         req.hdr.index = self._index
         return self._file.write(req)
 
     def read(self, rsp):
+#       with memoryview(rsp) as view:
+#           print('rsp bytes = {}'.format(view.nbytes))
         self._file.readinto(rsp)
         err = rsp.hdr.status
         if rsp.hdr.status < 0:

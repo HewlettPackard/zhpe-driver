@@ -78,8 +78,6 @@ enum {
     ZHPE_OP_NOP,
     ZHPE_OP_RMR_IMPORT,
     ZHPE_OP_RMR_FREE,
-    ZHPE_OP_ZMMU_REG,
-    ZHPE_OP_ZMMU_FREE,
     ZHPE_OP_UUID_IMPORT,
     ZHPE_OP_UUID_FREE,
     ZHPE_OP_XQALLOC,
@@ -204,22 +202,6 @@ struct zhpe_req_NOP {
 struct zhpe_rsp_NOP {
     struct zhpe_common_hdr hdr;
     uint64_t            seq;
-};
-
-struct zhpe_req_ZMMU_REG {
-    struct zhpe_common_hdr hdr;
-};
-
-struct zhpe_rsp_ZMMU_REG {
-    struct zhpe_common_hdr hdr;
-};
-
-struct zhpe_req_ZMMU_FREE {
-    struct zhpe_common_hdr hdr;
-};
-
-struct zhpe_rsp_ZMMU_FREE {
-    struct zhpe_common_hdr hdr;
 };
 
 enum {
@@ -354,8 +336,6 @@ union zhpe_req {
     struct zhpe_req_RMR_IMPORT  rmr_import;
     struct zhpe_req_RMR_FREE    rmr_free;
     struct zhpe_req_NOP         nop;
-    struct zhpe_req_ZMMU_REG    zmmu_reg;
-    struct zhpe_req_ZMMU_FREE   zmmu_free;
     struct zhpe_req_UUID_IMPORT uuid_import;
     struct zhpe_req_UUID_FREE   uuid_free;
     struct zhpe_req_XQALLOC     xqalloc;
@@ -372,8 +352,6 @@ union zhpe_rsp {
     struct zhpe_rsp_RMR_IMPORT  rmr_import;
     struct zhpe_rsp_RMR_FREE    rmr_free;
     struct zhpe_rsp_NOP         nop;
-    struct zhpe_rsp_ZMMU_REG    zmmu_reg;
-    struct zhpe_rsp_ZMMU_FREE   zmmu_free;
     struct zhpe_rsp_UUID_IMPORT uuid_import;
     struct zhpe_rsp_UUID_FREE   uuid_free;
     struct zhpe_rsp_XQALLOC     xqalloc;

@@ -103,8 +103,7 @@ void zhpe_zmmu_clear_slice(struct slice *sl)
 {
     ulong flags;
 
-    debug(DEBUG_ZMMU, "%s:%s,%u:sl=%px, slice_valid=%u\n",
-          zhpe_driver_name, __func__, __LINE__, sl, SLICE_VALID(sl));
+    debug(DEBUG_ZMMU, "sl=%px, slice_valid=%u\n", sl, SLICE_VALID(sl));
     if (!SLICE_VALID(sl))
         return;
 
@@ -144,11 +143,12 @@ void zhpe_zmmu_clear_all(struct bridge *br, bool free_radix_tree)
 {
     ulong flags;
 
-    debug(DEBUG_ZMMU, "%s:%s,%u:br=%px, free_radix_tree=%u\n",
-          zhpe_driver_name, __func__, __LINE__, br, free_radix_tree);
+    debug(DEBUG_ZMMU, "br=%px, free_radix_tree=%u\n", br, free_radix_tree);
     spin_lock_irqsave(&br->zmmu_lock, flags);
-    zmmu_clear_pg_info(&br->req_zmmu_pg, zhpe_req_zmmu_entries, free_radix_tree);
-    zmmu_clear_pg_info(&br->rsp_zmmu_pg, zhpe_rsp_zmmu_entries, free_radix_tree);
+    zmmu_clear_pg_info(&br->req_zmmu_pg, zhpe_req_zmmu_entries,
+                       free_radix_tree);
+    zmmu_clear_pg_info(&br->rsp_zmmu_pg, zhpe_rsp_zmmu_entries,
+                       free_radix_tree);
     spin_unlock_irqrestore(&br->zmmu_lock, flags);
 }
 
@@ -161,9 +161,9 @@ static void zmmu_page_grid_setup_all(struct page_grid_info *pgi,
 
     /* caller must hold slice zmmu_lock & have done kernel_fpu_save() */
     for (i = 0; i < PAGE_GRID_ENTRIES; i++) {
-        debug(DEBUG_ZMMU, "%s:%s,%u:%s pg[%u]@%px:base_addr=0x%llx, "
+        debug(DEBUG_ZMMU, "%s pg[%u]@%px:base_addr=0x%llx, "
               "page_size=%u, page_count=%u, base_pte_idx=%u\n",
-              zhpe_driver_name, __func__, __LINE__, nm, i, &pg[i],
+              nm, i, &pg[i],
               sw_pg[i].page_grid.base_addr,
               sw_pg[i].page_grid.page_size,
               sw_pg[i].page_grid.page_count,
@@ -180,8 +180,8 @@ void zhpe_zmmu_setup_slice(struct slice *sl)
     struct bridge *br = BRIDGE_FROM_SLICE(sl);
     ulong flags;
 
-    debug(DEBUG_ZMMU, "%s:%s,%u:sl=%px, br=%px, slice_valid=%u\n",
-          zhpe_driver_name, __func__, __LINE__, sl, br, SLICE_VALID(sl));
+    debug(DEBUG_ZMMU, "sl=%px, br=%px, slice_valid=%u\n",
+          sl, br, SLICE_VALID(sl));
     if (!SLICE_VALID(sl))
         return;
 
@@ -223,10 +223,10 @@ static void zmmu_req_pte_write(struct zhpe_rmr *rmr,
 
     for (i = first; i <= last; i++) {
         pte.addr = addr >> 12;
-        debug(DEBUG_ZMMU, "%s:%s,%u:pte[%u]@%px:addr=0x%llx, pasid=0x%x, "
+        debug(DEBUG_ZMMU, "pte[%u]@%px:addr=0x%llx, pasid=0x%x, "
               "dgcid=%s, space_type=%u, rke=%u, rkey=0x%x, "
               "traffic_class=%u, dc_grp=%u, v=%u\n",
-              zhpe_driver_name, __func__, __LINE__, i, &reqz->pte[i],
+              i, &reqz->pte[i],
               (uint64_t)pte.addr, pte.pasid,
               zhpe_gcid_str(pte.dgcid, str, sizeof(str)),
               pte.space_type, pte.rke, pte.rkey,
@@ -246,7 +246,8 @@ static void zmmu_rsp_pte_write(struct zhpe_pte_info *info,
     uint i, first = info->pte_index, last = first + info->zmmu_pages - 1;
     uint64_t va, window_sz, length, ps, offset;
     bool writable = !!(info->access & ZHPE_MR_PUT_REMOTE);
-    struct file_data *fdata = container_of(info, struct zhpe_umem, pte_info)->fdata;
+    struct file_data *fdata =
+        container_of(info, struct zhpe_umem, pte_info)->fdata;
 
     /* caller must hold slice zmmu_lock & have done kernel_fpu_save() */
     if (info->zmmu_pages == 0 || info->pg == NULL)
@@ -265,10 +266,10 @@ static void zmmu_rsp_pte_write(struct zhpe_pte_info *info,
         pte.va = va;
         window_sz = min(ps - offset, length);
         pte.window_sz = window_sz % BIT_ULL(PAGE_GRID_MAX_PAGESIZE);
-        debug(DEBUG_ZMMU, "%s:%s,%u:pte[%u]@%px:va=0x%llx, pasid=0x%x, "
+        debug(DEBUG_ZMMU, "pte[%u]@%px:va=0x%llx, pasid=0x%x, "
               "rke=%u, ro_rkey=0x%x, rw_rkey=0x%x, "
               "window_sz=0x%llx, v=%u\n",
-              zhpe_driver_name, __func__, __LINE__, i, &rspz->pte[i],
+              i, &rspz->pte[i],
               (uint64_t)pte.va, pte.pasid,
               pte.rke, pte.ro_rkey, pte.rw_rkey,
               (uint64_t)pte.window_sz, pte.v);
@@ -361,19 +362,15 @@ static int zmmu_find_addr_range(struct page_grid_info *pgi, uint pg_index)
 
     /* caller must hold bridge zmmu lock */
 
-    debug(DEBUG_ZMMU, "%s:%s,%u:pg[%d]:page_size=%llu, "
+    debug(DEBUG_ZMMU, "pg[%d]:page_size=%llu, "
           "page_count=%llu, cpu_visible=%d, min_addr=0x%llx, max_addr=0x%llx\n",
-          zhpe_driver_name, __func__, __LINE__, pg_index,
-          page_size, page_count,
-          cpu_visible, min_addr, max_addr);
+          pg_index, page_size, page_count, cpu_visible, min_addr, max_addr);
 
     for (rb = rb_first(&pgi->base_addr_tree); rb; rb = rb_next(rb)) {
         pg = container_of(rb, struct sw_page_grid, base_addr_node);
         if (pg->page_grid.base_addr < prev_base)  /* Revisit: debug */
 
-            debug(DEBUG_ZMMU, "%s:%s,%u: base_addr out of order "
-                  "(0x%llx < 0x%llx)\n",
-                  zhpe_driver_name, __func__, __LINE__,
+            debug(DEBUG_ZMMU, "base_addr out of order (0x%llx < 0x%llx)\n",
                   pg->page_grid.base_addr, prev_base);
         prev_base = pg->page_grid.base_addr;
         base_addr = ROUND_DOWN_PAGE(pg->page_grid.base_addr, page_size);
@@ -381,10 +378,8 @@ static int zmmu_find_addr_range(struct page_grid_info *pgi, uint pg_index)
                                   (pg->page_grid.page_count *
                                    BIT_ULL(pg->page_grid.page_size)),
                                   page_size);
-        debug(DEBUG_ZMMU, "%s:%s,%u:pg[0x%llx*%u@0x%llx]:base_addr=0x%llx, "
-              "next_addr=0x%llx\n",
-              zhpe_driver_name, __func__, __LINE__,
-              BIT_ULL(pg->page_grid.page_size),
+        debug(DEBUG_ZMMU, "pg[0x%llx*%u@0x%llx]:base_addr=0x%llx, "
+              "next_addr=0x%llx\n", BIT_ULL(pg->page_grid.page_size),
               pg->page_grid.page_count, pg->page_grid.base_addr,
               base_addr, next_addr);
         if (base_addr < min_addr) {
@@ -606,9 +601,8 @@ int zhpe_zmmu_req_page_grid_alloc(struct bridge *br,
     if (!zhpe_no_avx)
         kernel_fpu_end();
 
-    debug(DEBUG_ZMMU, "%s:%s,%u:pg[%d]:addr=0x%llx-0x%llx, page_size=%u, "
-          "page_count=%u, base_pte_idx=%u, cpu_visible=%d\n",
-          zhpe_driver_name, __func__, __LINE__, pg_index,
+    debug(DEBUG_ZMMU, "pg[%d]:addr=0x%llx-0x%llx, page_size=%u, "
+          "page_count=%u, base_pte_idx=%u, cpu_visible=%d\n", pg_index,
           br->req_zmmu_pg.pg[pg_index].page_grid.base_addr,
           br->req_zmmu_pg.pg[pg_index].page_grid.base_addr +
           (BIT_ULL(br->req_zmmu_pg.pg[pg_index].page_grid.page_size) *
@@ -723,9 +717,8 @@ int zhpe_zmmu_rsp_page_grid_alloc(struct bridge *br,
     if (!zhpe_no_avx)
         kernel_fpu_end();
 
-    debug(DEBUG_ZMMU, "%s:%s,%u:pg[%d]:addr=0x%llx-0x%llx, page_size=%u, "
-          "page_count=%u, base_pte_idx=%u\n",
-          zhpe_driver_name, __func__, __LINE__, pg_index,
+    debug(DEBUG_ZMMU, "pg[%d]:addr=0x%llx-0x%llx, page_size=%u, "
+          "page_count=%u, base_pte_idx=%u\n", pg_index,
           br->rsp_zmmu_pg.pg[pg_index].page_grid.base_addr,
           br->rsp_zmmu_pg.pg[pg_index].page_grid.base_addr +
           (BIT_ULL(br->rsp_zmmu_pg.pg[pg_index].page_grid.page_size) *
@@ -790,9 +783,8 @@ static struct sw_page_grid *zmmu_pg_page_size(struct zhpe_pte_info *info,
         ps = -ENOSPC;
     }
 
-    debug(DEBUG_ZMMU, "%s:%s,%u:addr_aligned=0x%llx, length_adjusted=0x%llx, "
+    debug(DEBUG_ZMMU, "addr_aligned=0x%llx, length_adjusted=0x%llx, "
           "page_size=%d, sw_pg=%px\n",
-          zhpe_driver_name, __func__, __LINE__,
           info->addr_aligned, info->length_adjusted, ps, sw_pg);
     return (ps < 0) ? ERR_PTR(ps) : sw_pg;
 }
@@ -868,9 +860,7 @@ static int zmmu_find_pte_range(struct zhpe_pte_info *info,
             ret = min_pte;
     }
 
-    debug(DEBUG_ZMMU, "%s:%s,%u:ret=%d, addr=0x%llx\n",
-          zhpe_driver_name, __func__, __LINE__,
-          ret, info->addr);
+    debug(DEBUG_ZMMU, "ret=%d, addr=0x%llx\n", ret, info->addr);
     return ret;
 }
 
@@ -912,6 +902,7 @@ int zhpe_zmmu_req_pte_alloc(struct zhpe_rmr *rmr, uint64_t *req_addr,
     uint                  sl;
     int                   ret;
     ulong                 flags;
+    struct zhpe_pte_info *this;
 
     spin_lock_irqsave(&br->zmmu_lock, flags);
     sw_pg = zmmu_pg_page_size(info, pgi);
@@ -921,12 +912,13 @@ int zhpe_zmmu_req_pte_alloc(struct zhpe_rmr *rmr, uint64_t *req_addr,
     }
 
     /* check if this PTE already exists */
-    for(rb = rb_first(&sw_pg->pte_tree); rb; rb = rb_next(rb)) {
-        struct zhpe_pte_info *this = container_of(rb, struct zhpe_pte_info, node);
-        if(info->dgcid == this->dgcid && info->addr == this->addr) {
+    for (rb = rb_first(&sw_pg->pte_tree); rb; rb = rb_next(rb)) {
+        this = container_of(rb, struct zhpe_pte_info, node);
+        if (info->dgcid == this->dgcid && info->addr == this->addr) {
             kref_get(&this->refcount);
             rmr->pte_info = this;
-            ret = 0; /* don't write to the slices, but this wasn't really a *failure* */
+            /* don't write to the slices, but this wasn't really a *failure* */
+            ret = 0;
             goto unlock;
         }
     }
@@ -940,8 +932,7 @@ int zhpe_zmmu_req_pte_alloc(struct zhpe_rmr *rmr, uint64_t *req_addr,
     *req_addr = zhpe_zmmu_pte_addr(info);
     *pg_ps = sw_pg->page_grid.page_size;
     spin_unlock_irqrestore(&br->zmmu_lock, flags);
-    debug(DEBUG_ZMMU, "%s:%s,%u:pte_index=%u, zmmu_pages=%u, pg_ps=%u\n",
-          zhpe_driver_name, __func__, __LINE__,
+    debug(DEBUG_ZMMU, "pte_index=%u, zmmu_pages=%u, pg_ps=%u\n",
           info->pte_index, info->zmmu_pages, *pg_ps);
 
     if (!zhpe_no_avx)
@@ -955,11 +946,9 @@ int zhpe_zmmu_req_pte_alloc(struct zhpe_rmr *rmr, uint64_t *req_addr,
  unlock:
     spin_unlock_irqrestore(&br->zmmu_lock, flags);
 
+    debug(DEBUG_ZMMU, "ret=%d, addr=0x%llx\n", ret, info->addr);
     do_kfree(info); /* was allocated in RMR_IMPORT */
 
-    debug(DEBUG_ZMMU, "%s:%s,%u:ret=%d, addr=0x%llx\n",
-          zhpe_driver_name, __func__, __LINE__,
-          ret, info->addr);
     return ret;
 }
 
@@ -973,8 +962,7 @@ void zhpe_zmmu_req_pte_free(struct zhpe_rmr *rmr)
     uint                  sl;
     ulong                 flags;
 
-    debug(DEBUG_ZMMU, "%s:%s,%u:pte_index=%u, zmmu_pages=%u\n",
-          zhpe_driver_name, __func__, __LINE__,
+    debug(DEBUG_ZMMU, "pte_index=%u, zmmu_pages=%u\n",
           info->pte_index, info->zmmu_pages);
 
     if(kref_put(&info->refcount, _empty_destructor)) {
@@ -1023,7 +1011,8 @@ static void _zmmu_rsp_pte_write_slice(struct slice *sl,
 int zhpe_zmmu_rsp_pte_alloc(struct zhpe_pte_info *info, uint64_t *rsp_zaddr,
                             uint32_t *pg_ps)
 {
-    struct bridge         *br = container_of(info, struct zhpe_umem, pte_info)->fdata->bridge;
+    struct bridge         *br =
+        container_of(info, struct zhpe_umem, pte_info)->fdata->bridge;
     struct page_grid_info *pgi = &br->rsp_zmmu_pg;
     struct sw_page_grid   *sw_pg;
     uint                  sl;
@@ -1044,8 +1033,7 @@ int zhpe_zmmu_rsp_pte_alloc(struct zhpe_pte_info *info, uint64_t *rsp_zaddr,
     *rsp_zaddr = zhpe_zmmu_pte_addr(info);
     *pg_ps = sw_pg->page_grid.page_size;
     spin_unlock_irqrestore(&br->zmmu_lock, flags);
-    debug(DEBUG_ZMMU, "%s:%s,%u:pte_index=%u, zmmu_pages=%u\n",
-          zhpe_driver_name, __func__, __LINE__,
+    debug(DEBUG_ZMMU, "pte_index=%u, zmmu_pages=%u\n",
           info->pte_index, info->zmmu_pages);
 
     if (!zhpe_no_avx)
@@ -1059,9 +1047,7 @@ int zhpe_zmmu_rsp_pte_alloc(struct zhpe_pte_info *info, uint64_t *rsp_zaddr,
  unlock:
     spin_unlock_irqrestore(&br->zmmu_lock, flags);
 
-    debug(DEBUG_ZMMU, "%s:%s,%u:ret=%d, addr=0x%llx\n",
-          zhpe_driver_name, __func__, __LINE__,
-          ret, info->addr);
+    debug(DEBUG_ZMMU, "ret=%d, addr=0x%llx\n", ret, info->addr);
     return ret;
 }
 
@@ -1084,8 +1070,7 @@ void zhpe_zmmu_rsp_take_snapshot(struct bridge *br)
         }
         rspz = &br->slice[sl].bar->rsp_zmmu;
         first_snap[sl] = ioread64(&rspz->take_snapshot);
-        debug(DEBUG_ZMMU, "%s:%s,%u:sl %d snap %d\n",
-              zhpe_driver_name, __func__, __LINE__,
+        debug(DEBUG_ZMMU, "sl %d snap %d\n",
               sl, first_snap[sl] & RSP_TAKE_SNAPSHOT_MASK);
     }
     while (slice_mask) {
@@ -1094,8 +1079,7 @@ void zhpe_zmmu_rsp_take_snapshot(struct bridge *br)
             sl--;
             rspz = &br->slice[sl].bar->rsp_zmmu;
             cur_snap = ioread64(&rspz->take_snapshot);
-            debug(DEBUG_ZMMU, "%s:%s,%u:sl %d snap %d\n",
-                  zhpe_driver_name, __func__, __LINE__,
+            debug(DEBUG_ZMMU, "sl %d snap %d\n",
                   sl, cur_snap & RSP_TAKE_SNAPSHOT_MASK);
             cur_mask &= ~(1 << sl);
             if (((cur_snap - first_snap[sl]) & RSP_TAKE_SNAPSHOT_MASK) >= 2)
@@ -1106,12 +1090,12 @@ void zhpe_zmmu_rsp_take_snapshot(struct bridge *br)
 
 void zhpe_zmmu_rsp_pte_free(struct zhpe_pte_info *info)
 {
-    struct bridge         *br = container_of(info, struct zhpe_umem, pte_info)->fdata->bridge;
+    struct bridge         *br =
+        container_of(info, struct zhpe_umem, pte_info)->fdata->bridge;
     uint                  sl;
     ulong                 flags;
 
-    debug(DEBUG_ZMMU, "%s:%s,%u:pte_index=%u, zmmu_pages=%u\n",
-          zhpe_driver_name, __func__, __LINE__,
+    debug(DEBUG_ZMMU, "pte_index=%u, zmmu_pages=%u\n",
           info->pte_index, info->zmmu_pages);
 
     if (!zhpe_no_avx)
@@ -1124,24 +1108,4 @@ void zhpe_zmmu_rsp_pte_free(struct zhpe_pte_info *info)
     spin_lock_irqsave(&br->zmmu_lock, flags);
     zmmu_pte_erase(info);
     spin_unlock_irqrestore(&br->zmmu_lock, flags);
-}
-
-int zhpe_user_req_ZMMU_REG(struct io_entry *entry)
-{
-#if 0
-    union zhpe_req          *req = &entry->op.req;
-    union zhpe_rsp          *rsp = &entry->op.rsp;
-    int                     status = 0;
-#endif
-    return -ENOSYS;
-}
-
-int zhpe_user_req_ZMMU_FREE(struct io_entry *entry)
-{
-#if 0
-    union zhpe_req          *req = &entry->op.req;
-    union zhpe_rsp          *rsp = &entry->op.rsp;
-    int                     status = 0;
-#endif
-    return -ENOSYS;
 }
