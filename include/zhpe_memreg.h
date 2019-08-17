@@ -92,7 +92,6 @@ struct zhpe_rmr {
     struct zmap           *zmap;
     uint64_t              rsp_zaddr;
     uint64_t              req_addr;
-    ulong                 mmap_pfn;
     uint32_t              dgcid;
     uint32_t              rkey;
     bool                  writable;

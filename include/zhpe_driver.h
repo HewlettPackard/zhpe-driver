@@ -86,6 +86,9 @@ do {                                                                    \
 
 #define DEBUG_TRACKER_SANE (0)
 
+#define GB(_x)            ((_x)*BIT_ULL(30))
+#define TB(_x)            ((_x)*BIT_ULL(40))
+
 /* platforms that the zhpe driver supports through the platform parameter */
 enum {
     ZHPE_CARBON          = 0x1,
@@ -233,25 +236,37 @@ extern unsigned int zhpe_req_zmmu_entries;
 extern unsigned int zhpe_rsp_zmmu_entries;
 extern unsigned int zhpe_xdm_queues_per_slice;
 extern unsigned int zhpe_rdm_queues_per_slice;
-
+extern uint64_t zhpe_reqz_min_cpuvisible_addr;
+extern uint64_t zhpe_reqz_max_cpuvisible_addr;
+extern uint64_t zhpe_reqz_phy_cpuvisible_off;
 
 /* Carbon Simulator Platform */
 #define CARBON_REQ_ZMMU_ENTRIES             (128*1024)
 #define CARBON_RSP_ZMMU_ENTRIES             (64*1024)
 #define CARBON_XDM_QUEUES_PER_SLICE         (256)
 #define CARBON_RDM_QUEUES_PER_SLICE         (256)
+#define CARBON_REQZ_MIN_CPUVISIBLE_ADDR     (GB(4)+TB(1))
+#define CARBON_REQZ_MAX_CPUVISIBLE_ADDR \
+    (CARBON_REQZ_MIN_CPUVISIBLE_ADDR+TB(250)-1ull)
+#define CARBON_REQZ_PHY_CPUVISIBLE_OFF      (0)
 
 /* PFslice FPGA Platform */
 #define PFSLICE_REQ_ZMMU_ENTRIES            (1024)
 #define PFSLICE_RSP_ZMMU_ENTRIES            (1024)
 #define PFSLICE_XDM_QUEUES_PER_SLICE        (256) 	/* Revisit: temporary */
 #define PFSLICE_RDM_QUEUES_PER_SLICE        (16) 	/* Revisit: temporary */
+#define PFSLICE_REQZ_MIN_CPUVISIBLE_ADDR    (0)
+#define PFSLICE_REQZ_MAX_CPUVISIBLE_ADDR    (TB(250) - 1)
+#define PFSLICE_REQZ_PHY_CPUVISIBLE_OFF     (TB(1))
 
 /* Wildcat Hardware Platform */
 #define WILDCAT_REQ_ZMMU_ENTRIES            (128*1024)
 #define WILDCAT_RSP_ZMMU_ENTRIES            (64*1024)
 #define WILDCAT_XDM_QUEUES_PER_SLICE        (256)
 #define WILDCAT_RDM_QUEUES_PER_SLICE        (256)
+#define WILDCAT_REQZ_MIN_CPUVISIBLE_ADDR    (0)
+#define WILDCAT_REQZ_MAX_CPUVISIBLE_ADDR    (TB(250) - 1)
+#define WILDCAT_REQZ_PHY_CPUVISIBLE_OFF     (TB(1))
 
 /* Platform values common to all platforms */
 #define ZHPE_MAX_XDM_QLEN                 (BIT(16)-1)
@@ -533,16 +548,9 @@ struct func1_bar0 {
     struct rdm_qcm  rdm[512];
 };
 
-#define GB(_x)            ((_x)*BIT_ULL(30))
-#define TB(_x)            ((_x)*BIT_ULL(40))
-
-/* Revisit: replace with actual values when known */
-#define GENZ_MIN_CPUVISIBLE_ADDR     (GB(4)+TB(1))
-#define GENZ_MAX_CPUVISIBLE_ADDR     (GENZ_MIN_CPUVISIBLE_ADDR+TB(250)-1ull)
-#define GENZ_MIN_NONVISIBLE_ADDR     TB(256)
-#define GENZ_MAX_NONVISIBLE_ADDR     (-1ull)
-#define BASE_ADDR_ERROR              GENZ_MAX_NONVISIBLE_ADDR
-
+#define REQZ_MIN_NONVISIBLE_ADDR     TB(256)
+#define REQZ_MAX_NONVISIBLE_ADDR     (-1ull)
+#define BASE_ADDR_ERROR              REQZ_MAX_NONVISIBLE_ADDR
 
 #define do_kmalloc(...) \
     _do_kmalloc(__func__, __LINE__, __VA_ARGS__)

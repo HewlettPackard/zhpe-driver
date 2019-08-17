@@ -93,6 +93,9 @@ unsigned int zhpe_req_zmmu_entries;
 unsigned int zhpe_rsp_zmmu_entries;
 unsigned int zhpe_xdm_queues_per_slice;
 unsigned int zhpe_rdm_queues_per_slice;
+uint64_t zhpe_reqz_min_cpuvisible_addr;
+uint64_t zhpe_reqz_max_cpuvisible_addr;
+uint64_t zhpe_reqz_phy_cpuvisible_off;
 int zhpe_platform = ZHPE_CARBON;
 static char *platform = "carbon";
 module_param(platform, charp, 0444);
@@ -772,8 +775,15 @@ static int parse_platform(char *str)
 		zhpe_rsp_zmmu_entries = PFSLICE_RSP_ZMMU_ENTRIES;
 		zhpe_xdm_queues_per_slice = PFSLICE_XDM_QUEUES_PER_SLICE;
 		zhpe_rdm_queues_per_slice = PFSLICE_RDM_QUEUES_PER_SLICE;
+                zhpe_reqz_min_cpuvisible_addr =
+                    PFSLICE_REQZ_MIN_CPUVISIBLE_ADDR;
+                zhpe_reqz_max_cpuvisible_addr =
+                    PFSLICE_REQZ_MAX_CPUVISIBLE_ADDR;
+                zhpe_reqz_phy_cpuvisible_off =
+                    PFSLICE_REQZ_PHY_CPUVISIBLE_OFF;
 		if (strcmp(req_page_grid, "default") == 0)
-			req_page_grid = "4K:384,2M:256,1G:256,128T:128";
+			req_page_grid =
+                            "4K*64,2M*64,4K:256,2M:256,1G:256,128T:128";
 		if (strcmp(rsp_page_grid, "default") == 0)
 			rsp_page_grid = "4K:448,128T:64,1G:256,2M:256";
 		zhpe_no_avx = 0;
@@ -784,8 +794,16 @@ static int parse_platform(char *str)
 		zhpe_rsp_zmmu_entries = WILDCAT_RSP_ZMMU_ENTRIES;
 		zhpe_xdm_queues_per_slice = WILDCAT_XDM_QUEUES_PER_SLICE;
 		zhpe_rdm_queues_per_slice = WILDCAT_RDM_QUEUES_PER_SLICE;
+                zhpe_reqz_min_cpuvisible_addr =
+                    WILDCAT_REQZ_MIN_CPUVISIBLE_ADDR;
+                zhpe_reqz_max_cpuvisible_addr =
+                    WILDCAT_REQZ_MAX_CPUVISIBLE_ADDR;
+                zhpe_reqz_phy_cpuvisible_off =
+                    WILDCAT_REQZ_PHY_CPUVISIBLE_OFF;
 		if (strcmp(req_page_grid, "default") == 0)
-			req_page_grid = "4K*20K,2M*12000,1G*2K,8G*1906,4K:1024,2M:1000,1G:5000,128T:3072";
+			req_page_grid =
+                            "4K*20K,2M*12000,1G*2K,8G*1906"
+                            ",4K:1024,2M:1000,1G:5000,128T:3072";
 		if (strcmp(rsp_page_grid, "default") == 0)
 			rsp_page_grid = "128T:64,1G:1024,2M:25K,4K:30K";
 		zhpe_no_avx = 0;
@@ -796,8 +814,16 @@ static int parse_platform(char *str)
 		zhpe_rsp_zmmu_entries = CARBON_RSP_ZMMU_ENTRIES;
 		zhpe_xdm_queues_per_slice = CARBON_XDM_QUEUES_PER_SLICE;
 		zhpe_rdm_queues_per_slice = CARBON_RDM_QUEUES_PER_SLICE;
+                zhpe_reqz_min_cpuvisible_addr =
+                    CARBON_REQZ_MIN_CPUVISIBLE_ADDR;
+                zhpe_reqz_max_cpuvisible_addr =
+                    CARBON_REQZ_MAX_CPUVISIBLE_ADDR;
+                zhpe_reqz_phy_cpuvisible_off =
+                    CARBON_REQZ_PHY_CPUVISIBLE_OFF;
                 if (strcmp(req_page_grid, "default") == 0)
-			req_page_grid = "4K*20K,2M*12000,1G*2K,8G*1906,4K:1024,2M:1000,1G:5000,128T:3072";
+			req_page_grid =
+                            "4K*20K,2M*12000,1G*2K,8G*1906"
+                            ",4K:1024,2M:1000,1G:5000,128T:3072";
                 if (strcmp(rsp_page_grid, "default") == 0)
 			rsp_page_grid = "128T:64,1G:1024,2M:25K,4K:30K";
 		zhpe_no_avx = 1;
@@ -1221,7 +1247,7 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
     struct zmap         *zmap;
     union zpages        *zpages;
     struct zhpe_rmr     *rmr;
-    ulong               vaddr, offset, length, i, pgoff;
+    ulong               vaddr, offset, length, i, pgoff, mmap_pfn;
     uint32_t            cache_flags;
 
     vma->vm_flags |= VM_MIXEDMAP | VM_DONTCOPY;
@@ -1265,7 +1291,6 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
     }
 
     zpages = zmap->zpages;
-    vma->vm_private_data = zmap;
 
     switch (zpages->hdr.page_type) {
     case LOCAL_SHARED_PAGE:
@@ -1326,11 +1351,11 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
             vma->vm_flags &= ~(VM_WRITE | VM_MAYWRITE);
             vma_set_page_prot(vma);
         }
+        mmap_pfn = (rmr->req_addr + zhpe_reqz_phy_cpuvisible_off) >> PAGE_SHIFT;
         debug(DEBUG_MMAP, "RMR mmap_pfn=0x%lx, vm_page_prot=0x%lx\n",
-              zpages->rmrz.rmr->mmap_pfn, pgprot_val(vma->vm_page_prot));
-        ret = io_remap_pfn_range(vma, vma->vm_start,
-                                 zpages->rmrz.rmr->mmap_pfn,
-                                 length, vma->vm_page_prot);
+              mmap_pfn, pgprot_val(vma->vm_page_prot));
+        ret = io_remap_pfn_range(vma, vma->vm_start, mmap_pfn, length,
+                                 vma->vm_page_prot);
         if (ret) {
             zprintk(KERN_ERR, "RMR io_remap_pfn_range returned %d\n", ret);
             goto done;
@@ -1339,13 +1364,11 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
     }
 
  done:
-    if (ret < 0) {
-        if (vma->vm_private_data) {
-            vma->vm_private_data = NULL;
-        }
+    if (ret >= 0) {
+        vma->vm_private_data = zmap;
+    } else
         zprintk(KERN_ERR, "ret = %d:start 0x%lx end 0x%lx off 0x%lx\n",
                 ret, vma->vm_start, vma->vm_end, vma->vm_pgoff);
-    }
 
     return ret;
 }

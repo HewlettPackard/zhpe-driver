@@ -351,11 +351,12 @@ static int zmmu_find_addr_range(struct page_grid_info *pgi, uint pg_index)
     uint64_t page_count = pgi->pg[pg_index].page_grid.page_count;
     uint64_t page_size  = BIT_ULL(pgi->pg[pg_index].page_grid.page_size);
     uint64_t range      = page_size * page_count;
-    uint64_t min_addr   = (cpu_visible) ?
-                          ROUND_UP_PAGE(GENZ_MIN_CPUVISIBLE_ADDR, page_size) :
-                          GENZ_MIN_NONVISIBLE_ADDR;
-    uint64_t max_addr   = (cpu_visible) ?
-                          GENZ_MAX_CPUVISIBLE_ADDR : GENZ_MAX_NONVISIBLE_ADDR;
+    uint64_t min_addr   = (cpu_visible ?
+                           ROUND_UP_PAGE(zhpe_reqz_min_cpuvisible_addr,
+                                         page_size) :
+                           REQZ_MIN_NONVISIBLE_ADDR);
+    uint64_t max_addr   = (cpu_visible ? zhpe_reqz_max_cpuvisible_addr :
+                           REQZ_MAX_NONVISIBLE_ADDR);
     uint64_t ret        = BASE_ADDR_ERROR;
     uint64_t base_addr, next_addr;
     uint64_t prev_base = 0; /* Revisit: debug */
