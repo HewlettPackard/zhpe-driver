@@ -1239,6 +1239,40 @@ void zhpe_vma_set_page_prot(struct vm_area_struct *vma)
         WRITE_ONCE(vma->vm_page_prot, vm_page_prot);
 }
 
+static int zhpe_vm_access(struct vm_area_struct *vma, unsigned long addr,
+                          void *buf, int len, int write)
+{
+    int                 ret = -EFAULT;
+    struct zmap         *zmap = vma->vm_private_data;
+    union zpages        *zpages = zmap->zpages;
+    uintptr_t           off;
+
+    if (write)
+        goto done;
+
+    off = addr - vma->vm_start;
+    if (addr + len > vma->vm_end)
+        len = vma->vm_end - addr;
+
+    /* Have to support each type individually. */
+    switch (zpages->hdr.page_type) {
+
+    case DMA_PAGE:
+        memcpy(buf, (char *)zpages->dma.cpu_addr + off, len);
+        ret = len;
+        break;
+
+    default:
+        goto done;
+    }
+ done:
+
+    return ret;
+}
+
+static const struct vm_operations_struct zhpe_vm_ops = {
+    .access             = zhpe_vm_access,
+};
 
 static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
 {
@@ -1366,6 +1400,7 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
  done:
     if (ret >= 0) {
         vma->vm_private_data = zmap;
+        vma->vm_ops = &zhpe_vm_ops;
     } else
         zprintk(KERN_ERR, "ret = %d:start 0x%lx end 0x%lx off 0x%lx\n",
                 ret, vma->vm_start, vma->vm_end, vma->vm_pgoff);
