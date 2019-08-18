@@ -1487,6 +1487,17 @@ static int zhpe_open(struct inode *inode, struct file *file)
     ret = zhpe_bind_iommu(fdata);
     if (ret < 0)
         goto free_pasid;
+    /*
+     * Revisit: set fabric_pasid to 42
+     * Sharing requester ZMMU entries requires having the same fabric_pasid
+     * on all queues sharing the entry and there is no way to know what
+     * processes are a part of the same job until sharing begins. To solve
+     * this on the fly would require stopping queues and changing their
+     * fabric_pasid and that of the requester ZMMU entries they are
+     * sharing. This is a major pain, so we're not going to do it right now
+     * and hope a better solution presents itself.
+     */
+    fdata->fabric_pasid = 42;
     /* Initialize our mmu notifier to handle cleanup */
     ret = zhpe_mmun_init(fdata);
     if (ret < 0)

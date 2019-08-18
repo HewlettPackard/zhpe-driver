@@ -1069,7 +1069,7 @@ int zhpe_user_req_RMR_IMPORT(struct io_entry *entry)
     rsp->rmr_import.pg_ps = pg_ps;
 
  out:
-    debug(DEBUG_MEMREG, ":ret=%d, req_addr=0x%016llx, offset=0x%lx, pg_ps=%u\n",
+    debug(DEBUG_MEMREG, "ret=%d, req_addr=0x%016llx, offset=0x%lx, pg_ps=%u\n",
           status, req_addr, offset, pg_ps);
     return queue_io_rsp(entry, sizeof(rsp->rmr_import), status);
 }

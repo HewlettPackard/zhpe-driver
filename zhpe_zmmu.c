@@ -210,7 +210,7 @@ static void zmmu_req_pte_write(struct zhpe_rmr *rmr,
     /* caller must hold slice zmmu_lock & have done kernel_fpu_save() */
     if (info->zmmu_pages == 0 || info->pg == NULL)
         return;  /* no PTEs to write */
-    pte.pasid = rmr->fdata->pasid;
+    pte.pasid = rmr->fdata->fabric_pasid;
     pte.space_type = info->space_type;
     /* Revisit: traffic_class, dc_grp */
     pte.dgcid = rmr->dgcid;
@@ -917,6 +917,8 @@ int zhpe_zmmu_req_pte_alloc(struct zhpe_rmr *rmr, uint64_t *req_addr,
         if (info->dgcid == this->dgcid && info->addr == this->addr) {
             kref_get(&this->refcount);
             rmr->pte_info = this;
+            *req_addr = zhpe_zmmu_pte_addr(this);
+            *pg_ps = this->pg->page_grid.page_size;
             /* don't write to the slices, but this wasn't really a *failure* */
             ret = 0;
             goto unlock;

@@ -457,6 +457,7 @@ struct file_data {
     atomic_t            count;
     uint8_t             state;
     unsigned int        pasid;
+    unsigned int        fabric_pasid;
     uint32_t            ro_rkey;
     uint32_t            rw_rkey;
     spinlock_t          io_lock;

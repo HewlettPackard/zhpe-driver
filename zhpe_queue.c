@@ -868,7 +868,7 @@ static void xdm_qcm_setup(struct xdm_qcm *hw_qcm_addr,
                           uint64_t cmdq_dma_addr, uint64_t cmplq_dma_addr,
                           uint cmdq_ent, uint cmplq_ent,
                           int traffic_class, int priority,
-                          bool cur_valid, uint pasid)
+                          bool cur_valid, uint pasid, uint fabric_pasid)
 {
     struct xdm_qcm_header     qcm = { 0 };
     uint64_t		  junk;
@@ -878,10 +878,13 @@ static void xdm_qcm_setup(struct xdm_qcm *hw_qcm_addr,
     qcm.cmd_q_base_addr = cmdq_dma_addr;
     qcm.cmpl_q_base_addr = cmplq_dma_addr;
     /* Value written into the size field is queue size minus one. */
-    qcm.cmd_q_size = cmdq_ent - 1; /* Revisit: change to -16 for command buffers */
     qcm.cmpl_q_size = cmplq_ent - 1;
+    /* Revisit: change to -16 for command buffers? */
+    qcm.cmd_q_size = cmdq_ent - 1;
+
     qcm.local_pasid = pasid;
-    qcm.fabric_pasid = pasid;
+    qcm.fabric_pasid = fabric_pasid;
+
     if (traffic_class > 15) {
         debug(DEBUG_XQUEUE, "Invalid traffic_class: %d. Default to 0.\n",
               traffic_class);
@@ -1072,7 +1075,8 @@ int zhpe_req_XQALLOC(
     xdm_qcm_setup(hw_qcm_addr,
                   cmdq_zpage->dma.dma_addr, cmplq_zpage->dma.dma_addr,
                   rsp->info.cmdq.ent, rsp->info.cmplq.ent,
-                  req->traffic_class, req->priority, 1, fdata->pasid);
+                  req->traffic_class, req->priority, 1, fdata->pasid,
+                  fdata->fabric_pasid);
 
     /* Set owner fields to valid value; can't fail after this. */
     qcm_zmap->owner = fdata;
@@ -1138,7 +1142,7 @@ int zhpe_kernel_XQALLOC(struct xdm_info *xdmi)
                   xdmi->cmplq_zpage->dma.dma_addr,
                   xdmi->cmdq_ent, xdmi->cmplq_ent,
                   xdmi->traffic_class, xdmi->priority, xdmi->cur_valid,
-                  NO_PASID);
+                  NO_PASID, NO_PASID);
     xdmi->cmdq_head_shadow = 0;
     xdmi->cmdq_tail_shadow = 0;
     xdmi->cmplq_head = 0;
