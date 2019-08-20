@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2017-2019 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -77,8 +77,8 @@ _EXTERN_C_BEG
 
 enum zhpe_hw_atomic {
     ZHPE_HW_ATOMIC_RETURN       = 0x01,
-    ZHPE_HW_ATOMIC_SIZE_32      = 0x02,
-    ZHPE_HW_ATOMIC_SIZE_64      = 0x04,
+    ZHPE_HW_ATOMIC_SIZE_32      = 0x04,
+    ZHPE_HW_ATOMIC_SIZE_64      = 0x06,
     ZHPE_HW_ATOMIC_SIZE_MASK    = 0x0E,
 };
 
@@ -137,6 +137,7 @@ enum zhpe_hw_opcode {
     ZHPE_HW_OPCODE_ATM_UMIN     = 0x2a,
     ZHPE_HW_OPCODE_ATM_UMAX     = 0x2b,
     ZHPE_HW_OPCODE_ATM_CAS      = 0x2c,
+    ZHPE_HW_OPCODE_MASK         = 0xFF,
     ZHPE_HW_OPCODE_FENCE        = 0x100,
 };
 
