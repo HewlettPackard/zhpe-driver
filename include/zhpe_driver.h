@@ -614,9 +614,10 @@ union zpages *_rmr_zpages_alloc(const char *callf, uint line,
 #define rmr_zpages_alloc(...) \
     _rmr_zpages_alloc(__func__, __LINE__, __VA_ARGS__)
 
-void _zmap_free(const char *callf, uint line, struct zmap *zmap);
-#define zmap_free(...) \
-    _zmap_free(__func__, __LINE__, __VA_ARGS__)
+void _zmap_fdata_free(const char *callf, uint line, struct file_data *fdata,
+                      struct zmap *zmap);
+#define zmap_fdata_free(...)                    \
+    _zmap_fdata_free(__func__, __LINE__, __VA_ARGS__)
 
 struct zmap *_zmap_alloc(
 	const char *callf,
@@ -625,10 +626,6 @@ struct zmap *_zmap_alloc(
 	union zpages *zpages);
 #define zmap_alloc(...) \
     _zmap_alloc(__func__, __LINE__, __VA_ARGS__)
-
-bool _free_zmap_list(const char *callf, uint line, struct file_data *fdata);
-#define free_zmap_list(...) \
-    _free_zmap_list(__func__, __LINE__, __VA_ARGS__)
 
 struct file_data *pid_to_fdata(struct bridge *br, pid_t pid);
 

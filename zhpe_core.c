@@ -147,6 +147,12 @@ MODULE_PARM_DESC(rsp_page_grid, "responder page grid allocations - page_sz:page_
 
 uint zhpe_debug_flags;
 
+#define free_zmap_list(...) \
+    _free_zmap_list(__func__, __LINE__, __VA_ARGS__)
+
+#define zmap_free(...) \
+    _zmap_free(__func__, __LINE__, __VA_ARGS__)
+
 static bool _expected_saw(const char *callf, uint line,
                           const char *label, uintptr_t expected, uintptr_t saw)
 {
@@ -580,17 +586,38 @@ union zpages *_rmr_zpages_alloc(const char *callf, uint line,
     return ret;
 }
 
-void _zmap_free(const char *callf, uint line, struct zmap *zmap)
+static void _zmap_free(const char *callf, uint line, struct zmap *zmap)
 {
     if (!zmap)
         return;
 
-    debug_caller(DEBUG_MEM, callf, line, "%s:zmap 0x%px offset 0x%lx\n",
-                 __func__, zmap, zmap->offset);
+    debug_caller(DEBUG_MEM, callf, line,
+                 "%s:zmap 0x%px offset 0x%lx inlist %d\n",
+                 __func__, zmap, zmap->offset, !list_empty(&zmap->list));
 
     if (zmap->zpages)
         zpages_free(zmap->zpages);
     do_kfree(zmap);
+}
+
+void _zmap_fdata_free(const char *callf, uint line, struct file_data *fdata,
+                      struct zmap *zmap)
+{
+    /*
+     * If the zmap is not in the fdata->zmap_list or the fdata->zmap_lock
+     * is held, the zmap must have been removed from the list with
+     * list_del_init().
+     */
+    debug_caller(DEBUG_MEM, callf, line,
+                 "%s:zmap 0x%px offset 0x%lx inlist %d\n",
+                 __func__, zmap, zmap->offset, !list_empty(&zmap->list));
+
+    if (!list_empty(&zmap->list)) {
+        spin_lock(&fdata->zmap_lock);
+        list_del_init(&zmap->list);
+        spin_unlock(&fdata->zmap_lock);
+    }
+    zmap_free(zmap);
 }
 
 struct zmap *_zmap_alloc(
@@ -605,7 +632,8 @@ struct zmap *_zmap_alloc(
     size_t              size;
 
     debug_caller(DEBUG_MEM, callf, line, "%s:zpages 0x%px\n", __func__, zpages);
-    ret = _do_kmalloc(callf, line, sizeof(*ret), GFP_KERNEL, true);
+
+    ret = do_kmalloc(sizeof(*ret), GFP_KERNEL, true);
     if (!ret) {
         ret = ERR_PTR(-ENOMEM);
         goto done;
@@ -641,7 +669,7 @@ struct zmap *_zmap_alloc(
     }
     spin_unlock(&fdata->zmap_lock);
     if (list_empty(&ret->list)) {
-        _zmap_free(callf, line, ret);
+        zmap_free(ret);
         zprintk(KERN_ERR, "Out of file space.\n");
         ret = ERR_PTR(-ENOSPC);
         goto done;
@@ -651,27 +679,25 @@ struct zmap *_zmap_alloc(
     return ret;
 }
 
-bool _free_zmap_list(const char *callf, uint line,
+static bool _free_zmap_list(const char *callf, uint line,
                             struct file_data *fdata)
 {
     bool                ret = true;
     struct zmap         *zmap;
     struct zmap         *next;
 
+    /* Only called from zhpe_release. */
     debug_caller(DEBUG_RELEASE, callf, line, "%s:fdata 0x%px\n",
                  __func__, fdata);
 
     spin_lock(&fdata->zmap_lock);
     list_for_each_entry_safe(zmap, next, &fdata->zmap_list, list) {
-        /* global_shared_zmap zpages are not free'ed until exit. */
-        if (zmap == fdata->global_shared_zmap) {
-            list_del_init(&zmap->list);
+        list_del_init(&zmap->list);
+        /* global_shared_zmap zpages are not freed until driver exit. */
+        if (zmap == fdata->global_shared_zmap)
             do_kfree(zmap);
-        }
-        else if (!fdata || zmap->owner == fdata || zmap == fdata->local_shared_zmap) {
-            list_del_init(&zmap->list);
+        else
             zmap_free(zmap);
-        }
     }
     spin_unlock(&fdata->zmap_lock);
 
@@ -1577,7 +1603,8 @@ static int zhpe_open(struct inode *inode, struct file *file)
 
  free_shared_data:
     zmap_free(fdata->local_shared_zmap);
-    zmap_free(fdata->global_shared_zmap);
+    /* global_shared_zmap zpages are not freed until driver exit. */
+    do_kfree(fdata->global_shared_zmap);
 
  done:
     if (ret < 0 && fdata) {

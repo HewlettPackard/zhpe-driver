@@ -1090,9 +1090,9 @@ int zhpe_req_XQALLOC(
 
     /* Handle errors */
  free_cmdq_zmap:
-    zmap_free(cmdq_zmap);
+    zmap_fdata_free(fdata, cmdq_zmap);
  free_qcm_zmap:
-    zmap_free(qcm_zmap);
+    zmap_fdata_free(fdata, qcm_zmap);
     /* zmap_free also frees the zpage */
     goto release_queue;
  free_qcm_zpage:
@@ -1201,7 +1201,7 @@ int zhpe_req_XQFREE(union zhpe_req *req,
                     ret = -EACCES;
             } else {
                 list_del_init(&zmap->list);
-                zmap_free(zmap);
+                zmap_fdata_free(fdata, zmap);
             }
             if (--count == 0)
                 break;
@@ -1440,9 +1440,9 @@ int zhpe_req_RQALLOC(struct zhpe_req_RQALLOC *req,
 
     /* Handle errors */
  free_cmplq_zmap:
-    zmap_free(cmplq_zmap);
+    zmap_fdata_free(fdata, cmplq_zmap);
  free_qcm_zmap:
-    zmap_free(qcm_zmap);
+    zmap_fdata_free(fdata, qcm_zmap);
     /* zmap_free also frees the zpage */
     goto release_queue;
  free_qcm_zpage:
@@ -1537,7 +1537,7 @@ int zhpe_req_RQFREE(struct zhpe_req_RQFREE *req,
                     ret = -EACCES;
             } else {
                 list_del_init(&zmap->list);
-                zmap_free(zmap);
+                zmap_fdata_free(fdata, zmap);
             }
             if (--count == 0)
                 break;
