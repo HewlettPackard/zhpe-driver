@@ -510,7 +510,8 @@ def main():
             if args.keyboard:
                 set_trace()
 
-            # test the same atomic 32 bit SWAP to see if the prev val is now 0x12345678
+            # test the same atomic 32 bit SWAP to see if the prev val is now
+            # 0x12345678
             swap32 = zhpe.xdm_cmd()
             swap32.opcode = zhpe.XDM_CMD.ATM_SWAP
             swap32.atomic_one_op32.r = 1  # return a value
