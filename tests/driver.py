@@ -38,6 +38,7 @@ import contextlib
 import mmap
 import argparse
 import os
+import errno
 import hashlib
 from ctypes import *
 from pdb import set_trace
@@ -141,18 +142,22 @@ def main():
         init = conn.do_INIT()
         gcid = init.uuid.gcid
         if args.verbosity:
-            print('do_INIT: uuid={}, gcid={}'.format(init.uuid, init.uuid.gcid_str))
+            print('do_INIT: uuid={}, gcid={}'.format(
+                init.uuid, init.uuid.gcid_str))
         # doing a 2nd INIT should fail
         exc = False
         try:
             bad = conn.do_INIT()
-        except OSError:
-            exc = True
+        except OSError as err:
+            if err.errno == errno.EBADRQC:
+                exc = True
+            else:
+                raise
         if exc:
             if args.verbosity:
                 print('do_INIT: got expected error on 2nd INIT')
         else:
-            print('fail: no error on 2nd INIT')
+            raise RuntimeError('fail: no error on 2nd INIT')
 
         if args.loopback and modp.genz_loopback == 0:
             print('Configuration error - loopback test requested but driver has genz_loopback=0')
@@ -173,15 +178,19 @@ def main():
             v, l = zhpe.mmap_vaddr_len(mm)
             rsp = conn.do_MR_REG(v, l, MR.GPI)  # req: GET/PUT, 4K
             # register the same thing memory twice to force EEXIST
+            exc = False
             try:
                 bad = conn.do_MR_REG(v, l, MR.GPI)  # req: GET/PUT, 4K
-            except OSError:
-                exc = True
+            except OSError as err:
+                if err.errno == errno.EEXIST:
+                    exc = True
+                else:
+                    raise
             if exc:
                 if args.verbosity:
                     print('do_MR_REG: got expected error on 2nd MR_REG')
             else:
-                print('fail: no error on 2nd MR_REG')
+                raise RuntimeError('fail: no error on 2nd MR_REG')
 
         if args.responder or args.loopback:
             mm2 = mmap.mmap(-1, sz4K)
@@ -253,8 +262,35 @@ def main():
                 rsp_rmr2M = conn.do_RMR_IMPORT(zuu, rsp2M_r.rsp_zaddr, sz2M,
                                                MR.GRPRI)
 
-        xdm = zhpe.XDM(conn, 256, 256, slice_mask=0x1)
-        rdm = zhpe.RDM(conn, 1024, slice_mask=0x2)
+        # Allocate all the queues to check error handling
+        qlist = []
+        while True:
+            try:
+                qlist.append(zhpe.XDM(conn, 256, 256, slice_mask=0x1))
+            except OSError as err:
+                if err.errno != errno.ENOENT:
+                    raise
+                break
+        print('{} XDM queues allocated\n'.format(len(qlist)))
+        if len(qlist) == 0:
+            raise RuntimeError('No XDM queues allocated\n')
+        xdm = qlist.pop()
+        while qlist:
+            conn.do_XQUEUE_FREE(qlist.pop())
+
+        while True:
+            try:
+                qlist.append(zhpe.RDM(conn, 1024, slice_mask=0x2))
+            except OSError as err:
+                if err.errno != errno.ENOENT:
+                    raise
+                break
+        print('{} RDM queues allocated\n'.format(len(qlist)))
+        if len(qlist) == 0:
+            raise RuntimeError('No RDM queues allocated\n')
+        rdm = qlist.pop()
+        while qlist:
+            conn.do_RQUEUE_FREE(qlist.pop())
 
         nop = zhpe.xdm_cmd()
         nop.opcode = zhpe.XDM_CMD.NOP|zhpe.XDM_CMD.FENCE
@@ -833,8 +869,8 @@ def main():
             net.reactor.run()
         if args.keyboard:
             set_trace()
-        conn.do_XQUEUE_FREE(xdm.rsp_xqa.info)
-        conn.do_RQUEUE_FREE(rdm.rsp_rqa.info)
+        conn.do_XQUEUE_FREE(xdm)
+        conn.do_RQUEUE_FREE(rdm)
         if args.requester:
             conn.do_MR_FREE(v, l, MR.GPI, rsp.rsp_zaddr)
         conn.do_MR_FREE(v2M, l2M, MR.GP, rsp2M_l.rsp_zaddr)

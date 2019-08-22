@@ -1000,9 +1000,11 @@ class RDM():
                               print('triggered is {}'.format(triggered))
                           # Loop through all RDM that have this irq_vector
                           for rdm in self.conn.rdm_per_irq_index[irq_vector]:
-                              cmpls.append(rdm.get_cmpl(wait=False))
-                              if verbosity:
-                                  print('poll RDM cmpl: {}'.format(cmpls))
+                              cmpl = rdm.get_cmpl(wait=False)
+                              if cmpl is not None:
+                                  cmpls.append(cmpl)
+                                  if verbosity:
+                                      print('poll RDM cmpl: {}'.format(cmpl))
                           handled = True
                   break
         finally:
@@ -1179,8 +1181,8 @@ class Connection():
             print('XQUEUE_ALLOC: qcm.size={}, qcm.off={:#x}, cmdq.ent={}, cmdq.size={}, cmdq.off={:#x}, cmplq.ent={}, cmplq.size={}, cmplq.off={:#x}, slice={}, queue={}'.format(rsp.info.qcm.size, rsp.info.qcm.off, rsp.info.cmdq.ent, rsp.info.cmdq.size, rsp.info.cmdq.off, rsp.info.cmplq.ent, rsp.info.cmplq.size, rsp.info.cmplq.off, rsp.info.slice, rsp.info.queue))
         return rsp
 
-    def do_XQUEUE_FREE(self, info):
-        req = req_XQUEUE_FREE(hdr(OP.XQUEUE_FREE), info)
+    def do_XQUEUE_FREE(self, xdm):
+        req = req_XQUEUE_FREE(hdr(OP.XQUEUE_FREE), xdm.rsp_xqa.info)
         self.write(req)
         rsp = rsp_XQUEUE_FREE(hdr(OP.XQUEUE_FREE,
                                   index=req.hdr.index, rsp=True))
@@ -1198,12 +1200,13 @@ class Connection():
             print('RQUEUE_ALLOC: qcm.size={}, qcm.off={:#x}, cmplq.ent={}, cmplq.size={}, cmplq.off={:#x}, slice={}, queue={}, rspctxid={} irq_vector={}'.format(rsp.info.qcm.size, rsp.info.qcm.off, rsp.info.cmplq.ent, rsp.info.cmplq.size, rsp.info.cmplq.off, rsp.info.slice, rsp.info.queue, rsp.info.rspctxid, rsp.info.irq_vector))
         return rsp
 
-    def do_RQUEUE_FREE(self, info):
-        req = req_RQUEUE_FREE(hdr(OP.RQUEUE_FREE), info)
+    def do_RQUEUE_FREE(self, rdm):
+        req = req_RQUEUE_FREE(hdr(OP.RQUEUE_FREE), rdm.rsp_rqa.info)
         self.write(req)
         rsp = rsp_RQUEUE_FREE(hdr(OP.RQUEUE_FREE,
                                   index=req.hdr.index, rsp=True))
         self.read(rsp)
+        self.rdm_per_irq_index[rdm.rsp_rqa.info.irq_vector].remove(rdm)
         if self.verbosity:
             print('RQUEUE_FREE: status={}'.format(rsp.hdr.status))
 

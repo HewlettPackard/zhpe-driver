@@ -366,7 +366,7 @@ static int distribute_irq(unsigned long *alloced_bitmap,
                           struct slice *sl, int *vector)
 {
     int q;
-    int min_vector, min;
+    int min_vector, min, max_vector;
     int v;
     int count;
     int clump_size = MAX_RDM_QUEUES_PER_SLICE / sl->irq_vectors_count;
@@ -381,16 +381,25 @@ static int distribute_irq(unsigned long *alloced_bitmap,
      * 0-7 map to vector 0, 8-15 vector 1, etc for 32 MSI vectors.
      * Note that the actual number of MSI vectors that Linux allocated
      * is stored in sl->irq_vectors_count - it may not be 32.
+     *
+     * There are places in this function where we might replace
+     * MAX_RDM_QUEUES_PER_SLICE with zhpe_rdm_queues_per_slice, but it
+     * is not intuitively obvious this will result in better code in all places
+     * and it really shouldn't matter.
+     *
+     * We limit vectors searched below by the actual number of available queues
+     * to prevent errors. Because the calling function checks that there is
+     * space available, failure should not be an option. (But this comment
+     * got written while fixing a bug.)
      */
+    max_vector = ((int)zhpe_rdm_queues_per_slice + clump_size - 1) / clump_size;
     /* Find which vector has the fewest queues assigned */
-    min_vector = min = -1;
-    for (v=0; v < sl->irq_vectors_count; v++) {
+    min_vector = -1;
+    min = clump_size;
+    for (v=0; v < max_vector; v++) {
         /* count bits set in bitmap for the given range */
         count = bitmap_weight(tmp_bitmap, clump_size);
-        if (min == -1) {
-            min_vector = v;
-            min = count;
-        } else if (count < min) {
+        if (count < min) {
             /* Found a vector with fewer queues */
             min_vector = v;
             min = count;
@@ -400,9 +409,8 @@ static int distribute_irq(unsigned long *alloced_bitmap,
                            zhpe_rdm_queues_per_slice);
     }
     /* Look for a free queue in that minimum range */
-    q = find_first_zero_bit(alloced_bitmap+(min_vector*clump_size),
-                            clump_size)
-        + (min_vector*clump_size);
+    q = find_next_zero_bit(alloced_bitmap, zhpe_rdm_queues_per_slice,
+                           min_vector * clump_size);
     *vector = min_vector;
     /* Return the chosen free queue */
     return q;
@@ -441,7 +449,8 @@ static int xdm_choose_slice_queue(
                 if (cur_slice->xdm_alloc_count < zhpe_xdm_queues_per_slice) {
                     /* Use this slice */
                     cur_slice->xdm_alloc_count++;
-                    q = find_first_zero_bit(cur_slice->xdm_alloced_bitmap, zhpe_xdm_queues_per_slice);
+                    q = find_first_zero_bit(cur_slice->xdm_alloced_bitmap,
+                                            zhpe_xdm_queues_per_slice);
                     set_bit(q, cur_slice->xdm_alloced_bitmap);
                     spin_unlock (&cur_slice->xdm_slice_lock);
                     xdm_last_used_slice = s;
@@ -486,14 +495,17 @@ static int rdm_choose_slice_queue(
                 if (cur_slice->rdm_alloc_count < zhpe_rdm_queues_per_slice) {
                     /* Use this slice */
                     cur_slice->rdm_alloc_count++;
-                    q = distribute_irq(cur_slice->rdm_alloced_bitmap, cur_slice, &vector);
+                    q = distribute_irq(cur_slice->rdm_alloced_bitmap,
+                                       cur_slice, &vector);
                     set_bit(q, cur_slice->rdm_alloced_bitmap);
                     spin_unlock (&cur_slice->rdm_slice_lock);
                     rdm_last_used_slice = s;
                     *slice = s;
                     *queue = q;
                     *irq_vector = (s*VECTORS_PER_SLICE)+vector;
-                    debug(DEBUG_RQUEUE, "assigning slice %d queue %d irq_vector %d\n", *slice, *queue, *irq_vector);
+                    debug(DEBUG_RQUEUE,
+                          "assigning slice %d queue %d irq_vector %d\n",
+                          *slice, *queue, *irq_vector);
                     return 0;
                 }
                 spin_unlock (&cur_slice->rdm_slice_lock);

@@ -47,19 +47,19 @@ int zhpe_get_irq_index(struct slice *sl, int queue)
     if (!SLICE_VALID(sl)) {
         debug(DEBUG_INTR,
             "zhpe_qet_irq_index: failed because slice is not valid\n");
-	return -1;
+	return -EINVAL;
     }
     if (queue < 0 || queue >= zhpe_rdm_queues_per_slice) {
         debug(DEBUG_INTR,
             "zhpe_qet_irq_index: failed because queue %d is out of range\n",
             queue);
-	return -1;
+	return -EINVAL;
     }
     if (test_bit(queue, sl->rdm_alloced_bitmap) == 0) {
         debug(DEBUG_INTR,
             "zhpe_qet_irq_index: failed because queue %d is not allocated\n",
             queue);
-        return -1;
+        return -EINVAL;
     }
 
     /*
