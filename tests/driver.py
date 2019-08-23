@@ -73,19 +73,29 @@ def runtime_err(*arg):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-d', '--devfile', default='/dev/zhpe',
-                        help='the zhpe character device file')
-    parser.add_argument('-b', '--bigfile', default='/dev/hugepages/test1',
-                        help='a hugepage test file')
     parser.add_argument('-B', '--bringup', action='store_true',
                         help=('bringup mode without driver to driver' +
                               ' communication'))
+    parser.add_argument('-b', '--bigfile', default='/dev/hugepages/test1',
+                        help='a hugepage test file')
+    parser.add_argument('-D', '--datafile', default='./driver.py',
+                        help='a data test file')
+    parser.add_argument('-d', '--devfile', default='/dev/zhpe',
+                        help='the zhpe character device file')
+    parser.add_argument('-F', '--fam_gcid', type=int, default=0x40,
+                        help='GCID for FAM (default to 0x40)')
+    parser.add_argument('-f', '--fam', action='store_true',
+                        help='test FAM')
     parser.add_argument('-H', '--hugefile', default='/dev/hugepages/test2',
                         help='a huger hugepage test file')
     parser.add_argument('--huge', action='store_true',
                         help='enable huge PUT test')
-    parser.add_argument('-D', '--datafile', default='./driver.py',
-                        help='a data test file')
+    parser.add_argument('-k', '--keyboard', action='store_true',
+                        help='invoke interactive keyboard')
+    parser.add_argument('-L', '--load_store', action='store_false',
+                        default=True, help='disable load/store tests')
+    parser.add_argument('-l', '--loopback', action='store_true',
+                        help='enable loopback mode')
     parser.add_argument('-N', '--net', action='store_true',
                         help='make/accept network connections')
     parser.add_argument('-n', '--nodes', type=str, default=None,
@@ -94,20 +104,12 @@ def parse_args():
                         help='network port')
     parser.add_argument('-q', '--requester', action='store_true',
                         help='enable requester')
+    parser.add_argument('-Q', '--queue_test', action='store_true',
+                        help='test queue error handling')
     parser.add_argument('-r', '--responder', action='store_true',
                         help='enable responder')
-    parser.add_argument('-l', '--loopback', action='store_true',
-                        help='enable loopback mode')
-    parser.add_argument('-k', '--keyboard', action='store_true',
-                        help='invoke interactive keyboard')
     parser.add_argument('-v', '--verbosity', action='count', default=0,
                         help='increase output verbosity')
-    parser.add_argument('-f', '--fam', action='store_true',
-                        help='test FAM')
-    parser.add_argument('-F', '--fam_gcid', type=int, default=0x40,
-                        help='GCID for FAM (default to 0x40)')
-    parser.add_argument('-L', '--load_store', action='store_false',
-                        default=True, help='disable load/store tests')
     return parser.parse_args()
 
 def main():
@@ -274,7 +276,7 @@ def main():
                 rsp_rmr2M = conn.do_RMR_IMPORT(zuu, rsp2M_r.rsp_zaddr, sz2M,
                                                MR.GRPRI)
 
-        # Allocate all the queues to check error handling
+        # If queue_test is set, allocate all the queues to check error handling
         qlist = []
         while True:
             try:
@@ -282,6 +284,8 @@ def main():
             except OSError as err:
                 if err.errno != errno.ENOENT:
                     raise
+                break
+            if not args.queue_test:
                 break
         if args.verbosity:
             print('{} XDM queues allocated\n'.format(len(qlist)))
@@ -297,6 +301,8 @@ def main():
             except OSError as err:
                 if err.errno != errno.ENOENT:
                     raise
+                break
+            if not args.queue_test:
                 break
         if args.verbosity:
             print('{} RDM queues allocated\n'.format(len(qlist)))
