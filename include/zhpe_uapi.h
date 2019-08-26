@@ -82,13 +82,6 @@ enum zhpe_hw_atomic {
     ZHPE_HW_ATOMIC_SIZE_MASK    = 0x0E,
 };
 
-union zhpe_atomic {
-    int32_t             s32;
-    int64_t             s64;
-    uint32_t            u32;
-    uint64_t            u64;
-};
-
 enum zhpe_hw_cq {
     ZHPE_HW_CQ_STATUS_SUCCESS               = 0x00,
     ZHPE_HW_CQ_STATUS_CMD_TRUNCATED         = 0x01,
@@ -101,8 +94,10 @@ enum zhpe_hw_cq {
     ZHPE_HW_CQ_VALID                        = 0x01,
 };
 
-struct zhpe_result {
+union zhpe_result {
     char                data[ZHPE_IMM_MAX];
+    uint32_t            atomic32;
+    uint64_t            atomic64;
 };
 
 struct zhpe_cq_entry {
@@ -114,7 +109,7 @@ struct zhpe_cq_entry {
     uint8_t             filler1[4];
     void                *context;
     uint8_t             filler2[16];
-    struct zhpe_result  result;
+    union zhpe_result   result;
 };
 
 #define ZHPE_HW_ENTRY_LEN (64)
@@ -171,7 +166,10 @@ struct zhpe_hw_wq_atomic {
     uint8_t             filler1[3];
     uint64_t            rem_addr;
     uint8_t             filler2[16];
-    union zhpe_atomic  operands[2];
+    union {
+        uint32_t        operands32[2];
+        uint64_t        operands64[2];
+    };
 };
 
 struct zhpe_hw_wq_enqa {
