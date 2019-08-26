@@ -42,6 +42,7 @@ import errno
 import hashlib
 from ctypes import *
 from pdb import set_trace
+from pdb import post_mortem
 import time
 import zhpe
 from zhpe import MR, UU
@@ -76,8 +77,6 @@ def parse_args():
     parser.add_argument('-B', '--bringup', action='store_true',
                         help=('bringup mode without driver to driver' +
                               ' communication'))
-    parser.add_argument('-b', '--bigfile', default='/dev/hugepages/test1',
-                        help='a hugepage test file')
     parser.add_argument('-D', '--datafile', default='./driver.py',
                         help='a data test file')
     parser.add_argument('-d', '--devfile', default='/dev/zhpe',
@@ -86,8 +85,6 @@ def parse_args():
                         help='GCID for FAM (default to 0x40)')
     parser.add_argument('-f', '--fam', action='store_true',
                         help='test FAM')
-    parser.add_argument('-H', '--hugefile', default='/dev/hugepages/test2',
-                        help='a huger hugepage test file')
     parser.add_argument('--huge', action='store_true',
                         help='enable huge PUT test')
     parser.add_argument('-k', '--keyboard', action='store_true',
@@ -102,6 +99,8 @@ def parse_args():
                         help='list of remote node IPs')
     parser.add_argument('-p', '--port', type=int, default=42042,
                         help='network port')
+    parser.add_argument('-P', '--post_mortem', action='store_true',
+                        help='enter debugger on uncaught exception')
     parser.add_argument('-q', '--requester', action='store_true',
                         help='enable requester')
     parser.add_argument('-Q', '--queue_test', action='store_true',
@@ -141,11 +140,6 @@ def main():
         print('pid={}'.format(os.getpid()))
     nodes = [item for item in args.nodes.split(',')] if args.nodes else []
     datasize = os.path.getsize(args.datafile)
-    bigsize = os.path.getsize(args.bigfile)
-    hugesize = os.path.getsize(args.hugefile)
-    if 3*datasize > bigsize:
-        runtime_err('3*datafile size (3*{}) > bigfile size ({})'.format(
-            datasize, bigsize))
     modp = ModuleParams()
     with open(args.devfile, 'rb+', buffering=0) as f:
         conn = zhpe.Connection(f, args.verbosity)
@@ -211,26 +205,21 @@ def main():
             rsp2 = conn.do_MR_REG(v2, l2, MR.GRPRI)  # rsp: GET_REM/PUT_REM, 4K
 
         data = open(args.datafile, 'rb')
-        mmdata = mmap.mmap(data.fileno(), 0, access=mmap.ACCESS_READ)
+        datasize = min(datasize, sz2M)
+        mmdata = mmap.mmap(data.fileno(), datasize, access=mmap.ACCESS_READ)
         datasha256 = hashlib.sha256(mmdata[0:datasize]).hexdigest()
         if args.verbosity:
             print('datafile sha256={}'.format(datasha256))
-        # Revisit: using a hugepage file to guarantee a physically contiguous
-        # region until the IOMMU works in the sim
-        f2M = open(args.bigfile, 'rb+')
-        mm2M = mmap.mmap(f2M.fileno(), 0, access=mmap.ACCESS_WRITE)
+        mm2M = mmap.mmap(-1, sz2M, access=mmap.ACCESS_WRITE)
         mm2M[0:datasize] = mmdata[0:datasize]
-        if args.huge:
-            print('opening hugefile "{}"'.format(args.hugefile))
-            f1G = open(args.hugefile, 'rb+')
-            print('mmapping hugefile')
-            mm1G = mmap.mmap(f1G.fileno(), 0, access=mmap.ACCESS_WRITE)
-            print('initializing hugefile with random data')
-            mm1G[0:hugesize//2] = os.urandom(hugesize//2)
-            v1G, l1G = zhpe.mmap_vaddr_len(mm1G)
+        v2M, l2M = zhpe.mmap_vaddr_len(mm2M)
         mmdata.close()
         data.close()
-        v2M, l2M = zhpe.mmap_vaddr_len(mm2M)
+        if args.huge:
+            hugesize = sz1G
+            mm1G = mmap.mmap(-1, sz1G, access=mmap.ACCESS_WRITE)
+            mm1G[0:hugesize//2] = os.urandom(hugesize//2)
+            v1G, l1G = zhpe.mmap_vaddr_len(mm1G)
         # GET_REM/PUT_REM, 2M-0x5000
         rsp2M = conn.do_MR_REG(v2M + 0x1242, l2M - 0x5000, MR.GRPRI)
 
@@ -942,4 +931,11 @@ def main():
     # end with
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except:
+        if args.post_mortem:
+            post_mortem()
+        else:
+            raise
+
