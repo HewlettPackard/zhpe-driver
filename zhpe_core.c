@@ -1345,7 +1345,7 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
     vma->vm_flags &= ~VM_MAYEXEC;
     if (zmap == fdata->global_shared_zmap) {
         if (vma->vm_flags & VM_WRITE) {
-            zprintk(KERN_ERR, "global_zhared_zmap:vm_flags VM_WRITE\n");
+            debug(DEBUG_MMAP, "vm_flags VM_WRITE\n");
             vma->vm_flags &= ~(VM_WRITE|VM_MAYWRITE);
         }
     }
