@@ -352,6 +352,7 @@ def main():
                 rmm2[len1:len1_2] = str2
                 # flush rmm2 writes, so mm2 reads will see new data
                 zhpe.pmem_flush(v_rmm2+len1, len2)
+                zhpe.pmem_flush(v2+len1, len2)
                 if args.verbosity:
                     print('mm2 after remote update="{}"'.format(
                         mm2[0:len1_2].decode()))
