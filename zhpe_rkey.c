@@ -149,7 +149,7 @@ static struct rkey_node *rkey_search(struct rkey_info *rki, uint32_t rkey)
             rb = rb->rb_right;
         else {
             /* found right node - check bitmap bit */
-            if (test_bit(bit_pos, rkn->bitmap) == 1)
+            if (test_bit(bit_pos, rkn->bitmap))
                 goto out;
             else
                 break;  /* not found */
@@ -187,7 +187,7 @@ static int rkey_delete(struct rkey_info *rki, uint32_t rkey)
             rb = rb->rb_right;
         else {
             /* found right node - check bitmap bit */
-            if (__test_and_clear_bit(bit_pos, rkn->bitmap) == 1) {
+            if (__test_and_clear_bit(bit_pos, rkn->bitmap)) {
                 atomic_sub(1, &rki->allocated);
                 if (rkn_count(rkn) == 0) {
                     rb_erase_augmented(&rkn->rb, root, &augment_callbacks);
@@ -341,7 +341,7 @@ void zhpe_rkey_free(uint32_t ro_rkey, uint32_t rw_rkey)
     if ((ro_rkey & RKEY_OS_MASK) != (rw_rkey & RKEY_OS_MASK))
         return;
 
-    rkey_delete(&rki, ro_rkey);
+    rkey_delete(&rki, ro_rkey & RKEY_OS_MASK);
 }
 
 #if RKEY_DEBUG_ALL

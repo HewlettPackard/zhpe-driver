@@ -800,27 +800,22 @@ class XDM():
         self.qcm.cmd_q_tail_idx = self.cmd_q_tail_shadow
 
     def queue_cmds(self, cmds):
-        cnt = len(cmds)
         # Revisit: check for cmdq full
+        t = self.cmd_q_tail_shadow
         for cmd in cmds:
-            t = self.cmd_q_tail_shadow
             cmd.hdr.request_id = t
             self.cmd[t] = cmd
-            self.cmd_q_tail_shadow = ((self.cmd_q_tail_shadow + 1) %
-                                      self.rsp_xqa.info.cmdq.ent)
+            t = (t + 1) % self.rsp_xqa.info.cmdq.ent
+        self.cmd_q_tail_shadow = t
         self.qcm.cmd_q_tail_idx = self.cmd_q_tail_shadow
 
     def get_cmpl(self, wait=True):
         t = self.cmpl_q_tail_shadow
-        try:  # Revisit: debug
-            while True:  # Spin until cmpl[t] becomes valid if wait is True
-                if self.cmpl[t].hdr.v == self.cur_valid:
-                    break
-                elif wait == False:
-                    return None
-        except KeyboardInterrupt:
-            print('get_cmpl(t={}: KeyboardInterrupt'.format(t))
-            return None
+        while True:  # Spin until cmpl[t] becomes valid if wait is True
+            if self.cmpl[t].hdr.v == self.cur_valid:
+                break
+            elif wait == False:
+                return None
         self.cmpl_q_tail_shadow = ((self.cmpl_q_tail_shadow + 1) %
                                    self.rsp_xqa.info.cmplq.ent)
         if self.cmpl_q_tail_shadow < t:  # toggle expected valid on wrap
@@ -958,15 +953,11 @@ class RDM():
 
     def get_cmpl(self, wait=True):
         h = self.cmpl_q_head_shadow
-        try:  # Revisit: debug
-            while True:  # Spin until cmpl[h] becomes valid if wait is True
-                if self.cmpl[h].hdr.v == self.cur_valid:
-                    break
-                elif wait == False:
-                    return None
-        except KeyboardInterrupt:
-            print('get_cmpl(h={}: KeyboardInterrupt'.format(h))
-            return None
+        while True:  # Spin until cmpl[h] becomes valid if wait is True
+            if self.cmpl[h].hdr.v == self.cur_valid:
+                break
+            elif wait == False:
+                return None
         self.cmpl_q_head_shadow = ((self.cmpl_q_head_shadow + 1) %
                                    self.rsp_rqa.info.cmplq.ent)
         if self.cmpl_q_head_shadow < h:  # toggle expected valid on wrap
