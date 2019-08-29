@@ -253,9 +253,9 @@ extern uint64_t zhpe_reqz_phy_cpuvisible_off;
 /* PFslice FPGA Platform */
 #define PFSLICE_REQ_ZMMU_ENTRIES            (1024)
 #define PFSLICE_RSP_ZMMU_ENTRIES            (1024)
-#define PFSLICE_XDM_QUEUES_PER_SLICE        (256) 	/* Revisit: temporary */
-#define PFSLICE_RDM_QUEUES_PER_SLICE        (16) 	/* Revisit: temporary */
-#define PFSLICE_REQZ_MIN_CPUVISIBLE_ADDR    (0x2345678000UL) /* For Shawn */
+#define PFSLICE_XDM_QUEUES_PER_SLICE        (256)
+#define PFSLICE_RDM_QUEUES_PER_SLICE        (256)
+#define PFSLICE_REQZ_MIN_CPUVISIBLE_ADDR    (0x2345678000UL) /* for debug */
 #define PFSLICE_REQZ_MAX_CPUVISIBLE_ADDR    (TB(250) - 1)
 
 /* Wildcat Hardware Platform */
