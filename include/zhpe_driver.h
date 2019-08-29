@@ -257,7 +257,6 @@ extern uint64_t zhpe_reqz_phy_cpuvisible_off;
 #define PFSLICE_RDM_QUEUES_PER_SLICE        (16) 	/* Revisit: temporary */
 #define PFSLICE_REQZ_MIN_CPUVISIBLE_ADDR    (0x2345678000UL) /* For Shawn */
 #define PFSLICE_REQZ_MAX_CPUVISIBLE_ADDR    (TB(250) - 1)
-#define PFSLICE_REQZ_PHY_CPUVISIBLE_OFF     (TB(1))
 
 /* Wildcat Hardware Platform */
 #define WILDCAT_REQ_ZMMU_ENTRIES            (128*1024)
@@ -266,7 +265,6 @@ extern uint64_t zhpe_reqz_phy_cpuvisible_off;
 #define WILDCAT_RDM_QUEUES_PER_SLICE        (256)
 #define WILDCAT_REQZ_MIN_CPUVISIBLE_ADDR    (0)
 #define WILDCAT_REQZ_MAX_CPUVISIBLE_ADDR    (TB(250) - 1)
-#define WILDCAT_REQZ_PHY_CPUVISIBLE_OFF     (TB(1))
 
 /* Platform values common to all platforms */
 #define ZHPE_MAX_XDM_QLEN                 (BIT(16)-1)

@@ -805,8 +805,6 @@ static int parse_platform(char *str)
                     PFSLICE_REQZ_MIN_CPUVISIBLE_ADDR;
                 zhpe_reqz_max_cpuvisible_addr =
                     PFSLICE_REQZ_MAX_CPUVISIBLE_ADDR;
-                zhpe_reqz_phy_cpuvisible_off =
-                    PFSLICE_REQZ_PHY_CPUVISIBLE_OFF;
 		if (strcmp(req_page_grid, "default") == 0)
 			req_page_grid =
                             "4K*64,2M*64,4K:256,2M:256,1G:256,128T:128";
@@ -824,8 +822,6 @@ static int parse_platform(char *str)
                     WILDCAT_REQZ_MIN_CPUVISIBLE_ADDR;
                 zhpe_reqz_max_cpuvisible_addr =
                     WILDCAT_REQZ_MAX_CPUVISIBLE_ADDR;
-                zhpe_reqz_phy_cpuvisible_off =
-                    WILDCAT_REQZ_PHY_CPUVISIBLE_OFF;
 		if (strcmp(req_page_grid, "default") == 0)
 			req_page_grid =
                             "4K*20K,2M*12000,1G*2K,8G*1906"
@@ -1634,9 +1630,11 @@ static int zhpe_open(struct inode *inode, struct file *file)
 #define ZHPE_DVSEC_MBOX_ADDR_OFF  (0x34)
 #define ZHPE_DVSEC_MBOX_DATAL_OFF (0x38)
 #define ZHPE_DVSEC_MBOX_DATAH_OFF (0x3C)
+#define ZHPE_DVSEC_SLINK_BASE_OFF (0x40)
 #define ZHPE_CSR_CID              (0xC0)
 #define ZHPE_CSR_CID_SHIFT        (0x8)
 #define ZHPE_CSR_CID_MASK         (0xFFF)
+
 
 static int csr_access_rd(struct bridge *br, uint32_t csr, uint64_t *data)
 {
@@ -1705,13 +1703,14 @@ out:
 static int zhpe_probe(struct pci_dev *pdev,
                       const struct pci_device_id *pdev_id)
 {
-    int ret, pos;
+    int ret, pos = 0;
     int l_slice_id;
     void __iomem *base_addr;
     struct bridge *br = &zhpe_bridge;
     struct slice *sl = NULL;
     phys_addr_t phys_base;
     uint16_t devctl2;
+    int slink_base;
 
     /* No setup for function 0 */
     if (PCI_FUNC(pdev->devfn) == 0) {
@@ -1817,11 +1816,18 @@ static int zhpe_probe(struct pci_dev *pdev,
     sl->pdev = pdev;
     sl->valid = true;
 
+    /* Better be the first slice found. */
     if (l_slice_id == 0) {
         if (zhpe_platform != ZHPE_CARBON) {
             ret = csr_get_gcid(br);
             if (ret < 0 && zhpe_platform == ZHPE_PFSLICE)
                 goto err_pci_iounmap;
+            pci_read_config_dword(pdev, pos + ZHPE_DVSEC_SLINK_BASE_OFF,
+                                  &slink_base);
+            /* Base is in GiB */
+            zhpe_reqz_phy_cpuvisible_off = (uint64_t)slink_base << 30;
+            debug(DEBUG_PCI, "phy_cpuvisible_off 0x%llx\n",
+                  zhpe_reqz_phy_cpuvisible_off);
         } else {
             if (genz_gcid == INVALID_GCID) {
                 dev_warn(&pdev->dev, "%s:%s,%u,%d:genz_gcid not set\n",
