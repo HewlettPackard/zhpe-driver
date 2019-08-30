@@ -10,8 +10,24 @@ zhpe-objs += zhpe_core.o zhpe_uuid.o zhpe_zmmu.o zhpe_memreg.o zhpe_pasid.o zhpe
 ccflags-y += -I$ $(src)/include -Wno-date-time -mpreferred-stack-boundary=4
 ccflags-y += $(RHEL)
 
-all:
+VERSION=zhpe_version.h
+
+all: version
 	$(MAKE) -C /lib/modules/$(KVERSION)/build M=$(PWD) modules
 
 clean:
 	$(MAKE) -C /lib/modules/$(KVERSION)/build M=$(PWD) clean
+	rm -f $(VERSION)*
+
+.PHONY: version
+
+version:
+	@V="0:0";							\
+	if S=$$(git status --porcelain 2>/dev/null); then		\
+	    V+=:$$(git describe --all --long | cut -d - -f 3);		\
+	    V+=:$$(git config --get remote.origin.url);			\
+	    [[ -z "$$S" ]] || V+=:dirty;				\
+	fi;								\
+	V+=$${V:+:}$${HOSTNAME%%.*}:$$(pwd);				\
+	echo "#define ZHPE_VERSION \"$$V\"" >$(VERSION).tmp;		\
+	cmp -s $(VERSION).tmp $(VERSION) || mv -f $(VERSION).tmp $(VERSION)

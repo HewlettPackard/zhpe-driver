@@ -36,6 +36,7 @@
 
 #include <zhpe.h>
 #include <zhpe_driver.h>
+#include "zhpe_version.h"
 
 #include <linux/fs.h>
 #include <linux/kernel.h>
@@ -111,6 +112,7 @@ static void zhpe_exit(void);
 module_init(zhpe_init);
 module_exit(zhpe_exit);
 
+MODULE_VERSION(ZHPE_VERSION);
 MODULE_LICENSE("GPL");
 
 #define INVALID_GCID    (~0U)

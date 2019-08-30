@@ -4,6 +4,7 @@
 *.obj
 
 # Kernel Module Compile Results
+*.o.ur-safe
 *.ko
 *.mod*
 *.cmd
@@ -16,3 +17,8 @@ Module.symvers
 .cache.mk
 *~
 __pycache__/
+
+# Generated
+zhpe_version.h
+
+
