@@ -159,5 +159,6 @@ struct zhpe_msg_state *zhpe_msg_send_UUID_TEARDOWN(struct bridge *br,
                                 uuid_t *src_uuid, uuid_t *tgt_uuid);
 int zhpe_msg_qalloc(struct bridge *br);
 int zhpe_msg_qfree(struct bridge *br);
+void zhpe_msg_worker(struct work_struct *work);
 
 #endif /* _ZHPE_MSG_H_ */

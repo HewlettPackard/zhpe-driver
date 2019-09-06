@@ -92,10 +92,9 @@ void zhpe_rkey_init(void)
 void zhpe_rkey_exit(void)
 {
     struct rb_node *rb, *next;
-    ulong flags;
 
     /* free all leftover rkey nodes */
-    spin_lock_irqsave(&rki.rk_lock, flags);
+    spin_lock(&rki.rk_lock);
     for (rb = rb_first_postorder(&rki.rbtree); rb; rb = next) {
         struct rkey_node *rkn = rb_entry(rb, struct rkey_node, rb);
 
@@ -107,7 +106,7 @@ void zhpe_rkey_exit(void)
 
     atomic_set(&rki.allocated, 0);
     rki.rbtree = RB_ROOT;
-    spin_unlock_irqrestore(&rki.rk_lock, flags);
+    spin_unlock(&rki.rk_lock);
 }
 
 static inline uint32_t compute_subtree_count(struct rkey_node *rkn)
@@ -133,12 +132,11 @@ static struct rkey_node *rkey_search(struct rkey_info *rki, uint32_t rkey)
     struct rb_node *rb;
     struct rb_root *root = &rki->rbtree;
     uint32_t rkey_base, bit_pos;
-    ulong flags;
 
     rkey &= RKEY_OS_MASK;
     rkey_base = rkey & RKEY_BASE_MASK;
     bit_pos = rkey & ~RKEY_BASE_MASK;
-    spin_lock_irqsave(&rki->rk_lock, flags);
+    spin_lock(&rki->rk_lock);
     rb = root->rb_node;
 
     while (rb) {
@@ -159,7 +157,7 @@ static struct rkey_node *rkey_search(struct rkey_info *rki, uint32_t rkey)
     rkn = NULL;  /* not found */
 
  out:
-    spin_unlock_irqrestore(&rki->rk_lock, flags);
+    spin_unlock(&rki->rk_lock);
     return rkn;
 }
 #endif
@@ -171,12 +169,11 @@ static int rkey_delete(struct rkey_info *rki, uint32_t rkey)
     struct rb_root *root = &rki->rbtree;
     uint32_t rkey_base, bit_pos;
     int ret = 0;
-    ulong flags;
 
     rkey &= RKEY_OS_MASK;
     rkey_base = rkey & RKEY_BASE_MASK;
     bit_pos = rkey & ~RKEY_BASE_MASK;
-    spin_lock_irqsave(&rki->rk_lock, flags);
+    spin_lock(&rki->rk_lock);
     rb = root->rb_node;
 
     while (rb) {
@@ -202,7 +199,7 @@ static int rkey_delete(struct rkey_info *rki, uint32_t rkey)
     ret = -ENOENT;  /* not found */
 
  out:
-    spin_unlock_irqrestore(&rki->rk_lock, flags);
+    spin_unlock(&rki->rk_lock);
     return ret;
 }
 
@@ -229,9 +226,8 @@ static struct rkey_node *insert_nth_free_rkey(struct rkey_info *rki,
     struct rb_root *root = &rki->rbtree;
     struct rb_node **new = &root->rb_node, *parent = NULL;
     struct rkey_node *ret = new_rkn;
-    ulong flags;
 
-    spin_lock_irqsave(&rki->rk_lock, flags);
+    spin_lock(&rki->rk_lock);
     while (*new) {
         struct rkey_node *this = rb_entry(*new, struct rkey_node, rb);
         uint32_t left_free, this_free = RKEY_BITMAP_SZ - rkn_count(this);
@@ -273,7 +269,7 @@ static struct rkey_node *insert_nth_free_rkey(struct rkey_info *rki,
     rb_insert_augmented(&new_rkn->rb, root, &augment_callbacks);
 
  unlock:
-    spin_unlock_irqrestore(&rki->rk_lock, flags);
+    spin_unlock(&rki->rk_lock);
     *rkeyp = rkey;
     return ret;  /* either the new node we added or the one we found */
 }
@@ -368,12 +364,11 @@ void zhpe_rkey_print_all(void)
 {
     struct rb_node *node;
     uint32_t nodes = 0;
-    ulong flags;
 #if RKEY_DEBUG_ALL
     char str[BITS_TO_LONGS(RKEY_BITMAP_SZ) * (1 + BITS_PER_LONG/4)];
 #endif
 
-    spin_lock_irqsave(&rki.rk_lock, flags);
+    spin_lock(&rki.rk_lock);
     for (node = rb_first(&rki.rbtree); node; node = rb_next(node)) {
 #if RKEY_DEBUG_ALL
         struct rkey_node *rkn = rb_entry(node, struct rkey_node, rb);
@@ -389,5 +384,5 @@ void zhpe_rkey_print_all(void)
 
     debug(DEBUG_RKEYS, "allocated=%d, nodes=%u\n",
           atomic_read(&rki.allocated), nodes);
-    spin_unlock_irqrestore(&rki.rk_lock, flags);
+    spin_unlock(&rki.rk_lock);
 }

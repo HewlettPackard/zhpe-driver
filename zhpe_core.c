@@ -117,7 +117,7 @@ MODULE_LICENSE("GPL");
 
 #define INVALID_GCID    (~0U)
 
-struct bridge    zhpe_bridge = { .gcid = INVALID_GCID };
+struct bridge    zhpe_bridge;
 struct sw_page_grid     sw_pg[PAGE_GRID_ENTRIES];
 
 static DECLARE_WAIT_QUEUE_HEAD(poll_wqh);
@@ -950,7 +950,6 @@ static int zhpe_user_req_INIT(struct io_entry *entry)
     struct uuid_tracker *uu;
     uint32_t            ro_rkey, rw_rkey;
     int                 status = 0;
-    ulong               flags;
     char                str[UUID_STRING_LEN+1];
 
     rsp->init.global_shared_offset = fdata->global_shared_zmap->offset;
@@ -985,9 +984,9 @@ static int zhpe_user_req_INIT(struct io_entry *entry)
     fdata->rw_rkey = rw_rkey;
     spin_unlock(&fdata->io_lock);
 
-    spin_lock_irqsave(&fdata->uuid_lock, flags);
+    spin_lock(&fdata->uuid_lock);
     fdata->local_uuid = uu;
-    spin_unlock_irqrestore(&fdata->uuid_lock, flags);
+    spin_unlock(&fdata->uuid_lock);
 
  out:
     debug(DEBUG_IO, "ret = %d uuid = %s, ro_rkey=0x%08x, rw_rkey=0x%08x\n",
@@ -1048,7 +1047,6 @@ static void zhpe_unbind_iommu(struct file_data *fdata)
 static int zhpe_release(struct inode *inode, struct file *file)
 {
     struct file_data    *fdata = file->private_data;
-    ulong               flags;
 
     spin_lock(&fdata->io_lock);
     fdata->state &= ~STATE_INIT;
@@ -1062,9 +1060,9 @@ static int zhpe_release(struct inode *inode, struct file *file)
     zhpe_notify_remote_uuids(fdata);
     zhpe_mmun_exit(fdata);
     zhpe_free_remote_uuids(fdata);
-    spin_lock_irqsave(&fdata->uuid_lock, flags);
+    spin_lock(&fdata->uuid_lock);
     (void)zhpe_free_local_uuid(fdata, true); /* also frees associated R-keys */
-    spin_unlock_irqrestore(&fdata->uuid_lock, flags);
+    spin_unlock(&fdata->uuid_lock);
     zhpe_unbind_iommu(fdata);
     zhpe_pasid_free(fdata->pasid);
     spin_lock(&fdata->bridge->fdata_lock);
@@ -2006,6 +2004,8 @@ static int __init zhpe_init(void)
     mutex_init(&zhpe_bridge.csr_mutex);
     spin_lock_init(&zhpe_bridge.fdata_lock);
     INIT_LIST_HEAD(&zhpe_bridge.fdata_list);
+    zhpe_bridge.gcid = INVALID_GCID;
+    INIT_WORK(&zhpe_bridge.msg_work, zhpe_msg_worker);
 
     debug(DEBUG_ZMMU, "calling zhpe_zmmu_clear_all\n");
     zhpe_zmmu_clear_all(&zhpe_bridge, false);

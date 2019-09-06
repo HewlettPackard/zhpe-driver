@@ -54,9 +54,8 @@ struct uuid_tracker *zhpe_uuid_search(uuid_t *uuid)
     struct rb_node      *node;
     struct rb_root      *root = &uuid_rbtree;
     char                uustr[UUID_STRING_LEN+1];
-    ulong               flags;
 
-    spin_lock_irqsave(&zhpe_uuid_rbtree_lock, flags);
+    spin_lock(&zhpe_uuid_rbtree_lock);
     node = root->rb_node;
 
     while (node) {
@@ -80,7 +79,7 @@ struct uuid_tracker *zhpe_uuid_search(uuid_t *uuid)
     uu = NULL;
 
  out:
-    spin_unlock_irqrestore(&zhpe_uuid_rbtree_lock, flags);
+    spin_unlock(&zhpe_uuid_rbtree_lock);
     return uu;
 }
 
@@ -89,9 +88,8 @@ static struct uuid_tracker *uuid_insert(struct uuid_tracker *uu)
     struct rb_root *root = &uuid_rbtree;
     struct rb_node **new = &root->rb_node, *parent = NULL;
     char           uustr[UUID_STRING_LEN+1];
-    ulong          flags;
 
-    spin_lock_irqsave(&zhpe_uuid_rbtree_lock, flags);
+    spin_lock(&zhpe_uuid_rbtree_lock);
 
     /* figure out where to put new node */
     while (*new) {
@@ -119,7 +117,7 @@ static struct uuid_tracker *uuid_insert(struct uuid_tracker *uu)
     rb_insert_color(&uu->node, root);
 
  out:
-    spin_unlock_irqrestore(&zhpe_uuid_rbtree_lock, flags);
+    spin_unlock(&zhpe_uuid_rbtree_lock);
     return uu;
 }
 
@@ -332,12 +330,11 @@ struct uuid_node *zhpe_remote_uuid_get(struct file_data *fdata,
 {
     struct uuid_node        *unode;
     struct uuid_tracker     *uu;
-    ulong                   flags;
     char                    uustr[UUID_STRING_LEN+1];
 
     debug(DEBUG_UUID, "uuid = %s\n",
           zhpe_uuid_str(uuid, uustr, sizeof(uustr)));
-    spin_lock_irqsave(&fdata->uuid_lock, flags);
+    spin_lock(&fdata->uuid_lock);
     unode = uuid_node_search(&fdata->fd_remote_uuid_tree, uuid, false);
     if (unode) {
         uu = unode->tracker;
@@ -346,7 +343,7 @@ struct uuid_node *zhpe_remote_uuid_get(struct file_data *fdata,
               zhpe_uuid_str(&uu->uuid, uustr, sizeof(uustr)),
               kref_read(&uu->refcount));
     }
-    spin_unlock_irqrestore(&fdata->uuid_lock, flags);
+    spin_unlock(&fdata->uuid_lock);
     debug(DEBUG_UUID, "unode = %px\n", unode);
 
     return unode;
@@ -357,9 +354,8 @@ struct uuid_node *zhpe_remote_uuid_insert(spinlock_t *lock,
                                           struct uuid_node *node)
 {
     struct rb_node **new = &root->rb_node, *parent = NULL;
-    ulong flags;
 
-    spin_lock_irqsave(lock, flags);
+    spin_lock(lock);
 
     /* figure out where to put new node */
     while (*new) {
@@ -383,7 +379,7 @@ struct uuid_node *zhpe_remote_uuid_insert(spinlock_t *lock,
     rb_insert_color(&node->node, root);
 
  out:
-    spin_unlock_irqrestore(lock, flags);
+    spin_unlock(lock);
     return node;
 }
 
@@ -425,11 +421,10 @@ int zhpe_free_uuid_node(struct file_data *fdata, spinlock_t *lock,
                         uuid_t *uuid, bool teardown)
 {
     int ret;
-    ulong flags;
 
-    spin_lock_irqsave(lock, flags);
+    spin_lock(lock);
     ret = _free_uuid_node(fdata, root, uuid, teardown);
-    spin_unlock_irqrestore(lock, flags);
+    spin_unlock(lock);
 
     return ret;
 }
@@ -441,13 +436,12 @@ void zhpe_free_remote_uuids(struct file_data *fdata)
     struct uuid_node        *node;
     struct uuid_tracker     *uu;
     char                    str[UUID_STRING_LEN+1];
-    ulong                   flags;
 
-    spin_lock_irqsave(&fdata->uuid_lock, flags);
+    spin_lock(&fdata->uuid_lock);
  restart:
     fd_remote_uuid_tree = fdata->fd_remote_uuid_tree;
     fdata->fd_remote_uuid_tree = RB_ROOT;
-    spin_unlock_irqrestore(&fdata->uuid_lock, flags);
+    spin_unlock(&fdata->uuid_lock);
 
     /* must not hold fdata->uuid_lock to avoid lock order inversion with
        uu->remote->local_uuid_lock */
@@ -464,10 +458,10 @@ void zhpe_free_remote_uuids(struct file_data *fdata)
         zhpe_uuid_remove(uu); /* remove remote_uuid reference */
     }
 
-    spin_lock_irqsave(&fdata->uuid_lock, flags);
+    spin_lock(&fdata->uuid_lock);
     if (!RB_EMPTY_ROOT(&fdata->fd_remote_uuid_tree))
         goto restart;
-    spin_unlock_irqrestore(&fdata->uuid_lock, flags);
+    spin_unlock(&fdata->uuid_lock);
 }
 
 void zhpe_notify_remote_uuids(struct file_data *fdata)
@@ -574,7 +568,6 @@ int zhpe_teardown_remote_uuid(uuid_t *src_uuid)
     struct rb_node         *rb, *next;
     struct uuid_node       *node;
     struct file_data       *fdata;
-    ulong                  flags;
     char                   uustr[UUID_STRING_LEN+1];
 
     suu = zhpe_uuid_search(src_uuid);
@@ -595,7 +588,7 @@ int zhpe_teardown_remote_uuid(uuid_t *src_uuid)
         goto local;
     }
     WRITE_ONCE(suu->remote->torndown, true);
-    spin_lock_irqsave(&suu->remote->local_uuid_lock, flags);
+    spin_lock(&suu->remote->local_uuid_lock);
     for (rb = rb_first_postorder(&suu->remote->local_uuid_tree);
          rb; rb = next) {
         node = container_of(rb, struct uuid_node, node);
@@ -614,14 +607,14 @@ int zhpe_teardown_remote_uuid(uuid_t *src_uuid)
         zhpe_uuid_remove(tuu); /* remove local_uuid reference */
     }
     suu->remote->local_uuid_tree = RB_ROOT;
-    spin_unlock_irqrestore(&suu->remote->local_uuid_lock, flags);
+    spin_unlock(&suu->remote->local_uuid_lock);
 
  local:
     /* special case for alias loopback UUIDs */
     if (suu->local) {
-        spin_lock_irqsave(&suu->local->fdata->uuid_lock, flags);
+        spin_lock(&suu->local->fdata->uuid_lock);
         teardown_local_uuid(suu);
-        spin_unlock_irqrestore(&suu->local->fdata->uuid_lock, flags);
+        spin_unlock(&suu->local->fdata->uuid_lock);
     }
 
     zhpe_uuid_remove(suu);  /* release extra reference */
@@ -639,10 +632,9 @@ void zhpe_uuid_exit(void)
 {
     struct rb_node          *rb;
     struct uuid_tracker     *uu;
-    ulong                   flags;
     char                    str[UUID_STRING_LEN+1];
 
-    spin_lock_irqsave(&zhpe_uuid_rbtree_lock, flags);
+    spin_lock(&zhpe_uuid_rbtree_lock);
 
     if (!uuid_tree_empty()) {
         debug(DEBUG_UUID, "uuid_tree not empty\n");
@@ -654,7 +646,7 @@ void zhpe_uuid_exit(void)
         }
     }
 
-    spin_unlock_irqrestore(&zhpe_uuid_rbtree_lock, flags);
+    spin_unlock(&zhpe_uuid_rbtree_lock);
 }
 
 int zhpe_user_req_UUID_IMPORT(struct io_entry *entry)
@@ -741,7 +733,6 @@ int zhpe_user_req_UUID_FREE(struct io_entry *entry)
     struct zhpe_msg_state   *state;
     uuid_t                  *uuid = &req->uuid_free.uuid;
     bool                    local = false;
-    ulong                   flags;
     char                    str[UUID_STRING_LEN+1];
     uint32_t                uu_flags = 0;
 
@@ -754,7 +745,7 @@ int zhpe_user_req_UUID_FREE(struct io_entry *entry)
 
     /* we now hold an extra reference to uu - release it */
     zhpe_uuid_remove(uu);
-    spin_lock_irqsave(&fdata->uuid_lock, flags);
+    spin_lock(&fdata->uuid_lock);
     local = (uu == fdata->local_uuid);
     if (local) {
         status = zhpe_free_local_uuid(fdata, false);
@@ -762,7 +753,7 @@ int zhpe_user_req_UUID_FREE(struct io_entry *entry)
         status = _free_uuid_node(fdata, &fdata->fd_remote_uuid_tree,
                                  uuid, false);
     }
-    spin_unlock_irqrestore(&fdata->uuid_lock, flags);
+    spin_unlock(&fdata->uuid_lock);
     if (status < 0)
         goto out;
 
@@ -771,10 +762,10 @@ int zhpe_user_req_UUID_FREE(struct io_entry *entry)
         fdata->state &= ~STATE_INIT;
         spin_unlock(&fdata->io_lock);
     } else {
-        spin_lock_irqsave(&uu->remote->local_uuid_lock, flags);
+        spin_lock(&uu->remote->local_uuid_lock);
         status = _free_uuid_node(fdata, &uu->remote->local_uuid_tree,
                                  &fdata->local_uuid->uuid, false);
-        spin_unlock_irqrestore(&uu->remote->local_uuid_lock, flags);
+        spin_unlock(&uu->remote->local_uuid_lock);
         debug(DEBUG_UUID, "_free_uuid_node status=%d\n", status);
         /* send msg to release UUID on remote node - this can sleep a while */
         uu_flags = uu->remote->uu_flags;

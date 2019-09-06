@@ -71,9 +71,8 @@ static struct zhpe_msg_state *msg_state_search(uint16_t msgid)
     struct zhpe_msg_state *state;
     struct rb_node *node;
     struct rb_root *root = &msg_rbtree;
-    ulong flags;
 
-    spin_lock_irqsave(&zhpe_msg_rbtree_lock, flags);
+    spin_lock(&zhpe_msg_rbtree_lock);
     node = root->rb_node;
 
     while (node) {
@@ -93,7 +92,7 @@ static struct zhpe_msg_state *msg_state_search(uint16_t msgid)
     state = NULL;
 
  out:
-    spin_unlock_irqrestore(&zhpe_msg_rbtree_lock, flags);
+    spin_unlock(&zhpe_msg_rbtree_lock);
     return state;
 }
 
@@ -101,9 +100,8 @@ static struct zhpe_msg_state *msg_state_insert(struct zhpe_msg_state *ms)
 {
     struct rb_root *root = &msg_rbtree;
     struct rb_node **new = &root->rb_node, *parent = NULL;
-    ulong flags;
 
-    spin_lock_irqsave(&zhpe_msg_rbtree_lock, flags);
+    spin_lock(&zhpe_msg_rbtree_lock);
 
     /* figure out where to put new node */
     while (*new) {
@@ -127,18 +125,17 @@ static struct zhpe_msg_state *msg_state_insert(struct zhpe_msg_state *ms)
     rb_insert_color(&ms->node, root);
 
  out:
-    spin_unlock_irqrestore(&zhpe_msg_rbtree_lock, flags);
+    spin_unlock(&zhpe_msg_rbtree_lock);
     return ms;
 }
 
 static void msg_state_free(struct zhpe_msg_state *ms)
 {
     struct rb_root *root = &msg_rbtree;
-    ulong flags;
 
-    spin_lock_irqsave(&zhpe_msg_rbtree_lock, flags);
+    spin_lock(&zhpe_msg_rbtree_lock);
     rb_erase(&ms->node, root);
-    spin_unlock_irqrestore(&zhpe_msg_rbtree_lock, flags);
+    spin_unlock(&zhpe_msg_rbtree_lock);
     do_kfree(ms);
 }
 
@@ -189,11 +186,10 @@ static int _msg_xdm_get_cmpl(struct xdm_info *xdmi, struct zhpe_cq_entry *entry)
 int msg_xdm_get_cmpl(struct xdm_info *xdmi, struct zhpe_cq_entry *entry)
 {
     int ret;
-    ulong flags;
 
-    spin_lock_irqsave(&xdmi->xdm_info_lock, flags);
+    spin_lock(&xdmi->xdm_info_lock);
     ret = _msg_xdm_get_cmpl(xdmi, entry);
-    spin_unlock_irqrestore(&xdmi->xdm_info_lock, flags);
+    spin_unlock(&xdmi->xdm_info_lock);
     return ret;
 }
 
@@ -206,9 +202,8 @@ static int msg_xdm_queue_cmd(struct xdm_info *xdmi,
     struct zhpe_cq_entry cq_entry;
     void *cpu_addr;
     bool more = 0;
-    ulong flags;
 
-    spin_lock_irqsave(&xdmi->xdm_info_lock, flags);
+    spin_lock(&xdmi->xdm_info_lock);
     /* Revisit: add support for cmd buffers */
     tail = xdmi->cmdq_tail_shadow;
     /* do mod-add to compute next tail value */
@@ -250,7 +245,7 @@ static int msg_xdm_queue_cmd(struct xdm_info *xdmi,
     ret = tail;
 
  out:
-    spin_unlock_irqrestore(&xdmi->xdm_info_lock, flags);
+    spin_unlock(&xdmi->xdm_info_lock);
     return ret;
 }
 
@@ -261,9 +256,8 @@ static int msg_rdm_get_cmpl(struct rdm_info *rdmi, struct zhpe_rdm_hdr *hdr,
     uint head, next_head;
     struct zhpe_rdm_entry *rdm_entry, *next_entry;
     void *cpu_addr;
-    ulong flags;
 
-    spin_lock_irqsave(&rdmi->rdm_info_lock, flags);
+    spin_lock(&rdmi->rdm_info_lock);
     head = rdmi->cmplq_head_shadow;
     cpu_addr = rdmi->cmplq_zpage->dma.cpu_addr;
     rdm_entry = &(((struct zhpe_rdm_entry *)cpu_addr)[head]);
@@ -290,7 +284,7 @@ static int msg_rdm_get_cmpl(struct rdm_info *rdmi, struct zhpe_rdm_hdr *hdr,
     ret = (next_entry->hdr.valid == rdmi->cur_valid);
 
  out:
-    spin_unlock_irqrestore(&rdmi->rdm_info_lock, flags);
+    spin_unlock(&rdmi->rdm_info_lock);
     return ret;
 }
 
@@ -718,6 +712,15 @@ static int msg_req_ERROR(struct rdm_info *rdmi, struct xdm_info *xdmi,
 static irqreturn_t msg_rdm_interrupt_handler(int irq_index, void *data)
 {
     struct bridge *br = (struct bridge *)data;
+
+    schedule_work(&br->msg_work);
+
+    return IRQ_RETVAL(true);
+}
+
+void zhpe_msg_worker(struct work_struct *work)
+{
+    struct bridge *br = container_of(work, struct bridge, msg_work);
     struct xdm_info *xdmi = &br->msg_xdm;
     struct rdm_info *rdmi = &br->msg_rdm;
     int ret;
@@ -825,7 +828,7 @@ static irqreturn_t msg_rdm_interrupt_handler(int irq_index, void *data)
     } while (rdmi->cmplq_head_shadow != tail);
 
  out:
-    return IRQ_RETVAL(handled);
+    return;
 }
 
 int zhpe_msg_send_UUID_IMPORT(struct bridge *br,

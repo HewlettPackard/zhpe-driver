@@ -123,9 +123,8 @@ static struct zhpe_umem *umem_insert(struct zhpe_umem *umem)
     struct file_data *fdata = umem->fdata;
     struct rb_root *root = &fdata->mr_tree;
     struct rb_node **new = &root->rb_node, *parent = NULL;
-    ulong flags;
 
-    spin_lock_irqsave(&fdata->mr_lock, flags);
+    spin_lock(&fdata->mr_lock);
 
     /* figure out where to put new node */
     while (*new) {
@@ -151,7 +150,7 @@ static struct zhpe_umem *umem_insert(struct zhpe_umem *umem)
     rb_insert_color(&umem->node, root);
 
  out:
-    spin_unlock_irqrestore(&fdata->mr_lock, flags);
+    spin_unlock(&fdata->mr_lock);
     return umem;
 }
 
@@ -503,7 +502,6 @@ void zhpe_umem_free_all(struct file_data *fdata)
     struct zhpe_umem *umem, *next;
     struct zhpe_pte_info *info;
     struct rb_root root;
-    ulong flags;
 
     /*
      * This will be called once during teardown There should be no other threads
@@ -519,10 +517,10 @@ void zhpe_umem_free_all(struct file_data *fdata)
      * We do want to grab the mr_lock while copying the root, to make sure
      * all the proper barriers have been used before we access the tree.
      */
-    spin_lock_irqsave(&fdata->mr_lock, flags);
+    spin_lock(&fdata->mr_lock);
     root = fdata->mr_tree;
     fdata->mr_tree = RB_ROOT;
-    spin_unlock_irqrestore(&fdata->mr_lock, flags);
+    spin_unlock(&fdata->mr_lock);
 
     /* First pass to free all the ZMMU entries. */
     rbtree_postorder_for_each_entry_safe(umem, next, &root, node) {
@@ -625,9 +623,8 @@ static struct zhpe_rmr *rmr_insert(struct zhpe_rmr *rmr)
     struct file_data *fdata = rmr->fdata;
     struct rb_root *root = &fdata->fd_rmr_tree;
     struct rb_node **new = &root->rb_node, *parent = NULL;
-    ulong flags;
 
-    spin_lock_irqsave(&fdata->mr_lock, flags);
+    spin_lock(&fdata->mr_lock);
 
     /* figure out where to put new node in fdata->fd_rmr_tree */
     while (*new) {
@@ -679,7 +676,7 @@ static struct zhpe_rmr *rmr_insert(struct zhpe_rmr *rmr)
     rb_insert_color(&rmr->un_node, root);
 
  unlock:
-    spin_unlock_irqrestore(&fdata->mr_lock, flags);
+    spin_unlock(&fdata->mr_lock);
     return rmr;
 }
 
@@ -701,13 +698,12 @@ static void rmr_free(struct kref *ref)
 static inline void rmr_remove(struct zhpe_rmr *rmr, bool lock)
 {
     struct file_data *fdata = rmr->fdata;
-    ulong flags;
 
     if (lock)
-        spin_lock_irqsave(&fdata->mr_lock, flags);
+        spin_lock(&fdata->mr_lock);
     kref_put(&rmr->refcount, rmr_free);
     if (lock)
-        spin_unlock_irqrestore(&fdata->mr_lock, flags);
+        spin_unlock(&fdata->mr_lock);
 }
 
 void zhpe_rmr_remove_unode(struct file_data *fdata, struct uuid_node *unode)
@@ -716,10 +712,9 @@ void zhpe_rmr_remove_unode(struct file_data *fdata, struct uuid_node *unode)
     struct rb_node *rb, *next;
     struct zhpe_rmr *rmr;
     struct zhpe_pte_info *info;
-    ulong flags;
     char str[GCID_STRING_LEN+1];
 
-    spin_lock_irqsave(&fdata->mr_lock, flags);
+    spin_lock(&fdata->mr_lock);
 
     for (rb = rb_first_postorder(root); rb; rb = next) {
         rmr = container_of(rb, struct zhpe_rmr, un_node);
@@ -735,7 +730,7 @@ void zhpe_rmr_remove_unode(struct file_data *fdata, struct uuid_node *unode)
         rmr_free(&rmr->refcount);
     }
 
-    spin_unlock_irqrestore(&fdata->mr_lock, flags);
+    spin_unlock(&fdata->mr_lock);
 }
 
 void zhpe_rmr_free_all(struct file_data *fdata)
@@ -744,9 +739,8 @@ void zhpe_rmr_free_all(struct file_data *fdata)
     struct zhpe_rmr *rmr;
     struct zhpe_pte_info *info;
     char str[GCID_STRING_LEN+1];
-    ulong flags;
 
-    spin_lock_irqsave(&fdata->mr_lock, flags);
+    spin_lock(&fdata->mr_lock);
 
     for (rb = rb_first_postorder(&fdata->fd_rmr_tree); rb; rb = next) {
         rmr = container_of(rb, struct zhpe_rmr, fd_node);
@@ -764,7 +758,7 @@ void zhpe_rmr_free_all(struct file_data *fdata)
 
     fdata->fd_rmr_tree = RB_ROOT;
 
-    spin_unlock_irqrestore(&fdata->mr_lock, flags);
+    spin_unlock(&fdata->mr_lock);
 }
 
 static struct zmap *rmr_zmap_alloc(struct file_data *fdata,
@@ -806,7 +800,6 @@ int zhpe_user_req_MR_REG(struct io_entry *entry)
     struct zhpe_umem        *umem = NULL, *found;
     bool                    zmmu_valid = false;
     bool                    zmmu_only;
-    ulong                   flags;
 
     CHECK_INIT_STATE(entry, status, out);
     vaddr = req->mr_reg.vaddr;
@@ -852,23 +845,23 @@ int zhpe_user_req_MR_REG(struct io_entry *entry)
             if (status >= 0) {
                 zmmu_valid = true;
                 if (zmmu_only) {
-                    spin_lock_irqsave(&fdata->mr_lock, flags);
+                    spin_lock(&fdata->mr_lock);
                     if (fdata->big_rsp_umem)
                         status = -EEXIST;
                     else
                         fdata->big_rsp_umem = umem;
-                    spin_unlock_irqrestore(&fdata->mr_lock, flags);
+                    spin_unlock(&fdata->mr_lock);
                 }
             }
         } else {
             /* Compute rsp_zaddr as offset into big_rsp_umem */
-            spin_lock_irqsave(&fdata->mr_lock, flags);
+            spin_lock(&fdata->mr_lock);
             rsp_zaddr = umem_rsp_zaddr(umem);
             if (rsp_zaddr != BASE_ADDR_ERROR)
                 status = 0;
             else
                 status = -ENOENT;
-            spin_unlock_irqrestore(&fdata->mr_lock, flags);
+            spin_unlock(&fdata->mr_lock);
         }
         if (status < 0)
             goto out;
@@ -910,7 +903,6 @@ int zhpe_user_req_MR_FREE(struct io_entry *entry)
     int                     status = 0;
     struct zhpe_umem        *umem;
     uint64_t                vaddr, len, access, rsp_zaddr;
-    ulong                   flags;
 
     vaddr = req->mr_free.vaddr;
     len = req->mr_free.len;
@@ -918,7 +910,7 @@ int zhpe_user_req_MR_FREE(struct io_entry *entry)
     rsp_zaddr = req->mr_free.rsp_zaddr;
     CHECK_INIT_STATE(entry, status, out);
 
-    spin_lock_irqsave(&fdata->mr_lock, flags);
+    spin_lock(&fdata->mr_lock);
     if (access & ZHPE_MR_ZMMU_ONLY) {
         umem = fdata->big_rsp_umem;
         if (umem) {
@@ -932,7 +924,7 @@ int zhpe_user_req_MR_FREE(struct io_entry *entry)
         umem = umem_search(fdata, vaddr, len, access, rsp_zaddr);
     if (umem)
         rb_erase(&umem->node, &fdata->mr_tree);
-    spin_unlock_irqrestore(&fdata->mr_lock, flags);
+    spin_unlock(&fdata->mr_lock);
     if (!umem) {
         status = -ENOENT;
         goto out;
@@ -1082,7 +1074,6 @@ int zhpe_user_req_RMR_FREE(struct io_entry *entry)
     struct zhpe_rmr         *rmr;
     uint64_t                len, access, rsp_zaddr, req_addr;
     uint32_t                dgcid;
-    ulong                   flags;
     char                    str[UUID_STRING_LEN+1];
 
     rsp_zaddr = req->rmr_free.rsp_zaddr;
@@ -1092,7 +1083,7 @@ int zhpe_user_req_RMR_FREE(struct io_entry *entry)
     dgcid = zhpe_gcid_from_uuid(uuid);
     CHECK_INIT_STATE(entry, status, out);
 
-    spin_lock_irqsave(&entry->fdata->mr_lock, flags);
+    spin_lock(&entry->fdata->mr_lock);
     rmr = rmr_search(entry->fdata, dgcid, rsp_zaddr, len, access, req_addr);
     if (!rmr) {
         status = -ENOENT;
@@ -1101,7 +1092,7 @@ int zhpe_user_req_RMR_FREE(struct io_entry *entry)
     rmr_remove(rmr, false);
 
  unlock:
-    spin_unlock_irqrestore(&entry->fdata->mr_lock, flags);
+    spin_unlock(&entry->fdata->mr_lock);
  out:
     debug(DEBUG_MEMREG, "ret = %d, uuid = %s, rsp_zaddr = 0x%016llx, "
           "len = 0x%llx, access = 0x%llx\n", status,

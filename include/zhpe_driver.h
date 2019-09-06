@@ -411,6 +411,7 @@ struct bridge {
     struct mutex          csr_mutex;   /* protect CSR mailbox */
     spinlock_t            fdata_lock;  /* protects fdata_list */
     struct list_head      fdata_list;
+    struct work_struct    msg_work;
     wait_queue_head_t     zhpe_poll_wq[MAX_IRQ_VECTORS];
 };
 

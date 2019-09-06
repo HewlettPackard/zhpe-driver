@@ -101,7 +101,6 @@ static void zmmu_rsp_clear_all(struct rsp_zmmu *rspz, bool sync)
 
 void zhpe_zmmu_clear_slice(struct slice *sl)
 {
-    ulong flags;
 
     debug(DEBUG_ZMMU, "sl=%px, slice_valid=%u\n", sl, SLICE_VALID(sl));
     if (!SLICE_VALID(sl))
@@ -109,10 +108,10 @@ void zhpe_zmmu_clear_slice(struct slice *sl)
 
     if (!zhpe_no_avx)
         kernel_fpu_begin();
-    spin_lock_irqsave(&sl->zmmu_lock, flags);
+    spin_lock(&sl->zmmu_lock);
     zmmu_req_clear_all(&sl->bar->req_zmmu, SYNC);
     zmmu_rsp_clear_all(&sl->bar->rsp_zmmu, SYNC);
-    spin_unlock_irqrestore(&sl->zmmu_lock, flags);
+    spin_unlock(&sl->zmmu_lock);
     if (!zhpe_no_avx)
         kernel_fpu_end();
 }
@@ -141,15 +140,14 @@ static void zmmu_clear_pg_info(struct page_grid_info *pgi, uint entries,
 
 void zhpe_zmmu_clear_all(struct bridge *br, bool free_radix_tree)
 {
-    ulong flags;
 
     debug(DEBUG_ZMMU, "br=%px, free_radix_tree=%u\n", br, free_radix_tree);
-    spin_lock_irqsave(&br->zmmu_lock, flags);
+    spin_lock(&br->zmmu_lock);
     zmmu_clear_pg_info(&br->req_zmmu_pg, zhpe_req_zmmu_entries,
                        free_radix_tree);
     zmmu_clear_pg_info(&br->rsp_zmmu_pg, zhpe_rsp_zmmu_entries,
                        free_radix_tree);
-    spin_unlock_irqrestore(&br->zmmu_lock, flags);
+    spin_unlock(&br->zmmu_lock);
 }
 
 static void zmmu_page_grid_setup_all(struct page_grid_info *pgi,
@@ -178,7 +176,6 @@ static void zmmu_page_grid_setup_all(struct page_grid_info *pgi,
 void zhpe_zmmu_setup_slice(struct slice *sl)
 {
     struct bridge *br = BRIDGE_FROM_SLICE(sl);
-    ulong flags;
 
     debug(DEBUG_ZMMU, "sl=%px, br=%px, slice_valid=%u\n",
           sl, br, SLICE_VALID(sl));
@@ -187,13 +184,13 @@ void zhpe_zmmu_setup_slice(struct slice *sl)
 
     if (!zhpe_no_avx)
         kernel_fpu_begin();
-    spin_lock_irqsave(&sl->zmmu_lock, flags);
+    spin_lock(&sl->zmmu_lock);
     zmmu_page_grid_setup_all(&br->req_zmmu_pg, sl->bar->req_zmmu.page_grid,
                              SYNC, "req");
     zmmu_page_grid_setup_all(&br->rsp_zmmu_pg, sl->bar->rsp_zmmu.page_grid,
                              SYNC, "rsp");
     /* Revisit: setup req/rsp PTEs too */
-    spin_unlock_irqrestore(&sl->zmmu_lock, flags);
+    spin_unlock(&sl->zmmu_lock);
     if (!zhpe_no_avx)
         kernel_fpu_end();
 }
@@ -520,7 +517,6 @@ static void _zmmu_req_page_grid_write_slice(struct slice *sl,
 {
     struct req_zmmu *reqz;
     struct page_grid tmp;
-    ulong flags;
 
     /* don't call this function, as it only does
      * one slice - use zmmu_req_page_grid_alloc() instead
@@ -531,7 +527,7 @@ static void _zmmu_req_page_grid_write_slice(struct slice *sl,
     if (!SLICE_VALID(sl))
         return;
 
-    spin_lock_irqsave(&sl->zmmu_lock, flags);
+    spin_lock(&sl->zmmu_lock);
     reqz = &sl->bar->req_zmmu;
 
     /* write HW page grid */
@@ -539,7 +535,7 @@ static void _zmmu_req_page_grid_write_slice(struct slice *sl,
     if (sync)  /* ensure visibility */
         ioread16by(&tmp, &reqz->page_grid[pg_index]);
 
-    spin_unlock_irqrestore(&sl->zmmu_lock, flags);
+    spin_unlock(&sl->zmmu_lock);
 }
 
 int zhpe_zmmu_req_page_grid_alloc(struct bridge *br,
@@ -548,14 +544,13 @@ int zhpe_zmmu_req_page_grid_alloc(struct bridge *br,
     int pg_index, sl, pte_index, err;
     uint64_t base_addr;
     unsigned long key;
-    ulong flags;
 
     /* allocates memory and may sleep */
     err = radix_tree_preload(GFP_KERNEL);
     if (err < 0)
         goto out;
 
-    spin_lock_irqsave(&br->zmmu_lock, flags);
+    spin_lock(&br->zmmu_lock);
     /* find & allocate a free page grid */
     pg_index = bitmap_find_free_region(br->req_zmmu_pg.pg_bitmap,
                                        PAGE_GRID_ENTRIES, 0);
@@ -589,7 +584,7 @@ int zhpe_zmmu_req_page_grid_alloc(struct bridge *br,
                             key, &br->req_zmmu_pg.pg[pg_index]);
     if (err < 0)
         goto free_addr;
-    spin_unlock_irqrestore(&br->zmmu_lock, flags);
+    spin_unlock(&br->zmmu_lock);
     radix_tree_preload_end();
 
     /* write all requester ZMMU slices */
@@ -625,7 +620,7 @@ int zhpe_zmmu_req_page_grid_alloc(struct bridge *br,
     bitmap_clear(br->req_zmmu_pg.pg_bitmap, pg_index, 1);
 
  unlock:
-    spin_unlock_irqrestore(&br->zmmu_lock, flags);
+    spin_unlock(&br->zmmu_lock);
     radix_tree_preload_end();
 
  out:
@@ -638,7 +633,6 @@ static void _zmmu_rsp_page_grid_write_slice(struct slice *sl,
 {
     struct rsp_zmmu *rspz;
     struct page_grid tmp;
-    ulong flags;
 
     /* don't call this function, as it only does
      * one slice - use zmmu_rsp_page_grid_alloc() instead
@@ -649,7 +643,7 @@ static void _zmmu_rsp_page_grid_write_slice(struct slice *sl,
     if (!SLICE_VALID(sl))
         return;
 
-    spin_lock_irqsave(&sl->zmmu_lock, flags);
+    spin_lock(&sl->zmmu_lock);
     rspz = &sl->bar->rsp_zmmu;
 
     /* write HW page grid */
@@ -657,7 +651,7 @@ static void _zmmu_rsp_page_grid_write_slice(struct slice *sl,
     if (sync)  /* ensure visibility */
         ioread16by(&tmp, &rspz->page_grid[pg_index]);
 
-    spin_unlock_irqrestore(&sl->zmmu_lock, flags);
+    spin_unlock(&sl->zmmu_lock);
 }
 
 int zhpe_zmmu_rsp_page_grid_alloc(struct bridge *br,
@@ -665,14 +659,13 @@ int zhpe_zmmu_rsp_page_grid_alloc(struct bridge *br,
 {
     int pg_index, sl, pte_index, err;
     uint64_t base_addr;
-    ulong flags;
 
     /* allocates memory and may sleep */
     err = radix_tree_preload(GFP_KERNEL);
     if (err < 0)
         goto out;
 
-    spin_lock_irqsave(&br->zmmu_lock, flags);
+    spin_lock(&br->zmmu_lock);
     /* find & allocate a free page grid */
     pg_index = bitmap_find_free_region(br->rsp_zmmu_pg.pg_bitmap,
                                        PAGE_GRID_ENTRIES, 0);
@@ -705,7 +698,7 @@ int zhpe_zmmu_rsp_page_grid_alloc(struct bridge *br,
                             &br->rsp_zmmu_pg.pg[pg_index]);
     if (err < 0)
         goto clear;
-    spin_unlock_irqrestore(&br->zmmu_lock, flags);
+    spin_unlock(&br->zmmu_lock);
     radix_tree_preload_end();
 
     /* write all responder ZMMU slices */
@@ -734,7 +727,7 @@ int zhpe_zmmu_rsp_page_grid_alloc(struct bridge *br,
     bitmap_clear(br->rsp_zmmu_pg.pg_bitmap, pg_index, 1);
 
  unlock:
-    spin_unlock_irqrestore(&br->zmmu_lock, flags);
+    spin_unlock(&br->zmmu_lock);
     radix_tree_preload_end();
 
  out:
@@ -871,7 +864,6 @@ static void _zmmu_req_pte_write_slice(struct slice *sl,
                                       bool sync)
 {
     struct req_zmmu *reqz;
-    ulong flags;
 
     /* don't call this function, as it only does
      * one slice - use zhpe_zmmu_req_pte_alloc() or
@@ -883,13 +875,13 @@ static void _zmmu_req_pte_write_slice(struct slice *sl,
     if (!SLICE_VALID(sl))
         return;
 
-    spin_lock_irqsave(&sl->zmmu_lock, flags);
+    spin_lock(&sl->zmmu_lock);
     reqz = &sl->bar->req_zmmu;
 
     /* write HW PTEs */
     zmmu_req_pte_write(rmr, reqz, valid, sync);
 
-    spin_unlock_irqrestore(&sl->zmmu_lock, flags);
+    spin_unlock(&sl->zmmu_lock);
 }
 
 int zhpe_zmmu_req_pte_alloc(struct zhpe_rmr *rmr, uint64_t *req_addr,
@@ -902,10 +894,9 @@ int zhpe_zmmu_req_pte_alloc(struct zhpe_rmr *rmr, uint64_t *req_addr,
     struct rb_node        *rb;
     uint                  sl;
     int                   ret;
-    ulong                 flags;
     struct zhpe_pte_info *this;
 
-    spin_lock_irqsave(&br->zmmu_lock, flags);
+    spin_lock(&br->zmmu_lock);
     sw_pg = zmmu_pg_page_size(info, pgi);
     if (IS_ERR(sw_pg)) {
         ret = PTR_ERR(sw_pg);
@@ -934,7 +925,7 @@ int zhpe_zmmu_req_pte_alloc(struct zhpe_rmr *rmr, uint64_t *req_addr,
 
     *req_addr = zhpe_zmmu_pte_addr(info);
     *pg_ps = sw_pg->page_grid.page_size;
-    spin_unlock_irqrestore(&br->zmmu_lock, flags);
+    spin_unlock(&br->zmmu_lock);
     debug(DEBUG_ZMMU, "pte_index=%u, zmmu_pages=%u, pg_ps=%u\n",
           info->pte_index, info->zmmu_pages, *pg_ps);
 
@@ -947,7 +938,7 @@ int zhpe_zmmu_req_pte_alloc(struct zhpe_rmr *rmr, uint64_t *req_addr,
     return 0;
 
  unlock:
-    spin_unlock_irqrestore(&br->zmmu_lock, flags);
+    spin_unlock(&br->zmmu_lock);
 
     debug(DEBUG_ZMMU, "ret=%d, addr=0x%llx\n", ret, info->addr);
     do_kfree(info); /* was allocated in RMR_IMPORT */
@@ -963,7 +954,6 @@ void zhpe_zmmu_req_pte_free(struct zhpe_rmr *rmr)
     struct zhpe_pte_info  *info = rmr->pte_info;
     struct bridge         *br = rmr->fdata->bridge;
     uint                  sl;
-    ulong                 flags;
 
     debug(DEBUG_ZMMU, "pte_index=%u, zmmu_pages=%u\n",
           info->pte_index, info->zmmu_pages);
@@ -976,9 +966,9 @@ void zhpe_zmmu_req_pte_free(struct zhpe_rmr *rmr)
         if (!zhpe_no_avx)
             kernel_fpu_end();
 
-        spin_lock_irqsave(&br->zmmu_lock, flags);
+        spin_lock(&br->zmmu_lock);
         zmmu_pte_erase(info);
-        spin_unlock_irqrestore(&br->zmmu_lock, flags);
+        spin_unlock(&br->zmmu_lock);
 
         do_kfree(info);
     }
@@ -990,7 +980,6 @@ static void _zmmu_rsp_pte_write_slice(struct slice *sl,
                                       bool sync)
 {
     struct rsp_zmmu *rspz;
-    ulong flags;
 
     /* don't call this function, as it only does
      * one slice - use zhpe_zmmu_rsp_pte_alloc() or
@@ -1002,13 +991,13 @@ static void _zmmu_rsp_pte_write_slice(struct slice *sl,
     if (!SLICE_VALID(sl))
         return;
 
-    spin_lock_irqsave(&sl->zmmu_lock, flags);
+    spin_lock(&sl->zmmu_lock);
     rspz = &sl->bar->rsp_zmmu;
 
     /* write HW PTEs */
     zmmu_rsp_pte_write(info, rspz, valid, sync);
 
-    spin_unlock_irqrestore(&sl->zmmu_lock, flags);
+    spin_unlock(&sl->zmmu_lock);
 }
 
 int zhpe_zmmu_rsp_pte_alloc(struct zhpe_pte_info *info, uint64_t *rsp_zaddr,
@@ -1020,9 +1009,8 @@ int zhpe_zmmu_rsp_pte_alloc(struct zhpe_pte_info *info, uint64_t *rsp_zaddr,
     struct sw_page_grid   *sw_pg;
     uint                  sl;
     int                   ret;
-    ulong                 flags;
 
-    spin_lock_irqsave(&br->zmmu_lock, flags);
+    spin_lock(&br->zmmu_lock);
     sw_pg = zmmu_pg_page_size(info, pgi);
     if (IS_ERR(sw_pg)) {
         ret = PTR_ERR(sw_pg);
@@ -1035,7 +1023,7 @@ int zhpe_zmmu_rsp_pte_alloc(struct zhpe_pte_info *info, uint64_t *rsp_zaddr,
 
     *rsp_zaddr = zhpe_zmmu_pte_addr(info);
     *pg_ps = sw_pg->page_grid.page_size;
-    spin_unlock_irqrestore(&br->zmmu_lock, flags);
+    spin_unlock(&br->zmmu_lock);
     debug(DEBUG_ZMMU, "pte_index=%u, zmmu_pages=%u\n",
           info->pte_index, info->zmmu_pages);
 
@@ -1048,7 +1036,7 @@ int zhpe_zmmu_rsp_pte_alloc(struct zhpe_pte_info *info, uint64_t *rsp_zaddr,
     return 0;
 
  unlock:
-    spin_unlock_irqrestore(&br->zmmu_lock, flags);
+    spin_unlock(&br->zmmu_lock);
 
     debug(DEBUG_ZMMU, "ret=%d, addr=0x%llx\n", ret, info->addr);
     return ret;
@@ -1096,7 +1084,6 @@ void zhpe_zmmu_rsp_pte_free(struct zhpe_pte_info *info)
     struct bridge         *br =
         container_of(info, struct zhpe_umem, pte_info)->fdata->bridge;
     uint                  sl;
-    ulong                 flags;
 
     debug(DEBUG_ZMMU, "pte_index=%u, zmmu_pages=%u\n",
           info->pte_index, info->zmmu_pages);
@@ -1108,7 +1095,7 @@ void zhpe_zmmu_rsp_pte_free(struct zhpe_pte_info *info)
     if (!zhpe_no_avx)
         kernel_fpu_end();
 
-    spin_lock_irqsave(&br->zmmu_lock, flags);
+    spin_lock(&br->zmmu_lock);
     zmmu_pte_erase(info);
-    spin_unlock_irqrestore(&br->zmmu_lock, flags);
+    spin_unlock(&br->zmmu_lock);
 }

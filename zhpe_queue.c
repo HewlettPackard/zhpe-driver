@@ -718,6 +718,8 @@ static int _rqueue_free(
         return -1;
 
     zhpe_unregister_rdm_interrupt(sl, queue);
+    if (queue == 0)
+        cancel_work_sync(&zhpe_bridge.msg_work);
 
     if (test_bit(queue, sl->rdm_alloced_bitmap) == 0) {
         debug(DEBUG_RQUEUE,
