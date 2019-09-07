@@ -54,6 +54,7 @@ class Queue():
         self.xdm = xdm
         self.cmds = cmds
         self.cmps = cmds
+        self.start = 0
 
 def runtime_err(*arg):
     raise RuntimeError(*arg)
@@ -69,22 +70,24 @@ def parse_args():
                         help='the zhpe character device file')
     parser.add_argument('-k', '--keyboard', action='store_true',
                         help='invoke interactive keyboard')
-    parser.add_argument('-c', '--commands', default=1048576, type=int,
+    parser.add_argument('-c', '--commands', default=4096, type=int,
                         help='total number of commands')
     parser.add_argument('-f', '--fence', action='store_true',
-                        help='fence every instruction')
+                        help='fence every comand')
     parser.add_argument('-l', '--len', default=1024, type=int,
                         help='length of data transfer operations')
     parser.add_argument('-o', '--op', default='get',
                         help='operation get, put, get_imm, put_imm, nop, sync')
-    parser.add_argument('-q', '--queues', default=2, type=int,
-                        help='number of xdm queuees')
+    parser.add_argument('-q', '--queues', default=1, type=int,
+                        help='number of xdm queues')
     parser.add_argument('-P', '--post_mortem', action='store_true',
                         help='enter debugger on uncaught exception')
-    parser.add_argument('-w', '--window', default=1024, type=int,
-                        help='maximum number of commands at one time')
     parser.add_argument('-v', '--verbosity', action='count', default=0,
                         help='increase output verbosity')
+    parser.add_argument('-w', '--window', default=0, type=int,
+                        help='window, defaults to queue size - 1')
+    parser.add_argument('-x', '--xdmq_size', default=1024, type=int,
+                        help='size of XDM queue. must be power of 2')
     return parser.parse_args()
 
 def main():
@@ -111,18 +114,22 @@ def main():
         mm[0:args.len] = os.urandom(args.len)  # fill with random bytes
         rsp_rmr = conn.do_RMR_IMPORT(zuu, rsp.rsp_zaddr, args.len * 2, MR.GRPRI)
 
-        if args.keyboard:
-            set_trace()
+        if (args.xdmq_size & (args.xdmq_size - 1)) != 0:
+            raise_err('-x option must specify a power of 2')
 
+        qmask = args.xdmq_size - 1
+
+        if args.window == 0:
+            args.window = qmask
+        if args.window >= args.xdmq_size:
+            raise_err('-w option must be <= queue size')
+            
         queues = []
         for q in range(args.queues):
-            xdm = zhpe.XDM(conn, 8192, 8192, slice_mask=0x1)
+            xdm = zhpe.XDM(conn, args.xdmq_size, args.xdmq_size, slice_mask=0x1)
             queues.append(Queue(xdm, args.commands))
 
         cmd = zhpe.xdm_cmd()
-
-        if args.keyboard:
-            set_trace()
 
         cmd.opcode = args.op
         if args.fence:
@@ -145,33 +152,28 @@ def main():
             cmd.getput.read_addr = rsp_rmr.req_addr
             cmd.getput.write_addr = v + args.len
 
+        # Fill the queue with the commands
+        for i in range(args.xdmq_size):
+            for q in queues:
+                q.xdm.queue_cmd(cmd, False)
+
         if args.keyboard:
             set_trace()
 
-        args.window = min(args.commands, args.window)
-        
-        working = len(queues)
-        waiting = working
-        while working != 0:
-            if waiting == len(queues):
-                if args.keyboard:
-                    set_trace()
-                for q in queues:
-                    n = min(args.window, q.cmds)
-                    for i in range(n):
-                        q.xdm.queue_cmd(cmd, False)
-                    q.cmds -= n
-                for q in queues:
-                    q.xdm.ring()
-                waiting = 0
-            for q in queues:
-                cmpl = q.xdm.get_cmpl(False)
-                if cmpl != None:
-                    q.cmps -= 1
-                    if q.cmps == 0:
-                        working -= 1
-                    elif q.cmps == q.cmds:
-                        waiting += 1
+        working = queues.copy()
+        while working:
+            for q in working:
+                qtail = q.xdm.qcm.cmpl_q_tail_idx & qmask
+                qdone = (qtail - q.xdm.cmpl_q_tail_shadow) & qmask
+                q.xdm.cmpl_q_tail_shadow = qtail
+                q.cmps -= qdone;
+                if q.cmps == 0:
+                    working.remove(q)
+                qavail = qmask - (q.cmps - q.cmds)
+                qavail = min(qavail, q.cmds, args.window)
+                if qavail == args.window or qavail == q.cmds:
+                    q.xdm.ring2(qavail)
+                    q.cmds -= q.start
 
         if args.keyboard:
             set_trace()

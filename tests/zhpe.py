@@ -758,6 +758,7 @@ class XDM():
         self.qcm.toggle_valid = self.cur_valid
         self.qcm._stop = 0  # Revisit: use stop, not _stop
         self.cmd_q_tail_shadow = self.qcm.cmd_q_tail_idx
+        self.cmd_q_ring_shadow = self.qcm.cmd_q_tail_idx
         self.cmd_q_head_shadow = self.qcm.cmd_q_head_idx
         self.cmpl_q_tail_shadow = self.qcm.cmpl_q_tail_idx
         self.cmd_buf_state = [0] * 16  # a list of 16 zeros
@@ -806,9 +807,14 @@ class XDM():
         else:
             print('buffer_cmd: ERROR: invalid opcode {}'.format(cmd.opcode))
 
-
     def ring(self):
-        self.qcm.cmd_q_tail_idx = self.cmd_q_tail_shadow
+        self.cmd_q_ring_shadow = self.cmd_q_tail_shadow
+        self.qcm.cmd_q_tail_idx = self.cmd_q_ring_shadow
+
+    def ring2(self, entries=1):
+        self.cmd_q_ring_shadow = ((self.cmd_q_ring_shadow + entries) &
+                                  (self.rsp_xqa.info.cmdq.ent - 1))
+        self.qcm.cmd_q_tail_idx = self.cmd_q_ring_shadow
 
     def queue_cmd(self, cmd, ring=True):
         # Revisit: check for cmdq full
