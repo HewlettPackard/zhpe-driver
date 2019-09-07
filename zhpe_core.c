@@ -1887,6 +1887,7 @@ static int zhpe_probe(struct pci_dev *pdev,
         }
     }
     pci_set_master(pdev);
+    dev_info(&pdev->dev, "%s:%s:successful\n", zhpe_driver_name, __func__);
     return 0;
 
  err_free_interrupts:
