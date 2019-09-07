@@ -515,6 +515,8 @@ class xdm_cmd(Union):
 
     cmd_to_name = {k.value : v for (k, v) in zip(XDM_CMD, cmd_names)}
 
+    name_to_cmd = {v : k.value  for (k, v) in zip(XDM_CMD, cmd_names)}
+
     @property
     def fence(self):
         return self.hdr.opcode & XDM_CMD.FENCE.value
@@ -525,14 +527,29 @@ class xdm_cmd(Union):
 
     @opcode.setter
     def opcode(self, cmd):
-        self.hdr.opcode = cmd.value if isinstance(cmd, XDM_CMD) else cmd
+        opcode = None
+        if isinstance(cmd, str):
+            opcode = xdm_cmd.name_to_cmd[cmd.upper()]
+        elif isinstance(cmd, int):
+            opcode = cmd
+        elif isinstance(cmd, XDM_CMD):
+            opcode = cmd.value
+        if opcode is None:
+            raise RuntimeError('Unexpected type: {} {}'.format(cmdtype, cmd))
+        self.hdr.opcode = opcode
 
     def __repr__(self):
         cmd_name = xdm_cmd.cmd_to_name[self.opcode]
         r = type(self).__name__ + '(' + cmd_name
         if self.fence:
             r += ':fence'
-        r += ', {:#x}'.format(self.hdr.request_id)
+        r += ', id={:#x}'.format(self.hdr.request_id)
+        if self.opcode == XDM_CMD.GET_IMM or self.opcode == XDM_CMD.PUT_IMM:
+            r += ', sz={:#x} rem={:#x}'.format(
+                self.getput_imm.size, self.getput_imm.rem_addr)
+        elif self.opcode == XDM_CMD.GET or self.opcode == XDM_CMD.PUT:
+            r += ', sz={:#x}, rd={:#x}, wr={:#x}'.format(
+                self.getput.size, self.getput.read_addr, self.getput.write_addr)
         r += ')'
         return r
 
@@ -555,7 +572,7 @@ class xdm_cmpl_enqa(Structure):
                 ]
 
     def __repr__(self):
-        r = type(self).__name__ + '({:#x}'.format(self.hdr.request_id)
+        r = type(self).__name__ + '(id={:#x}'.format(self.hdr.request_id)
         r += ', v={}'.format(self.hdr.v)
         r += ', status={:#x}'.format(self.hdr.status)
         r += ', qd={}'.format(self.hdr.qd)
@@ -569,7 +586,7 @@ class xdm_cmpl_getimm(Structure):
                 ]
 
     def __repr__(self):
-        r = type(self).__name__ + '({:#x}'.format(self.hdr.request_id)
+        r = type(self).__name__ + '(id={:#x}'.format(self.hdr.request_id)
         r += ', v={}'.format(self.hdr.v)
         r += ', status={:#x}'.format(self.hdr.status)
         r += ', payload="{}"'.format(bytearray(self.payload))
@@ -584,7 +601,7 @@ class xdm_cmpl_atomic32(Structure):
                 ]
 
     def __repr__(self):
-        r = type(self).__name__ + '({:#x}'.format(self.hdr.request_id)
+        r = type(self).__name__ + '(id={:#x}'.format(self.hdr.request_id)
         r += ', v={}'.format(self.hdr.v)
         r += ', status={:#x}'.format(self.hdr.status)
         r += ', retval={:#x}'.format(self.retval)
@@ -599,7 +616,7 @@ class xdm_cmpl_atomic64(Structure):
                 ]
 
     def __repr__(self):
-        r = type(self).__name__ + '({:#x}'.format(self.hdr.request_id)
+        r = type(self).__name__ + '(id={:#x}'.format(self.hdr.request_id)
         r += ', v={}'.format(self.hdr.v)
         r += ', status={:#x}'.format(self.hdr.status)
         r += ', retval={:#x}'.format(self.retval)
@@ -616,7 +633,7 @@ class xdm_cmpl(Union):
                 ]
 
     def __repr__(self):
-        r = type(self).__name__ + '({:#x}'.format(self.hdr.request_id)
+        r = type(self).__name__ + '(id={:#x}'.format(self.hdr.request_id)
         r += ', v={}'.format(self.hdr.v)
         r += ', status={:#x}'.format(self.hdr.status)
         r += ')'
@@ -741,6 +758,7 @@ class XDM():
         self.qcm.toggle_valid = self.cur_valid
         self.qcm._stop = 0  # Revisit: use stop, not _stop
         self.cmd_q_tail_shadow = self.qcm.cmd_q_tail_idx
+        self.cmd_q_ring_shadow = self.qcm.cmd_q_tail_idx
         self.cmd_q_head_shadow = self.qcm.cmd_q_head_idx
         self.cmpl_q_tail_shadow = self.qcm.cmpl_q_tail_idx
         self.cmd_buf_state = [0] * 16  # a list of 16 zeros
@@ -789,27 +807,32 @@ class XDM():
         else:
             print('buffer_cmd: ERROR: invalid opcode {}'.format(cmd.opcode))
 
+    def ring(self):
+        self.cmd_q_ring_shadow = self.cmd_q_tail_shadow
+        self.qcm.cmd_q_tail_idx = self.cmd_q_ring_shadow
 
-    def queue_cmd(self, cmd):
+    def ring2(self, entries=1):
+        self.cmd_q_ring_shadow = ((self.cmd_q_ring_shadow + entries) &
+                                  (self.rsp_xqa.info.cmdq.ent - 1))
+        self.qcm.cmd_q_tail_idx = self.cmd_q_ring_shadow
+
+    def queue_cmd(self, cmd, ring=True):
         # Revisit: check for cmdq full
         t = self.cmd_q_tail_shadow
         cmd.hdr.request_id = t
         self.cmd[t] = cmd
         self.cmd_q_tail_shadow = ((self.cmd_q_tail_shadow + 1) %
                                   self.rsp_xqa.info.cmdq.ent)
-        self.qcm.cmd_q_tail_idx = self.cmd_q_tail_shadow
+        if ring:
+            self.ring()
 
     def queue_cmds(self, cmds):
         # Revisit: check for cmdq full
-        t = self.cmd_q_tail_shadow
         for cmd in cmds:
-            cmd.hdr.request_id = t
-            self.cmd[t] = cmd
-            t = (t + 1) % self.rsp_xqa.info.cmdq.ent
-        self.cmd_q_tail_shadow = t
-        self.qcm.cmd_q_tail_idx = self.cmd_q_tail_shadow
+            queue_cmd(cmd, False)
+        self.ring()
 
-    def get_cmpl(self, wait=True):
+    def get_cmpl(self, wait=True, raise_err=True):
         t = self.cmpl_q_tail_shadow
         while True:  # Spin until cmpl[t] becomes valid if wait is True
             if self.cmpl[t].hdr.v == self.cur_valid:
@@ -820,17 +843,17 @@ class XDM():
                                    self.rsp_xqa.info.cmplq.ent)
         if self.cmpl_q_tail_shadow < t:  # toggle expected valid on wrap
             self.cur_valid = self.cur_valid ^ 1
-        if self.cmpl[t].hdr.status != 0:
-            raise XDMcompletionError('bad status',
-                                     self.cmpl[t].hdr.request_id,
-                                     self.cmpl[t].hdr.status)
-
         # is this a buffer command?
         if self.cmpl[t].hdr.request_id >= self.rsp_xqa.info.cmdq.ent:
             b = self.cmpl[t].hdr.request_id - self.rsp_xqa.info.cmdq.ent
             if b < 16:
                 # mark this buffer free
                 self.cmd_buf_state[b] = 0
+
+        if self.cmpl[t].hdr.status != 0 and raise_err:
+            raise XDMcompletionError('bad status',
+                                     self.cmpl[t].hdr.request_id,
+                                     self.cmpl[t].hdr.status)
 
         return self.cmpl[t]
 
