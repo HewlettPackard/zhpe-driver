@@ -715,7 +715,7 @@ static irqreturn_t msg_rdm_interrupt_handler(int irq_index, void *data)
 
     schedule_work(&br->msg_work);
 
-    return IRQ_RETVAL(true);
+    return IRQ_HANDLED;
 }
 
 void zhpe_msg_worker(struct work_struct *work)
