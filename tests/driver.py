@@ -934,7 +934,7 @@ def main():
 if __name__ == '__main__':
     try:
         main()
-    except:
+    except Exception as post_err:
         if args.post_mortem:
             post_mortem()
         else:
