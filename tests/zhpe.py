@@ -829,7 +829,7 @@ class XDM():
     def queue_cmds(self, cmds):
         # Revisit: check for cmdq full
         for cmd in cmds:
-            queue_cmd(cmd, False)
+            self.queue_cmd(cmd, False)
         self.ring()
 
     def get_cmpl(self, wait=True, raise_err=True):
