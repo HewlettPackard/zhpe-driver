@@ -1635,7 +1635,6 @@ static int zhpe_open(struct inode *inode, struct file *file)
 #define ZHPE_CSR_CID_SHIFT        (0x8)
 #define ZHPE_CSR_CID_MASK         (0xFFF)
 
-
 static int csr_access_rd(struct bridge *br, uint32_t csr, uint64_t *data)
 {
     int                 ret = -EIO;
@@ -1958,6 +1957,28 @@ static struct pci_driver zhpe_pci_driver = {
     .remove    = zhpe_remove,
 };
 
+bool zhpe_mcommit;
+
+#ifndef X86_FEATURE_MCOMMIT
+#define X86_FEATURE_MCOMMIT     (13*32+ 8)
+#endif
+
+#ifndef _EFER_MCOMMIT
+#define _EFER_MCOMMIT           (17)
+#define EFER_MCOMMIT            (1ULL<<_EFER_MCOMMIT)
+#endif
+
+static void __init zhpe_enable_mcommit(void *dummy)
+{
+    uint64_t            efer;
+
+    /* Locking? */
+    rdmsrl(MSR_EFER, efer);
+    if (!(efer & EFER_MCOMMIT)) {
+        efer |= EFER_MCOMMIT;
+        wrmsrl(MSR_EFER, efer);
+    }
+}
 
 static int __init zhpe_init(void)
 {
@@ -1978,10 +1999,23 @@ static int __init zhpe_init(void)
         zprintk(KERN_WARNING, "invalid platform parameter.\n");
         goto err_out;
     }
+
+    ret = -ENOSYS;
+    if (boot_cpu_data.x86_vendor != X86_VENDOR_AMD) {
+        zprintk(KERN_WARNING, "AMD CPU required\n");
+        goto err_out;
+    }
     if (!(zhpe_no_avx || boot_cpu_has(X86_FEATURE_AVX))) {
         zprintk(KERN_WARNING, "missing required AVX CPU feature.\n");
         goto err_out;
     }
+    if (boot_cpu_has(X86_FEATURE_MCOMMIT)) {
+        on_each_cpu(zhpe_enable_mcommit, NULL, 1);
+        zhpe_mcommit = true;
+        zprintk(KERN_INFO, "mcommit supported and enabled\n");
+    } else
+        zprintk(KERN_WARNING, "mcommit not supported\n");
+
     ret = -ENOMEM;
     global_shared_zpage = shared_zpage_alloc(sizeof(*global_shared_data),
                                              GLOBAL_SHARED_PAGE);

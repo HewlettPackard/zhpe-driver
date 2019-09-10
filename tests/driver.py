@@ -344,15 +344,18 @@ def main():
             print('mm2 (initial)="{}"'.format(mm2[0:len1].decode()))
         if args.loopback and modp.genz_loopback:
             if args.load_store:
+                # invalidate rmm2 to read fresh data
+                zhpe.invalidate(v2, len1, True)
                 if args.verbosity:
-                    print('rmm2 (remote)="{}"'.format(rmm2[0:len1].decode()))
+                    print('rmm2 (remote)="{}"'.format(rmm2[0:len1]))
                 if mm2[0:len1] != rmm2[0:len1]:
                     runtime_err('Error: mm2 "{}" != rmm2 "{}"'.format(
-                        mm2[0:len1].decode(), rmm2[0:len1].decode()))
+                        mm2[0:len1], rmm2[0:len1]))
                 rmm2[len1:len1_2] = str2
-                # flush rmm2 writes, so mm2 reads will see new data
-                zhpe.pmem_flush(v_rmm2+len1, len2)
-                zhpe.pmem_flush(v2+len1, len2)
+                # commit rmm2 writes, so mm2 reads will see new data
+                zhpe.commit(v_rmm2+len1, len2, True)
+                # invalidate mm2 to read fresh data
+                zhpe.invalidate(v2+len1, len2, False)
                 if args.verbosity:
                     print('mm2 after remote update="{}"'.format(
                         mm2[0:len1_2].decode()))
@@ -441,6 +444,10 @@ def main():
             if args.verbosity:
                 print('mm2M sha256 after PUT="{}"'.format(mm2Msha256p))
             if mm2Msha256p != datasha256:
+                for i in range(3):
+                    save = open('mismatch.{}'.format(i), 'wb')
+                    save.write(mm2M[i*datasize:(i+1)*datasize])
+                    save.close()
                 runtime_err('PUT sha mismatch: {} != {}'.format(
                         datasha256, mm2Msha256p))
 
@@ -818,8 +825,8 @@ def main():
                     fam_v, fam_l = zhpe.mmap_vaddr_len(fam_rmm)
                     fam_rmm[0:len1] = str1
                     fam_rmm[len1:len1_2] = str2
-                    # flush writes, so reads will see new data
-                    zhpe.pmem_flush(fam_v, len1_2)
+                    # commit writes, so reads will see new data
+                    zhpe.commit(fam_v, len1_2, True)
                 else:
                     fam_rmr = conn.do_RMR_IMPORT(fam_zuu, 0, sz2M, MR.GRPRI)
                 # do an XDM command to get the data back and check it

@@ -946,19 +946,32 @@ int zhpe_zmmu_req_pte_alloc(struct zhpe_rmr *rmr, uint64_t *req_addr,
     return ret;
 }
 
-static void _empty_destructor(struct kref *ref) {
+static void zhpe_commit_invalidate(void *dummy)
+{
+    wbinvd();
+    if (zhpe_mcommit)
+        mcommit();
+}
+
+static void _empty_destructor(struct kref *ref)
+{
 }
 
 void zhpe_zmmu_req_pte_free(struct zhpe_rmr *rmr)
 {
     struct zhpe_pte_info  *info = rmr->pte_info;
     struct bridge         *br = rmr->fdata->bridge;
+    bool                  cpu_visible = !!(info->access & ZHPE_MR_REQ_CPU);
     uint                  sl;
 
-    debug(DEBUG_ZMMU, "pte_index=%u, zmmu_pages=%u\n",
+    debug(DEBUG_ZMMU,
+          "info %px kref %u cpu_visible %d pte_index=%u, zmmu_pages=%u\n",
+          info, kref_read(&info->refcount), cpu_visible,
           info->pte_index, info->zmmu_pages);
 
-    if(kref_put(&info->refcount, _empty_destructor)) {
+    if (kref_put(&info->refcount, _empty_destructor)) {
+        if (cpu_visible)
+            on_each_cpu(zhpe_commit_invalidate, NULL, 1);
         if (!zhpe_no_avx)
             kernel_fpu_begin();
         for (sl = 0; sl < SLICES; sl++)

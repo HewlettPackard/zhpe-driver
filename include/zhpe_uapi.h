@@ -239,6 +239,14 @@ struct zhpe_key_data {
     uint32_t            access;
 };
 
+static inline void mcommit(void)
+{
+    asm volatile(".byte 0xf3,0x0f,0x01,0xfa" ::: "memory");
+}
+
+#define CPUID_8000_0008                 (0x80000008)
+#define CPUID_8000_0008_EBX_MCOMMIT     (0x100)
+
 _EXTERN_C_END
 
 #endif /* _ZHPE_UAPI_H_ */

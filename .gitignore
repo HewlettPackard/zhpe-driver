@@ -3,6 +3,9 @@
 *.ko
 *.obj
 
+# Libraries
+*.so
+
 # Kernel Module Compile Results
 *.o.ur-safe
 *.ko
