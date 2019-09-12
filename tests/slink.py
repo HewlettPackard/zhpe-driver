@@ -70,6 +70,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', '--devfile', default='/dev/zhpe',
                         help='the zhpe character device file')
+    parser.add_argument('-k', '--keyboard', action='store_true',
+                        help='invoke interactive keyboard')
     parser.add_argument('-P', '--post_mortem', action='store_true',
                         help='enter debugger on uncaught exception')
     parser.add_argument('-v', '--verbosity', action='count', default=0,
@@ -112,8 +114,10 @@ def main():
         mm[off1:off1+len1] = str1
         if args.verbosity:
             print('mm (initial)="{}"'.format(mm[off1:off1+len1]))
+        if args.keyboard:
+            set_trace()
         # invalidate rmm to read fresh data
-        zhpe.invalidate(v_rmm + off1, len1, True)
+        zhpe.invalidate(v_rmm+off1, len1, True)
         if args.verbosity:
             print('rmm (remote)="{}"'.format(rmm[off1:off1+len1]))
         if mm[off1:off1+len1] != rmm[off1:off1+len1]:
@@ -122,6 +126,8 @@ def main():
         rmm[off2:off2+len2] = str2
         # commit rmm writes, so mm reads will see new data
         zhpe.commit(v_rmm+off2, len2, True)
+        # invalidate mm reads to see new data.
+        zhpe.invalidate(v+off1, len1_2, True)
         if args.verbosity:
             print('mm after remote update="{}"'.format(
                 mm[off1:off1+len1_2]))
@@ -130,8 +136,9 @@ def main():
                 mm[off1:off1+len1_2], rmm[off1:off1+len1_2]))
 
         rmm.close()
-        conn.do_RMR_FREE(zuu, rsp.rsp_zaddr, sz4K, MR.GPGRPRI, rsp.req_addr)
-        conn.do_MR_FREE(v, l, MR.MR.GPGRPRI, rsp.rsp_zaddr)
+        conn.do_RMR_FREE(zuu, rsp.rsp_zaddr, sz4K, MR.GPGRPRIC,
+                         rsp_rmr.req_addr)
+        conn.do_MR_FREE(v, l, MR.GPGRPRI, rsp.rsp_zaddr)
         mm.close()
         f.close()
     # end with

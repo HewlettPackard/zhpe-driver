@@ -344,6 +344,8 @@ def main():
             print('mm2 (initial)="{}"'.format(mm2[0:len1].decode()))
         if args.loopback and modp.genz_loopback:
             if args.load_store:
+                if args.keyboard:
+                    set_trace()
                 # invalidate rmm2 to read fresh data
                 zhpe.invalidate(v2, len1, True)
                 if args.verbosity:
@@ -355,7 +357,7 @@ def main():
                 # commit rmm2 writes, so mm2 reads will see new data
                 zhpe.commit(v_rmm2+len1, len2, True)
                 # invalidate mm2 to read fresh data
-                zhpe.invalidate(v2+len1, len2, False)
+                zhpe.invalidate(v2, len1_2, False)
                 if args.verbosity:
                     print('mm2 after remote update="{}"'.format(
                         mm2[0:len1_2].decode()))
