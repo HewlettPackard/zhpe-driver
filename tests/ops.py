@@ -173,7 +173,7 @@ def main():
                 qavail = min(qavail, q.cmds, args.window)
                 if qavail == args.window or qavail == q.cmds:
                     q.xdm.ring2(qavail)
-                    q.cmds -= q.start
+                    q.cmds -= qavail
 
         if args.keyboard:
             set_trace()
