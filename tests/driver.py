@@ -347,7 +347,7 @@ def main():
                 if args.keyboard:
                     set_trace()
                 # invalidate rmm2 to read fresh data
-                zhpe.invalidate(v2, len1, True)
+                zhpe.invalidate(v_rmm2, len1, True)
                 if args.verbosity:
                     print('rmm2 (remote)="{}"'.format(rmm2[0:len1]))
                 if mm2[0:len1] != rmm2[0:len1]:
