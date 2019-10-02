@@ -181,7 +181,7 @@ struct req_pte {
     uint64_t traffic_class :  4;
     uint64_t dc_grp        :  2;
     uint64_t rv0           :  6;
-    uint64_t dgcid         : 28;  /* in HW, dsid:16, dcid:12 */
+    uint64_t dgcid         : ZHPE_GCID_BITS;  /* in HW, dsid:16, dcid:12 */
     uint64_t ctn           :  2;  /* byte  8 */
     uint64_t rv8           : 10;
     uint64_t addr          : 52;
