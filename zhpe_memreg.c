@@ -44,6 +44,24 @@
 static void umem_kref_free(struct kref *ref);  /* forward reference */
 static void umem_free(struct zhpe_umem *umem);
 
+void zhpe_pte_info_dbg(const char *callf, uint line, struct zhpe_pte_info *info)
+{
+    uint64_t            access = info->access;
+    bool                local = !!(access & (ZHPE_MR_GET|ZHPE_MR_PUT));
+    bool                remote = !!(access &
+                                    (ZHPE_MR_GET_REMOTE|ZHPE_MR_PUT_REMOTE));
+    bool                cpu_visible = !!(access & ZHPE_MR_REQ_CPU);
+    bool                individual = !!(access & ZHPE_MR_INDIVIDUAL);
+    bool                zmmu_only = !!(access & ZHPE_MR_ZMMU_ONLY);
+
+    debug_caller(DEBUG_MEMREG, callf, line,
+                 "vaddr = 0x%016llx, len = 0x%lx, access = 0x%llx, "
+                 "local = %u, remote = %u, cpu_visible = %u, individual = %u, "
+                 "zmmu_only %u\n",
+                 info->addr, info->length, access, local, remote,
+                 cpu_visible, individual, zmmu_only);
+}
+
 static inline int umem_cmp(uint64_t vaddr, uint64_t length, uint64_t access,
                            const struct zhpe_umem *u)
 {
@@ -474,6 +492,7 @@ static void umem_free_zmmu(struct zhpe_umem *umem)
     uint64_t         access = info->access;
     bool             remote, individual, zmmu_only;
 
+    zhpe_pte_info_dbg(__func__, __LINE__, info);
     remote = !!(access & (ZHPE_MR_GET_REMOTE|ZHPE_MR_PUT_REMOTE));
     individual = !!(access & ZHPE_MR_INDIVIDUAL);
     zmmu_only = !!(access & ZHPE_MR_ZMMU_ONLY);
@@ -483,6 +502,7 @@ static void umem_free_zmmu(struct zhpe_umem *umem)
 
 static void umem_free(struct zhpe_umem *umem)
 {
+    zhpe_pte_info_dbg(__func__, __LINE__, &umem->pte_info);
     _zhpe_umem_release(umem);
     put_pid(umem->pid);
     do_kfree(umem);
@@ -500,8 +520,9 @@ static void umem_kref_free(struct kref *ref)
 void zhpe_umem_free_all(struct file_data *fdata)
 {
     struct zhpe_umem *umem, *next;
-    struct zhpe_pte_info *info;
     struct rb_root root;
+
+    debug(DEBUG_MEMREG, "\n");
 
     /*
      * This will be called once during teardown There should be no other threads
@@ -523,19 +544,12 @@ void zhpe_umem_free_all(struct file_data *fdata)
     spin_unlock(&fdata->mr_lock);
 
     /* First pass to free all the ZMMU entries. */
-    rbtree_postorder_for_each_entry_safe(umem, next, &root, node) {
-        info = &umem->pte_info;
-        debug(DEBUG_MEMREG, "vaddr = 0x%016llx, len = 0x%zx, access = 0x%llx\n",
-              umem->vaddr, info->length, info->access);
+    rbtree_postorder_for_each_entry_safe(umem, next, &root, node)
         umem_free_zmmu(umem);
-    }
     /* Do snapshot to ensure all memory transactions are complete. */
     zhpe_zmmu_rsp_take_snapshot(fdata->bridge);
     /* Second pass to free all the user mappings and data structures. */
     rbtree_postorder_for_each_entry_safe(umem, next, &root, node) {
-        info = &umem->pte_info;
-        debug(DEBUG_MEMREG, "vaddr = 0x%016llx, len = 0x%zx, access = 0x%llx\n",
-              umem->vaddr, info->length, info->access);
         WARN_ON(kref_read(&umem->refcount) != 1);
         umem_free(umem);
     }
