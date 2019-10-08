@@ -44,7 +44,8 @@
 static void umem_kref_free(struct kref *ref);  /* forward reference */
 static void umem_free(struct zhpe_umem *umem);
 
-void zhpe_pte_info_dbg(const char *callf, uint line, struct zhpe_pte_info *info)
+void zhpe_pte_info_dbg(uint debug_flag, const char *callf, uint line,
+                       struct zhpe_pte_info *info)
 {
     uint64_t            access = info->access;
     bool                local = !!(access & (ZHPE_MR_GET|ZHPE_MR_PUT));
@@ -54,11 +55,12 @@ void zhpe_pte_info_dbg(const char *callf, uint line, struct zhpe_pte_info *info)
     bool                individual = !!(access & ZHPE_MR_INDIVIDUAL);
     bool                zmmu_only = !!(access & ZHPE_MR_ZMMU_ONLY);
 
-    debug_caller(DEBUG_MEMREG, callf, line,
-                 "vaddr = 0x%016llx, len = 0x%lx, access = 0x%llx, "
-                 "local = %u, remote = %u, cpu_visible = %u, individual = %u, "
-                 "zmmu_only %u\n",
-                 info->addr, info->length, access, local, remote,
+    debug_caller(debug_flag, callf, line,
+                 "info = %px vaddr = 0x%016llx/0x%016llx, len = 0x%lx/0x%llx"
+                 ", access = 0x%llx, local = %u, remote = %u, cpu_visible = %u"
+                 ", individual = %u, zmmu_only = %u\n",
+                 info, info->addr, info->addr_aligned, info->length,
+                 info->length_adjusted, info->access, local, remote,
                  cpu_visible, individual, zmmu_only);
 }
 
@@ -492,7 +494,7 @@ static void umem_free_zmmu(struct zhpe_umem *umem)
     uint64_t         access = info->access;
     bool             remote, individual, zmmu_only;
 
-    zhpe_pte_info_dbg(__func__, __LINE__, info);
+    zhpe_pte_info_dbg(DEBUG_MEMREG, __func__, __LINE__, info);
     remote = !!(access & (ZHPE_MR_GET_REMOTE|ZHPE_MR_PUT_REMOTE));
     individual = !!(access & ZHPE_MR_INDIVIDUAL);
     zmmu_only = !!(access & ZHPE_MR_ZMMU_ONLY);
@@ -502,7 +504,7 @@ static void umem_free_zmmu(struct zhpe_umem *umem)
 
 static void umem_free(struct zhpe_umem *umem)
 {
-    zhpe_pte_info_dbg(__func__, __LINE__, &umem->pte_info);
+    zhpe_pte_info_dbg(DEBUG_MEMREG, __func__, __LINE__, &umem->pte_info);
     _zhpe_umem_release(umem);
     put_pid(umem->pid);
     do_kfree(umem);

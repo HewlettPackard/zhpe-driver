@@ -106,6 +106,8 @@ int zhpe_user_req_MR_REG(struct io_entry *entry);
 int zhpe_user_req_MR_FREE(struct io_entry *entry);
 int zhpe_user_req_RMR_IMPORT(struct io_entry *entry);
 int zhpe_user_req_RMR_FREE(struct io_entry *entry);
+void zhpe_pte_info_dbg(uint debug_flag, const char *callf, uint line,
+                       struct zhpe_pte_info *info);
 
 static inline bool zhpe_umem_empty(struct file_data *fdata)
 {
