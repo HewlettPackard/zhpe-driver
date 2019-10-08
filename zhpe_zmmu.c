@@ -773,13 +773,12 @@ static struct sw_page_grid *zmmu_pg_page_size(struct zhpe_pte_info *info,
         info->zmmu_pages = ROUND_UP_PAGE(
             info->length + (info->addr - addr_aligned), BIT_ULL(ps)) >> ps;
         info->length_adjusted = info->zmmu_pages * BIT_ULL(ps);
+        zhpe_pte_info_dbg(DEBUG_ZMMU, __func__, __LINE__, info);
+        debug(DEBUG_ZMMU, "page_size=%d, sw_pg=%px\n", ps, sw_pg);
     } else {
         ps = -ENOSPC;
     }
 
-    debug(DEBUG_ZMMU, "addr_aligned=0x%llx, length_adjusted=0x%llx, "
-          "page_size=%d, sw_pg=%px\n",
-          info->addr_aligned, info->length_adjusted, ps, sw_pg);
     return (ps < 0) ? ERR_PTR(ps) : sw_pg;
 }
 

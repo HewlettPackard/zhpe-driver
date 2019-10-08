@@ -809,9 +809,9 @@ static int parse_platform(char *str)
                     PFSLICE_REQZ_MAX_CPUVISIBLE_ADDR;
 		if (strcmp(req_page_grid, "default") == 0)
 			req_page_grid =
-                            "4K*64,2M*64,4K:256,2M:256,1G:256,128T:128";
+                            "1G*800,1G:16,128T:128";
 		if (strcmp(rsp_page_grid, "default") == 0)
-			rsp_page_grid = "4K:448,128T:64,1G:256,2M:256";
+			rsp_page_grid = "1G:896,128T:128";
 		zhpe_no_avx = 0;
         } else if (strcmp(str, "wildcat") == 0) {
                 debug(DEBUG_PCI, "parse platform wildcat\n");
@@ -825,11 +825,9 @@ static int parse_platform(char *str)
                 zhpe_reqz_max_cpuvisible_addr =
                     WILDCAT_REQZ_MAX_CPUVISIBLE_ADDR;
 		if (strcmp(req_page_grid, "default") == 0)
-			req_page_grid =
-                            "4K*20K,2M*12000,1G*2K,8G*1906"
-                            ",4K:1024,2M:1000,1G:5000,128T:3072";
+			req_page_grid = "1G*104K,1G:8K,128T:16K";
 		if (strcmp(rsp_page_grid, "default") == 0)
-			rsp_page_grid = "128T:64,1G:1024,2M:25K,4K:30K";
+			rsp_page_grid = "128T:1K,1G:63K";
 		zhpe_no_avx = 0;
         } else if (strcmp(str, "carbon") == 0) {
                 debug(DEBUG_PCI, "parse platform carbon\n");
@@ -844,12 +842,10 @@ static int parse_platform(char *str)
                     CARBON_REQZ_MAX_CPUVISIBLE_ADDR;
                 zhpe_reqz_phy_cpuvisible_off =
                     CARBON_REQZ_PHY_CPUVISIBLE_OFF;
-                if (strcmp(req_page_grid, "default") == 0)
-			req_page_grid =
-                            "4K*20K,2M*12000,1G*2K,8G*1906"
-                            ",4K:1024,2M:1000,1G:5000,128T:3072";
-                if (strcmp(rsp_page_grid, "default") == 0)
-			rsp_page_grid = "128T:64,1G:1024,2M:25K,4K:30K";
+		if (strcmp(req_page_grid, "default") == 0)
+			req_page_grid = "1G*104K,1G:8K,128T:16K";
+		if (strcmp(rsp_page_grid, "default") == 0)
+			rsp_page_grid = "128T:1K,1G:63K";
 		zhpe_no_avx = 1;
         } else {
 		return -EINVAL;
