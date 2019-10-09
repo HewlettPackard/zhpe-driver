@@ -759,12 +759,19 @@ static struct sw_page_grid *zmmu_pg_page_size(struct zhpe_pte_info *info,
 
     /* Revisit: make this more general */
     length_adjusted = roundup_pow_of_two(info->length);
+    addr_aligned = ROUND_DOWN_PAGE(info->addr, length_adjusted);
+    if (addr_aligned != info->addr)
+        length_adjusted <<= 1;
     ps = clamp(ilog2(length_adjusted),
                PAGE_GRID_MIN_PAGESIZE, PAGE_GRID_MAX_PAGESIZE);
-    ps = find_next_bit(
-        (cpu_visible) ? pgi->pg_cpu_visible_ps_bitmap :
-        pgi->pg_non_visible_ps_bitmap, 64, ps);
-    key = ps + ((cpu_visible) ? PAGE_GRID_MAX_PAGESIZE : 0);
+    /* Try to find a page that fits the length. */
+    ps = find_next_bit((cpu_visible ? pgi->pg_cpu_visible_ps_bitmap :
+                        pgi->pg_non_visible_ps_bitmap), PAGE_GRID_PS_BITS, ps);
+    /* If that fails, then the largest available. */
+    if (ps == PAGE_GRID_PS_BITS)
+        ps = find_last_bit((cpu_visible ? pgi->pg_cpu_visible_ps_bitmap :
+                            pgi->pg_non_visible_ps_bitmap), PAGE_GRID_PS_BITS);
+    key = ps + (cpu_visible ? PAGE_GRID_MAX_PAGESIZE : 0);
     sw_pg = radix_tree_lookup(&pgi->pg_pagesize_tree, key);
 
     if (sw_pg) {

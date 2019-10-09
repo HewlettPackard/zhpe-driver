@@ -321,11 +321,13 @@ struct sw_page_grid {
     bool             cpu_visible;    /* only for requester page_grids */
 };
 
+#define PAGE_GRID_PS_BITS      (64)
+
 struct page_grid_info {
     struct sw_page_grid pg[PAGE_GRID_ENTRIES];
     DECLARE_BITMAP(pg_bitmap, PAGE_GRID_ENTRIES);
-    DECLARE_BITMAP(pg_cpu_visible_ps_bitmap, 64); /* req page grids only */
-    DECLARE_BITMAP(pg_non_visible_ps_bitmap, 64);
+    DECLARE_BITMAP(pg_cpu_visible_ps_bitmap, PAGE_GRID_PS_BITS); /* req only */
+    DECLARE_BITMAP(pg_non_visible_ps_bitmap, PAGE_GRID_PS_BITS);
     struct radix_tree_root pg_pagesize_tree;
     uint                pte_entries;
     struct rb_root      base_pte_tree;
