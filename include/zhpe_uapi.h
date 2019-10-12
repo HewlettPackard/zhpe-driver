@@ -112,7 +112,7 @@ struct zhpe_cq_entry {
     union zhpe_result   result;
 };
 
-#define ZHPE_HW_ENTRY_LEN (64)
+#define ZHPE_HW_ENTRY_LEN       ((size_t)64)
 
 enum zhpe_hw_opcode {
     ZHPE_HW_OPCODE_NOP          = 0x0,
