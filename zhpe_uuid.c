@@ -480,35 +480,13 @@ void zhpe_notify_remote_uuids(struct file_data *fdata)
     INIT_LIST_HEAD(&free_msg_list);
     INIT_LIST_HEAD(&teardown_msg_list);
 
-    start = ktime_get();
-
-    /* special case for loopback UUIDs */
-    /* Revisit: what if rbtree changes while we're looping? */
-    for (rb = rb_first(&fdata->fd_remote_uuid_tree); rb; rb = rb_next(rb)) {
-        node = container_of(rb, struct uuid_node, node);
-        uu = node->tracker;
-        if (uu->local && uu->remote) {  /* loopback UUID */
-            debug(DEBUG_UUID, "TEARDOWN loopback uuid=%s\n",
-                  zhpe_uuid_str(&uu->uuid, str, sizeof(str)));
-            state = zhpe_msg_send_UUID_TEARDOWN(fdata->bridge,
-                                                &uu->uuid,
-                                                &fdata->local_uuid->uuid);
-            if (IS_ERR(state)) {
-                status = PTR_ERR(state);
-                debug(DEBUG_MSG, "zhpe_msg_send_UUID_TEARDOWN status=%d\n",
-                      status);
-                continue;
-            }
-            list_add_tail(&state->msg_list, &teardown_msg_list);
-        }
-    }
-
     if (zhpe_uu_remote_uuid_empty(fdata)) {
         debug(DEBUG_UUID, "no remote UUIDs to TEARDOWN\n");
         goto teardown_done;
     }
 
     /* Revisit: what if rbtree changes while we're looping? */
+    start = ktime_get();
     prev_gcid = -1u;
     for (rb = rb_first(&fdata->local_uuid->local->uu_remote_uuid_tree); rb;
          rb = rb_next(rb)) {
