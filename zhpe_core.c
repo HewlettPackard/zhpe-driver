@@ -1512,10 +1512,19 @@ struct file_data *pid_to_fdata(struct bridge *br, pid_t pid)
 
 static int zhpe_open(struct inode *inode, struct file *file)
 {
-    int                 ret = -ENOMEM;
+    int                 ret = -ENODEV;
     struct file_data    *fdata = NULL;
     size_t              size;
 
+    /* update the actual number of slices in the zhpe_attr */
+    size = atomic_read(&zhpe_bridge.num_slices);
+    global_shared_data->default_attr.num_slices = size;
+    if (!size) {
+        debug(DEBUG_IO, "No device found\n");
+        goto done;
+    }
+
+    ret = -ENOMEM;
     size = sizeof(*fdata);
     fdata = do_kmalloc(size, GFP_KERNEL, true);
     if (!fdata)
@@ -1527,9 +1536,6 @@ static int zhpe_open(struct inode *inode, struct file *file)
     spin_lock_init(&fdata->io_lock);
     init_waitqueue_head(&fdata->io_wqh);
     INIT_LIST_HEAD(&fdata->rd_list);
-    /* update the actual number of slices in the zhpe_attr */
-    global_shared_data->default_attr.num_slices =
-            atomic_read(&zhpe_bridge.num_slices);
     fdata->bridge = &zhpe_bridge;  /* Revisit MultiBridge: support multiple bridges */
     spin_lock_init(&fdata->uuid_lock);
     fdata->local_uuid = NULL;
