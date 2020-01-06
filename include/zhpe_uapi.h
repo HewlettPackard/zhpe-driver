@@ -50,8 +50,20 @@
 
 _EXTERN_C_BEG
 
-#define ZHPE_IMM_MAX            (32)
-#define ZHPE_ENQA_MAX           (52)
+#define ZHPE_MAX_SLICES         ((size_t)4)
+#define ZHPE_MAX_IRQS_PER_SLICE ((size_t)32)
+#define ZHPE_MAX_RDMQS_PER_SLICE ((size_t)256)
+#define ZHPE_MAX_XDMQS_PER_SLICE ((size_t)256)
+
+#define ZHPE_MAX_IRQS   (ZHPE_MAX_IRQS_PER_SLICE * ZHPE_MAX_SLICES)
+#define ZHPE_MAX_RDMQS  (ZHPE_MAX_RDMQS_PER_SLICE * ZHPE_MAX_SLICES)
+#define ZHPE_MAX_XDMQS  (ZHPE_MAX_XDMQS_PER_SLICE * ZHPE_MAX_SLICES)
+
+#define ZHPE_MAX_IMM            ((size_t)32)
+#define ZHPE_MAX_ENQA           ((size_t)52)
+
+#define ZHPE_XDM_QCM_CMD_BUF_COUNT         0x10
+#define ZHPE_RDM_QCM_RCV_QUEUE_HEAD_OFFSET 0xc0
 
 #define ZHPE_MR_GET             ((uint32_t)1 << 0)
 #define ZHPE_MR_PUT             ((uint32_t)1 << 1)
@@ -82,32 +94,72 @@ enum zhpe_hw_atomic {
     ZHPE_HW_ATOMIC_SIZE_MASK    = 0x0E,
 };
 
-enum zhpe_hw_cq {
-    ZHPE_HW_CQ_STATUS_SUCCESS               = 0x00,
-    ZHPE_HW_CQ_STATUS_CMD_TRUNCATED         = 0x01,
-    ZHPE_HW_CQ_STATUS_BAD_CMD               = 0x02,
-    ZHPE_HW_CQ_STATUS_LOCAL_UNRECOVERABLE   = 0x11,
-    ZHPE_HW_CQ_STATUS_FABRIC_UNRECOVERABLE  = 0x21,
-    ZHPE_HW_CQ_STATUS_FABRIC_NO_RESOURCES   = 0x22,
-    ZHPE_HW_CQ_STATUS_FABRIC_ACCESS         = 0x23,
+enum zhpe_hw_cq_status {
+    ZHPE_HW_CQ_STATUS_SUCCESS                   = 0x00,
+    ZHPE_HW_CQ_STATUS_XDM_PUT_READ_ERROR        = 0x01,
+    ZHPE_HW_CQ_STATUS_XDM_BAD_COMMAND           = 0x02,
+    ZHPE_HW_CQ_STATUS_GENZ_UNSUPPORTED_REQ      = 0x82,
+    ZHPE_HW_CQ_STATUS_GENZ_MALFORMED_PKT        = 0x83,
+    ZHPE_HW_CQ_STATUS_GENZ_PKT_EXECUTION_ERROR  = 0x85,
+    ZHPE_HW_CQ_STATUS_GENZ_INVALID_PERMISSION   = 0x87,
+    ZHPE_HW_CQ_STATUS_GENZ_COMP_CONTAINMENT     = 0x88,
+    ZHPE_HW_CQ_STATUS_GENZ_RDM_QUEUE_FULL       = 0x93,
+    ZHPE_HW_CQ_STATUS_GENZ_UNSUPPORTED_SVC      = 0x95,
+    ZHPE_HW_CQ_STATUS_GENZ_RETRIES_EXCEEDED     = 0xA2,
 
-    ZHPE_HW_CQ_VALID                        = 0x01,
+};
+
+/*
+ * Traffic class abstraction for user space. Used in zhpe_req_XQALLOC
+ * traffic_class field. Mapping to actual Gen-Z traffic class is
+ * undefined to user space.
+ */
+enum {
+    ZHPE_TC_0           = 0,
+    ZHPE_TC_1           = 1,
+    ZHPE_TC_2           = 2,
+    ZHPE_TC_3           = 3,
+    ZHPE_TC_4           = 4,
+    ZHPE_TC_5           = 5,
+    ZHPE_TC_6           = 6,
+    ZHPE_TC_7           = 7,
+    ZHPE_TC_8           = 8,
+    ZHPE_TC_9           = 9,
+    ZHPE_TC_10          = 10,
+    ZHPE_TC_11          = 11,
+    ZHPE_TC_12          = 12,
+    ZHPE_TC_13          = 13,
+    ZHPE_TC_14          = 14,
+    ZHPE_TC_15          = 15,
+    ZHPE_MAX_TC         = ZHPE_TC_15,
+};
+
+enum {
+    ZHPE_PRIO_LO        = 0,
+    ZHPE_PRIO_HI        = 1,
+    ZHPE_MAX_PRIO       = ZHPE_PRIO_HI,
 };
 
 union zhpe_result {
-    char                data[ZHPE_IMM_MAX];
+    char                data[ZHPE_MAX_IMM];
     uint32_t            atomic32;
     uint64_t            atomic64;
 };
 
+/*
+ * Both XDM and RDM completion queues have their valid bit in bit 0 of the
+ * first byte; the meaning of the bit flips with each traversal of the ring.
+ */
+#define ZHPE_CMP_ENT_VALID_MASK (1U)
+
 struct zhpe_cq_entry {
     uint8_t             valid : 1;
     uint8_t             rv1   : 4;
-    uint8_t             qd    : 3;  /* EnqA only */
+    uint8_t             qd    : 3;      /* EnqA only */
     uint8_t             status;
     uint16_t            index;
     uint8_t             filler1[4];
-    void                *context;
+    void                *context;       /* Borrowed by SW to return context. */
     uint8_t             filler2[16];
     union zhpe_result   result;
 };
@@ -157,7 +209,7 @@ struct zhpe_hw_wq_imm {
     uint32_t            len;
     uint64_t            rem_addr;
     uint8_t             filler[16];
-    uint8_t             data[ZHPE_IMM_MAX];
+    uint8_t             data[ZHPE_MAX_IMM];
 };
 
 struct zhpe_hw_wq_atomic {
@@ -172,8 +224,12 @@ struct zhpe_hw_wq_atomic {
     };
 };
 
-#define ZHPE_GCID_BITS          28
-#define ZHPE_CTXID_BITS         24
+#define ZHPE_GCID_BITS          (28U)
+#define ZHPE_CTXID_BITS         (24U)
+
+struct zhpe_enqa_payload {
+    uint8_t             data[ZHPE_MAX_ENQA];
+};
 
 struct zhpe_hw_wq_enqa {
     struct zhpe_hw_wq_hdr hdr;
@@ -181,7 +237,7 @@ struct zhpe_hw_wq_enqa {
     uint32_t            dgcid    : ZHPE_GCID_BITS;
     uint32_t            rspctxid : ZHPE_CTXID_BITS;
     uint32_t            rv2      :  8;
-    uint8_t             payload[ZHPE_ENQA_MAX];
+    struct zhpe_enqa_payload payload;
 };
 
 union zhpe_hw_wq_entry {
@@ -191,6 +247,7 @@ union zhpe_hw_wq_entry {
     struct zhpe_hw_wq_imm imm;
     struct zhpe_hw_wq_atomic atm;
     struct zhpe_hw_wq_enqa enqa;
+    uint64_t            bytes8[8];
     uint8_t             filler[ZHPE_HW_ENTRY_LEN];
 };
 
@@ -210,7 +267,7 @@ struct zhpe_rdm_hdr {
 struct zhpe_rdm_entry {
     struct zhpe_rdm_hdr hdr;
     uint8_t             filler1[4];
-    uint8_t             payload[ZHPE_ENQA_MAX];
+    struct zhpe_enqa_payload payload;
 };
 
 union zhpe_hw_rdm_entry {
@@ -218,14 +275,7 @@ union zhpe_hw_rdm_entry {
     uint8_t             filler[ZHPE_HW_ENTRY_LEN];
 };
 
-enum zhpe_backend {
-    ZHPE_BACKEND_ZHPE = 1,
-    ZHPE_BACKEND_LIBFABRIC,
-    ZHPE_BACKEND_MAX,
-};
-
 struct zhpe_attr {
-    enum zhpe_backend   backend;
     uint32_t            max_tx_queues;
     uint32_t            max_rx_queues;
     uint32_t            max_tx_qlen;
@@ -249,6 +299,35 @@ static inline void mcommit(void)
 
 #define CPUID_8000_0008                 (0x80000008)
 #define CPUID_8000_0008_EBX_MCOMMIT     (0x100)
+
+struct zhpe_qcm {
+    uint32_t           size;   /* Bytes allocated for the QCM */
+    uint64_t           off;    /* File descriptor offset to the QCM */
+};
+
+struct zhpe_queue {
+    uint32_t           ent;    /* Number of entries in the queue */
+    uint32_t           size;   /* Bytes allocated for the queue */
+    uint64_t           off;    /* File descriptor offset to the queue */
+};
+
+struct zhpe_xqinfo {
+    struct zhpe_qcm     qcm;   /* XDM Queue Control Memory */
+    struct zhpe_queue   cmdq;  /* XDM Command Queue */
+    struct zhpe_queue   cmplq; /* XDM Completion Queue */
+    uint8_t             slice; /* HW slice number which allocated the queues */
+    uint8_t             queue; /* HW queue number */
+};
+
+struct zhpe_rqinfo {
+    struct zhpe_qcm     qcm;   /* XDM Queue Control Memory */
+    struct zhpe_queue   cmplq; /* XDM Completion Queue */
+    uint8_t             slice; /* HW slice number which allocated the queues */
+    uint8_t             queue; /* HW queue number */
+    uint16_t            clump; /* irq clump size (can be 256) */
+    uint32_t            rspctxid; /* RSPCTXID to use with EnqA */
+    uint32_t            irq_vector; /* interrupt vector that maps to poll dev */
+};
 
 _EXTERN_C_END
 

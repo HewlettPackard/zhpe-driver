@@ -943,21 +943,30 @@ static int zhpe_user_req_INIT(struct io_entry *entry)
 {
     union zhpe_rsp      *rsp = &entry->op.rsp;
     struct file_data    *fdata = entry->fdata;
-    struct uuid_tracker *uu;
-    uint32_t            ro_rkey, rw_rkey;
     int                 status = 0;
+    uint32_t            num_slices = atomic_read(&fdata->bridge->num_slices);
+    struct uuid_tracker *uu;
+    uint32_t            ro_rkey;
+    uint32_t            rw_rkey;
     char                str[UUID_STRING_LEN+1];
 
+    rsp->init.magic = ZHPE_MAGIC;
+
+    rsp->init.attr.max_tx_queues = zhpe_xdm_queues_per_slice * num_slices;
+    rsp->init.attr.max_rx_queues = zhpe_rdm_queues_per_slice * num_slices;
+    rsp->init.attr.max_tx_qlen = ZHPE_MAX_XDM_QLEN;
+    rsp->init.attr.max_rx_qlen = ZHPE_MAX_RDM_QLEN;
+    rsp->init.attr.max_dma_len = ZHPE_MAX_DMA_LEN;
+    rsp->init.attr.num_slices = num_slices;
+
     rsp->init.global_shared_offset = fdata->global_shared_zmap->offset;
-    rsp->init.global_shared_size =
-            fdata->global_shared_zmap->zpages->hdr.size;
+    rsp->init.global_shared_size = fdata->global_shared_zmap->zpages->hdr.size;
     rsp->init.local_shared_offset = fdata->local_shared_zmap->offset;
-    rsp->init.local_shared_size =
-            fdata->local_shared_zmap->zpages->hdr.size;
+    rsp->init.local_shared_size = fdata->local_shared_zmap->zpages->hdr.size;
 
     zhpe_generate_uuid(fdata->bridge, &rsp->init.uuid);
     uu = zhpe_uuid_tracker_alloc_and_insert(&rsp->init.uuid, UUID_TYPE_LOCAL,
-		0, fdata, GFP_KERNEL, &status);
+                                            0, fdata, GFP_KERNEL, &status);
     if (!uu)
         goto out;
 
@@ -1464,8 +1473,6 @@ static int alloc_map_shared_data(struct file_data *fdata)
     /* Initialize the counters to 0 */
     local_shared_data = (struct zhpe_local_shared_data *)
 			fdata->local_shared_zpage->queue.pages[0];
-    local_shared_data->magic = ZHPE_MAGIC;
-    local_shared_data->version = ZHPE_LOCAL_SHARED_VERSION;
     for (i = 0; i < MAX_IRQ_VECTORS; i++)
 	local_shared_data->handled_counter[i] = 0;
 
@@ -1518,7 +1525,6 @@ static int zhpe_open(struct inode *inode, struct file *file)
 
     /* update the actual number of slices in the zhpe_attr */
     size = atomic_read(&zhpe_bridge.num_slices);
-    global_shared_data->default_attr.num_slices = size;
     if (!size) {
         debug(DEBUG_IO, "No device found\n");
         goto done;
@@ -1536,7 +1542,8 @@ static int zhpe_open(struct inode *inode, struct file *file)
     spin_lock_init(&fdata->io_lock);
     init_waitqueue_head(&fdata->io_wqh);
     INIT_LIST_HEAD(&fdata->rd_list);
-    fdata->bridge = &zhpe_bridge;  /* Revisit MultiBridge: support multiple bridges */
+    /* Revisit MultiBridge: support multiple bridges */
+    fdata->bridge = &zhpe_bridge;
     spin_lock_init(&fdata->uuid_lock);
     fdata->local_uuid = NULL;
     fdata->fd_remote_uuid_tree = RB_ROOT;
@@ -1986,14 +1993,6 @@ static int __init zhpe_init(void)
 {
     int                 ret;
     int                 i;
-    struct zhpe_attr default_attr = {
-        .max_tx_queues      = zhpe_xdm_queues_per_slice*SLICES,
-        .max_rx_queues      = zhpe_rdm_queues_per_slice*SLICES,
-        .max_tx_qlen        = ZHPE_MAX_XDM_QLEN,
-        .max_rx_qlen        = ZHPE_MAX_RDM_QLEN,
-        .max_dma_len        = ZHPE_MAX_DMA_LEN,
-        .num_slices         = 0, /* updated on open() to actual */
-    };
     uint                sl, pg, cnt, pg_index;
 
     ret = parse_platform(platform);
@@ -2026,10 +2025,6 @@ static int __init zhpe_init(void)
         goto err_out;
     }
     global_shared_data = global_shared_zpage->queue.pages[0];
-    global_shared_data->magic = ZHPE_MAGIC;
-    global_shared_data->version = ZHPE_GLOBAL_SHARED_VERSION;
-    global_shared_data->debug_flags = zhpe_debug_flags;
-    global_shared_data->default_attr = default_attr;
     for (i = 0; i < MAX_IRQ_VECTORS; i++)
 	global_shared_data->triggered_counter[i] = 0;
 

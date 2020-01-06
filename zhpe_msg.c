@@ -226,6 +226,9 @@ static int msg_xdm_queue_cmd(struct xdm_info *xdmi,
                 break;
             }
             /* Revisit: examine status */
+            if (cq_entry.status)
+                debug(DEBUG_MSG, "idx 0x%x status 0x%0x\n",
+                      xdmi->cmplq_head, cq_entry.status);
             more = cmpl_ret;
         } while (more);
     }
@@ -269,7 +272,7 @@ static int msg_rdm_get_cmpl(struct rdm_info *rdmi, struct zhpe_rdm_hdr *hdr,
     }
     /* copy RDM completion entry to caller */
     *hdr = rdm_entry->hdr;
-    memcpy(msg, rdm_entry->payload, sizeof(*msg));
+    memcpy(msg, &rdm_entry->payload, sizeof(*msg));
     /* do mod-add to compute next head value */
     next_head = (head + 1) % rdmi->cmplq_ent;
     /* toggle cur_valid on wrap */

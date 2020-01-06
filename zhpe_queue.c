@@ -881,7 +881,7 @@ int zhpe_user_req_XQALLOC(struct io_entry *entry)
 static void xdm_qcm_setup(struct xdm_qcm *hw_qcm_addr,
                           uint64_t cmdq_dma_addr, uint64_t cmplq_dma_addr,
                           uint cmdq_ent, uint cmplq_ent,
-                          int traffic_class, int priority,
+                          uint traffic_class, uint priority,
                           bool cur_valid, uint pasid, uint fabric_pasid)
 {
     struct xdm_qcm_header     qcm = { 0 };
@@ -899,19 +899,19 @@ static void xdm_qcm_setup(struct xdm_qcm *hw_qcm_addr,
     qcm.local_pasid = pasid;
     qcm.fabric_pasid = fabric_pasid;
 
-    if (traffic_class > 15) {
+    if (traffic_class > ZHPE_MAX_TC) {
         debug(DEBUG_XQUEUE, "Invalid traffic_class: %d. Default to 0.\n",
               traffic_class);
-        qcm.traffic_class = 0;
+        qcm.traffic_class = ZHPE_TC_0;
     }
     else {
         /* Revisit: should we allow app control of traffic_class? */
         qcm.traffic_class = traffic_class;
     }
-    if (priority > 1) {
+    if (priority > ZHPE_MAX_PRIO) {
         debug(DEBUG_XQUEUE, "Invalid priority: %d. Default to 0.\n",
               priority);
-        qcm.priority = 0;
+        qcm.priority = ZHPE_PRIO_LO;
     }
     else {
         qcm.priority = priority;
@@ -1387,16 +1387,17 @@ int zhpe_req_RQALLOC(struct zhpe_req_RQALLOC *req,
         goto done;
     }
     /* set bit in this file_data as owner */
+    sl = &(fdata->bridge->slice[slice]);
     spin_lock(&fdata->rdm_queue_lock);
     set_bit((slice*zhpe_rdm_queues_per_slice)+queue, fdata->rdm_queues);
     spin_unlock(&fdata->rdm_queue_lock);
     rsp->info.slice = slice;
     rsp->info.queue = queue;
+    rsp->info.clump = MAX_RDM_QUEUES_PER_SLICE / sl->irq_vectors_count;
     rsp->info.irq_vector = irq_vector;
     rsp->info.rspctxid = zhpe_rspctxid_alloc(slice, queue);
 
     /* Get a pointer to the qcm chosen to initialize it's fields */
-    sl = &(fdata->bridge->slice[slice]);
     hw_qcm_addr = &(sl->bar->rdm[queue*2]);
 
     debug(DEBUG_RQUEUE, "hw_qcm_addr for slice %d queue %d queue init 0x%px\n",

@@ -222,13 +222,13 @@ class rqinfo(Structure):
                 ('cmplq',      queue),
                 ('slice',      c_u8),
                 ('queue',      c_u8),
+                ('clump',      c_u16),
                 ('rspctxid',   c_u32),
                 ('irq_vector', c_u32)
                 ]
 
 class zhpe_attr(Structure):
-    _fields_ = [('backend',        c_u32),
-                ('max_tx_queues',  c_u32),
+    _fields_ = [('max_tx_queues',  c_u32),
                 ('max_rx_queues',  c_u32),
                 ('max_tx_qlen',    c_u32),
                 ('max_rx_qlen',    c_u32),
@@ -237,17 +237,11 @@ class zhpe_attr(Structure):
                ]
 
 class global_shared_data(Structure):
-    _fields_ = [('magic',             c_u32),
-                ('version',           c_u32),
-                ('debug_flags',       c_u32),
-                ('default_attr',      zhpe_attr),
-                ('triggered_counter', c_u32 * 128)
+    _fields_ = [('triggered_counter', c_u32 * 128)
                ]
 
 class local_shared_data(Structure):
-    _fields_ = [('magic',             c_u32),
-                ('version',           c_u32),
-                ('handled_counter',   c_u32 * 128)
+    _fields_ = [('handled_counter',   c_u32 * 128)
                ]
 
 class req_INIT(Structure):
@@ -256,6 +250,8 @@ class req_INIT(Structure):
 
 class rsp_INIT(uuidStructure):
     _fields_ = [('hdr',                  hdr),
+                ('magic',                c_u32),
+                ('attr',                 zhpe_attr),
                 ('uuid_bytes',           c_byte * 16),
                 ('global_shared_offset', c_u64),
                 ('global_shared_size',   c_u32),
