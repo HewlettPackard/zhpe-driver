@@ -76,12 +76,14 @@ def parse_args():
                         help='fence every comand')
     parser.add_argument('-l', '--len', default=1024, type=int,
                         help='length of data transfer operations')
-    parser.add_argument('-o', '--op', default='get',
+    parser.add_argument('-o', '--op', default='nop',
                         help='operation get, put, get_imm, put_imm, nop, sync')
-    parser.add_argument('-q', '--queues', default=1, type=int,
-                        help='number of xdm queues')
     parser.add_argument('-P', '--post_mortem', action='store_true',
                         help='enter debugger on uncaught exception')
+    parser.add_argument('-q', '--queues', default=1, type=int,
+                        help='number of xdm queues')
+    parser.add_argument('-s', '--slice', default=0, type=int,
+                        help='slice 0-3')
     parser.add_argument('-v', '--verbosity', action='count', default=0,
                         help='increase output verbosity')
     parser.add_argument('-w', '--window', default=0, type=int,
@@ -125,8 +127,14 @@ def main():
             raise_err('-w option must be <= queue size')
             
         queues = []
+        smask = 1 << args.slice
+        smask |= 0x80
         for q in range(args.queues):
-            xdm = zhpe.XDM(conn, args.xdmq_size, args.xdmq_size, slice_mask=0x1)
+            xdm = zhpe.XDM(conn, args.xdmq_size, args.xdmq_size,
+                           slice_mask=smask)
+            if args.verbosity:
+                print('XDM queue = {} slice = {}'.format(
+                    xdm.rsp_xqa.info.queue, xdm.rsp_xqa.info.slice))
             queues.append(Queue(xdm, args.commands))
 
         cmd = zhpe.xdm_cmd()
@@ -152,6 +160,9 @@ def main():
             cmd.getput.read_addr = rsp_rmr.req_addr
             cmd.getput.write_addr = v + args.len
 
+        if args.verbosity:
+            print("cmd: {}".format(cmd))
+
         # Fill the queue with the commands
         for i in range(args.xdmq_size):
             for q in queues:
@@ -163,17 +174,27 @@ def main():
         working = queues.copy()
         while working:
             for q in working:
-                qtail = q.xdm.qcm.cmpl_q_tail_idx & qmask
-                qdone = (qtail - q.xdm.cmpl_q_tail_shadow) & qmask
-                q.xdm.cmpl_q_tail_shadow = qtail
-                q.cmps -= qdone;
-                if q.cmps == 0:
-                    working.remove(q)
+                cmps = 0
+                while True:
+                    cmpl = q.xdm.get_cmpl(wait=False)
+                    if cmpl == None:
+                        break
+                    cmps += 1
+                if cmps != 0:
+                    q.cmps -= cmps
+                    if q.cmps == 0:
+                        working.remove(q)
+                    if args.verbosity:
+                        print("queue {} completed {}".format(
+                            q.xdm.rsp_xqa.info.queue, cmps))
                 qavail = qmask - (q.cmps - q.cmds)
                 qavail = min(qavail, q.cmds, args.window)
-                if qavail == args.window or qavail == q.cmds:
+                if qavail != 0 and (qavail == args.window or qavail == q.cmds):
                     q.xdm.ring2(qavail)
                     q.cmds -= qavail
+                    if args.verbosity:
+                        print("queue {} started {}".format(
+                            q.xdm.rsp_xqa.info.queue, qavail))
 
         if args.keyboard:
             set_trace()
