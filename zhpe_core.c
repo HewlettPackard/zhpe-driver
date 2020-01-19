@@ -64,8 +64,23 @@ module_param_named(debug, zhpe_debug_flags, uint, 0644);
 MODULE_PARM_DESC(debug, "debug output bitmask");
 #endif /* !NDEBUG */
 
-module_param_named(kmsg_timeout, zhpe_kmsg_timeout, uint, 0644);
+module_param_named(kmsg_timeout, zhpe_kmsg_timeout, uint, 0444);
 MODULE_PARM_DESC(kmsg_timeout, "kernel-to-kernel message timeout in seconds");
+
+/*
+ * Write pusher default settings:
+ *
+ * physical address zero, zero byte reads, and
+ * ctl_28:PBShift 4 << 20, MinDel 10 << 12, NumReq 16 << 4, En 1
+ */
+
+static ulong wr_pusher_phyaddr = 0;
+static uint wr_pusher_ctl_28 = 0x509101;
+
+module_param(wr_pusher_phyaddr, ulong, 0444);
+MODULE_PARM_DESC(wr_pusher_phyaddr, "Write-pusher physical address");
+module_param(wr_pusher_ctl_28, uint, 0444);
+MODULE_PARM_DESC(wr_pusher_ctl_28, "Write-pusher configuration offset 0x28");
 
 const char zhpe_driver_name[] = DRIVER_NAME;
 
@@ -1629,9 +1644,15 @@ static int zhpe_open(struct inode *inode, struct file *file)
 #define PCI_EXT_CAP_ID_DVSEC 0x23  /* Revisit: should be in pci.h */
 #endif
 
-#define ZHPE_DVSEC_VSLICE_OFF     (0x2C)
+#define ZHPE_DVSEC_WP_ADDR_LO_OFF (0x1C)
+#define ZHPE_DVSEC_WP_ADDR_HI_OFF (0x20)
+#define ZHPE_DVSEC_WP_CTL_24_OFF  (0x24)
+#define ZHPE_DVSEC_WP_CTL_24_VAL  (0)           /* Zero bytes, physical addr. */
+#define ZHPE_DVSEC_WP_CTL_28_OFF  (0x28)
+#define ZHPE_DVSEC_SLICE_OFF      (0x2C)
+#define ZHPE_DVSEC_PSLICE_SHIFT   (0xD)
+#define ZHPE_DVSEC_SLICE_MASK     (0x3)
 #define ZHPE_DVSEC_VSLICE_SHIFT   (0xF)
-#define ZHPE_DVSEC_VSLICE_MASK    (0x3)
 #define ZHPE_DVSEC_MBOX_CTRL_OFF  (0x30)
 #define ZHPE_DVSEC_MBOX_CTRL_TRIG (0x1)
 #define ZHPE_DVSEC_MBOX_CTRL_BE   (0xFF00)
@@ -1712,7 +1733,9 @@ static int zhpe_probe(struct pci_dev *pdev,
                       const struct pci_device_id *pdev_id)
 {
     int ret, pos = 0;
-    int l_slice_id;
+    int vslice_id;
+    int pslice_id;
+    int num_slice;
     void __iomem *base_addr;
     struct bridge *br = &zhpe_bridge;
     struct slice *sl = NULL;
@@ -1756,27 +1779,58 @@ static int zhpe_probe(struct pci_dev *pdev,
             ret = -ENODEV;
             goto err_out;
         }
-        pci_read_config_dword(pdev, pos + ZHPE_DVSEC_VSLICE_OFF, &l_slice_id);
-        l_slice_id >>= ZHPE_DVSEC_VSLICE_SHIFT;
-        l_slice_id &= ZHPE_DVSEC_VSLICE_MASK;
-        dev_info(&pdev->dev, "%s:%s,%u,%d:vslice = %d\n",
+        pci_read_config_dword(pdev, pos + ZHPE_DVSEC_SLICE_OFF, &pslice_id);
+        vslice_id = pslice_id;
+        pslice_id >>= ZHPE_DVSEC_PSLICE_SHIFT;
+        pslice_id &= ZHPE_DVSEC_SLICE_MASK;
+        vslice_id >>= ZHPE_DVSEC_VSLICE_SHIFT;
+        vslice_id &= ZHPE_DVSEC_SLICE_MASK;
+        pci_read_config_dword(pdev, pos + ZHPE_DVSEC_SLINK_BASE_OFF,
+                              &slink_base);
+        dev_info(&pdev->dev, "%s:%s,%u,%d:pslice = %d, vslice = %d"
+                 " slink = 0x%x\n",
                  zhpe_driver_name, __func__, __LINE__, task_pid_nr(current),
-                 l_slice_id);
-        sl = &br->slice[l_slice_id];
+                 pslice_id, vslice_id, slink_base);
+        /* Ignore duplicates. */
+        sl = &br->slice[pslice_id];
         if (SLICE_VALID(sl)) {
             dev_warn(&pdev->dev, "%s:%s,%u,%d:slice %d already found\n",
                      zhpe_driver_name, __func__, __LINE__, task_pid_nr(current),
-                     l_slice_id);
+                     pslice_id);
             ret = -ENODEV;
             goto err_out;
         }
+        /* Base is in GiB */
+        if (slink_base) {
+            if (!zhpe_reqz_phy_cpuvisible_off) {
+                zhpe_reqz_phy_cpuvisible_off = (uint64_t)slink_base << 30;
+                debug(DEBUG_PCI, "phy_cpuvisible_off 0x%llx\n",
+                      zhpe_reqz_phy_cpuvisible_off);
+            } else if (zhpe_reqz_phy_cpuvisible_off !=
+                       ((uint64_t)slink_base << 30)) {
+                dev_warn(&pdev->dev, "%s:%s,%u,%d:slink disabled\n",
+                         zhpe_driver_name, __func__, __LINE__,
+                         task_pid_nr(current));
+                zhpe_reqz_phy_cpuvisible_off |= 1;
+            }
+        }
+        /* Configure write pusher. */
+        pci_write_config_dword(pdev, pos + ZHPE_DVSEC_WP_CTL_28_OFF, 0);
+        pci_write_config_dword(pdev, pos + ZHPE_DVSEC_WP_ADDR_LO_OFF,
+                               wr_pusher_phyaddr);
+        pci_write_config_dword(pdev, pos + ZHPE_DVSEC_WP_ADDR_HI_OFF,
+                               wr_pusher_phyaddr >> 32);
+        pci_write_config_dword(pdev, pos + ZHPE_DVSEC_WP_CTL_24_OFF,
+                               ZHPE_DVSEC_WP_CTL_24_VAL);
+        pci_write_config_dword(pdev, pos + ZHPE_DVSEC_WP_CTL_28_OFF,
+                               wr_pusher_ctl_28);
     } else
         /* Carbon:zero based slice ID */
-        l_slice_id = atomic_inc_return(&slice_id) - 1;
-    sl = &br->slice[l_slice_id];
-    atomic_inc(&br->num_slices);
+        pslice_id = atomic_inc_return(&slice_id) - 1;
+    sl = &br->slice[pslice_id];
+    num_slice = atomic_inc_return(&br->num_slices);
 
-    debug(DEBUG_PCI, "device = %s, slice = %u\n", pci_name(pdev), l_slice_id);
+    debug(DEBUG_PCI, "device = %s, slice = %u\n", pci_name(pdev), pslice_id);
 
     ret = pci_enable_device(pdev);
     if (ret) {
@@ -1799,7 +1853,8 @@ static int zhpe_probe(struct pci_dev *pdev,
         goto err_pci_disable_device;
     }
 
-    base_addr = pci_iomap(pdev, ZHPE_ZMMU_XDM_RDM_HSR_BAR, sizeof(struct func1_bar0));
+    base_addr = pci_iomap(pdev, ZHPE_ZMMU_XDM_RDM_HSR_BAR,
+                          sizeof(struct func1_bar0));
     if (!base_addr) {
         debug(DEBUG_PCI,
               "cannot iomap bar %u registers of size %lu"
@@ -1820,22 +1875,15 @@ static int zhpe_probe(struct pci_dev *pdev,
 
     sl->bar = base_addr;
     sl->phys_base = phys_base;
-    sl->id = l_slice_id;
+    sl->id = pslice_id;
     sl->pdev = pdev;
     sl->valid = true;
 
-    /* Better be the first slice found. */
-    if (l_slice_id == 0) {
+    if (num_slice == 1) {
         if (zhpe_platform != ZHPE_CARBON) {
             ret = csr_get_gcid(br);
             if (ret < 0 && zhpe_platform == ZHPE_PFSLICE)
                 goto err_pci_iounmap;
-            pci_read_config_dword(pdev, pos + ZHPE_DVSEC_SLINK_BASE_OFF,
-                                  &slink_base);
-            /* Base is in GiB */
-            zhpe_reqz_phy_cpuvisible_off = (uint64_t)slink_base << 30;
-            debug(DEBUG_PCI, "phy_cpuvisible_off 0x%llx\n",
-                  zhpe_reqz_phy_cpuvisible_off);
         } else {
             if (genz_gcid == INVALID_GCID) {
                 dev_warn(&pdev->dev, "%s:%s,%u,%d:genz_gcid not set\n",

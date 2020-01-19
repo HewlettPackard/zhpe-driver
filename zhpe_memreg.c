@@ -783,6 +783,9 @@ static struct zmap *rmr_zmap_alloc(struct file_data *fdata,
     union zpages            *zpages;
     struct zmap             *zmap;
 
+    if (!zhpe_reqz_phy_cpuvisible_off && (zhpe_reqz_phy_cpuvisible_off & 1))
+        return ERR_PTR(-ENODEV);
+
     zpages = rmr_zpages_alloc(rmr);
     if (!zpages)
         return ERR_PTR(-ENOMEM);

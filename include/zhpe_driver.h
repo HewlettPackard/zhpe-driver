@@ -427,7 +427,7 @@ struct bridge {
 struct queue_zpage {
 	int		page_type;
 	size_t		size;	/* in bytes */
-	void		*pages[0];
+	void		*pages[];
 };
 
 struct hsr_zpage {
