@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2018-2020 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -254,24 +254,24 @@ extern uint64_t zhpe_reqz_phy_cpuvisible_off;
 #define CARBON_RDM_QUEUES_PER_SLICE         (256)
 #define CARBON_REQZ_MIN_CPUVISIBLE_ADDR     (GB(4)+TB(1))
 #define CARBON_REQZ_MAX_CPUVISIBLE_ADDR \
-    (CARBON_REQZ_MIN_CPUVISIBLE_ADDR+TB(250)-1ull)
-#define CARBON_REQZ_PHY_CPUVISIBLE_OFF      (0)
+    (CARBON_REQZ_MIN_CPUVISIBLE_ADDR+TB(250)-1UL)
+#define CARBON_REQZ_PHY_CPUVISIBLE_OFF      (GB(0))
 
 /* PFslice FPGA Platform */
 #define PFSLICE_REQ_ZMMU_ENTRIES            (1024)
 #define PFSLICE_RSP_ZMMU_ENTRIES            (1024)
 #define PFSLICE_XDM_QUEUES_PER_SLICE        (256)
 #define PFSLICE_RDM_QUEUES_PER_SLICE        (256)
-#define PFSLICE_REQZ_MIN_CPUVISIBLE_ADDR    (0x2345678000UL) /* for debug */
-#define PFSLICE_REQZ_MAX_CPUVISIBLE_ADDR    (TB(250) - 1)
+#define PFSLICE_REQZ_MIN_CPUVISIBLE_ADDR    (GB(0))
+#define PFSLICE_REQZ_MAX_CPUVISIBLE_ADDR    (TB(192) - 1)
 
 /* Wildcat Hardware Platform */
 #define WILDCAT_REQ_ZMMU_ENTRIES            (128*1024)
 #define WILDCAT_RSP_ZMMU_ENTRIES            (64*1024)
 #define WILDCAT_XDM_QUEUES_PER_SLICE        (256)
 #define WILDCAT_RDM_QUEUES_PER_SLICE        (256)
-#define WILDCAT_REQZ_MIN_CPUVISIBLE_ADDR    (0)
-#define WILDCAT_REQZ_MAX_CPUVISIBLE_ADDR    (TB(250) - 1)
+#define WILDCAT_REQZ_MIN_CPUVISIBLE_ADDR    (GB(0))
+#define WILDCAT_REQZ_MAX_CPUVISIBLE_ADDR    (TB(192) - 1)
 
 /* Platform values common to all platforms */
 #define ZHPE_MAX_XDM_QLEN                 (BIT(16)-1)
@@ -359,6 +359,7 @@ struct slice {
     spinlock_t          zmmu_lock;   /* per-slice zmmu lock */
     bool                valid;       /* slice is fully initialized */
     unsigned int        id;          /* zero based, unique slice id */
+    unsigned int        phys_id;     /* zero based, unique physical slice id */
     struct pci_dev	*pdev;
     /* Revisit: add s_link boolean */
     spinlock_t           xdm_slice_lock; /* locks alloc_count, alloced_bitmap */
@@ -409,15 +410,17 @@ struct rdm_info {
 };
 
 struct bridge {
+    int                   probe_error;
     uint32_t              gcid;
-    atomic_t              num_slices;
+    uint32_t              expected_slices;
+    uint32_t              num_slices;
     struct slice          slice[SLICES];
     spinlock_t            zmmu_lock;  /* global bridge zmmu lock */
     struct page_grid_info req_zmmu_pg;
     struct page_grid_info rsp_zmmu_pg;
     struct xdm_info       msg_xdm;
     struct rdm_info       msg_rdm;
-    struct mutex          csr_mutex;   /* protect CSR mailbox */
+    struct mutex          probe_mutex; /* one probe at a time; also CSRs */
     spinlock_t            fdata_lock;  /* protects fdata_list */
     struct list_head      fdata_list;
     struct work_struct    msg_work;
@@ -535,7 +538,6 @@ enum {
 
 /* Globals */
 extern struct bridge    zhpe_bridge;
-extern uint genz_gcid;
 extern uint genz_loopback;
 
 #define CHECK_INIT_STATE(_entry, _ret, _label)              \

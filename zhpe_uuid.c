@@ -503,7 +503,8 @@ void zhpe_notify_remote_uuids(struct file_data *fdata)
                                             &uu->uuid);
         if (IS_ERR(state)) {
             status = PTR_ERR(state);
-            debug(DEBUG_MSG, "zhpe_msg_send_UUID_TEARDOWN status=%d\n", status);
+            debug(DEBUG_MSG, "zhpe_msg_send_UUID_TEARDOWN I/O error = %d\n",
+                  status);
             continue;
         }
         list_add_tail(&state->msg_list, &teardown_msg_list);
@@ -529,7 +530,8 @@ void zhpe_notify_remote_uuids(struct file_data *fdata)
                                         false);
         if (IS_ERR(state)) {
             status = PTR_ERR(state);
-            debug(DEBUG_MSG, "zhpe_msg_send_UUID_FREE status=%d\n", status);
+            debug(DEBUG_MSG, "zhpe_msg_send_UUID_FREE I/O error = %d\n",
+                  status);
             continue;
         }
         list_add_tail(&state->msg_list, &free_msg_list);
@@ -749,10 +751,11 @@ int zhpe_user_req_UUID_FREE(struct io_entry *entry)
         uu_flags = uu->remote->uu_flags;
         if (!(uu_flags & UUID_IS_FAM)) {
             state = zhpe_msg_send_UUID_FREE(fdata->bridge,
-                                        &fdata->local_uuid->uuid, uuid, true);
+                                            &fdata->local_uuid->uuid, uuid,
+                                            true);
             if (IS_ERR(state)) {
                 status = PTR_ERR(state);
-                debug(DEBUG_UUID, "zhpe_msg_send_UUID_FREE status=%d\n",
+                debug(DEBUG_UUID, "zhpe_msg_send_UUID_FREE I/O error = %d\n",
                       status);
             }
         }

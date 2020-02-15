@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2018-2020 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -745,6 +745,9 @@ uint64_t zhpe_zmmu_pte_addr(const struct zhpe_pte_info *info)
     base_addr = pg->page_grid.base_addr;
     ps = BIT_ULL(pg->page_grid.page_size);
     pte_off = info->pte_index - pg->page_grid.base_pte_idx;
+    debug(DEBUG_ZMMU, "b/p/s/o/r 0x%llx /0x%llx/0x%llx/0x%llx/0x%llx\n",
+          base_addr, pte_off, ps, pte_off * ps,
+          (info->addr - info->addr_aligned));
     return base_addr + (pte_off * ps) + (info->addr - info->addr_aligned);
 }
 

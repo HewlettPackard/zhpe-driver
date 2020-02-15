@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2018-2020 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -280,6 +280,15 @@ static int clear_xdm_qcm(struct xdm_qcm *qcm)
     return 0;
 }
 
+static void clear_xdm_qcm_cmd(struct xdm_qcm *qcm)
+{
+    uint64_t            off;
+
+    /* Clear command buffer space. */
+    for (off = 0; off < ZHPE_XDM_QCM_CMD_BUF_CLEAR; off += sizeof(uint64_t))
+        xdm_qcm_write_val(0, qcm, ZHPE_XDM_QCM_CMD_BUF_OFFSET + off);
+}
+
 int zhpe_clear_xdm_qcm(
     struct xdm_qcm * qcm)
 {
@@ -296,9 +305,11 @@ int zhpe_clear_xdm_qcm(
      */
     for (q = 0; q < zhpe_xdm_queues_per_slice*2; q = q+2) {
         if (clear_xdm_qcm(&qcm[q]) != 0) {
-            debug(DEBUG_XQUEUE, "zhpe_clear_xdm_qcm: queue %d failed to clear\n", q);
+            debug(DEBUG_XQUEUE,
+                  "zhpe_clear_xdm_qcm: queue %d failed to clear\n", q);
             return -1;
         }
+        clear_xdm_qcm_cmd(qcm);
     }
 
     /* Read back one value to ensure synchronization. */
@@ -351,7 +362,8 @@ int zhpe_clear_rdm_qcm(
      */
     for (q = 0; q < zhpe_rdm_queues_per_slice*2; q = q+2) {
         if (clear_rdm_qcm(&qcm[q]) != 0) {
-            debug(DEBUG_RQUEUE, "zhpe_clear_rdm_qcm: queue %d failed to clear\n", q);
+            debug(DEBUG_RQUEUE,
+                  "zhpe_clear_rdm_qcm: queue %d failed to clear\n", q);
             return -1;
         }
     }
@@ -893,7 +905,6 @@ static void xdm_qcm_setup(struct xdm_qcm *hw_qcm_addr,
     qcm.cmpl_q_base_addr = cmplq_dma_addr;
     /* Value written into the size field is queue size minus one. */
     qcm.cmpl_q_size = cmplq_ent - 1;
-    /* Revisit: change to -16 for command buffers? */
     qcm.cmd_q_size = cmdq_ent - 1;
 
     qcm.local_pasid = pasid;

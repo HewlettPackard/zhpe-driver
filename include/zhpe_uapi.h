@@ -225,6 +225,9 @@ struct zhpe_hw_wq_atomic {
 };
 
 #define ZHPE_GCID_BITS          (28U)
+#define ZHPE_GCID_SID_SHIFT     (12U)
+#define ZHPE_GCID_SID_MASK      (0xFFFFU)
+#define ZHPE_GCID_CID_MASK      (0xFFFU)
 #define ZHPE_CTXID_BITS         (24U)
 
 struct zhpe_enqa_payload {

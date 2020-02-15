@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2018-2020 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -361,17 +361,14 @@ static int msg_wait_timeout(struct zhpe_msg_state *state, ktime_t timeout)
           state->req_msg.hdr.msgid, ktime_to_ns(timeout));
     ret = wait_event_interruptible_hrtimeout(state->wq, state->ready,
                                              timeout);
-    if (ret < 0) {  /* interrupted or timout expired */
+    if (ret < 0) {  /* interrupted or timeout expired */
         debug(DEBUG_MSG, "wait on msgid=%u returned ret=%d\n",
               state->req_msg.hdr.msgid, ret);
         goto out;
     }
-
-    if (state->rsp_msg.hdr.status != 0) {
+    if (state->rsp_msg.hdr.status != 0)
         debug(DEBUG_MSG, "response for msgid=%u returned status=%d\n",
               state->rsp_msg.hdr.msgid, state->rsp_msg.hdr.status);
-        ret = -EINVAL;
-    }
 
  out:
     return ret;
@@ -384,20 +381,18 @@ static int msg_wait(struct zhpe_msg_state *state)
 
 void zhpe_msg_list_wait(struct list_head *msg_wait_list, ktime_t start)
 {
-    int                     status = 0;
     ktime_t                 timeout = get_timeout();
     struct zhpe_msg_state   *state, *next;
     ktime_t                 now, remaining;
 
     list_for_each_entry_safe(state, next, msg_wait_list, msg_list) {
-        if (status >= 0) {
-            now = ktime_sub(ktime_get(), start);
-            if (ktime_compare(timeout, now) > 0) {
-                remaining = ktime_sub(timeout, now);
-                status = msg_wait_timeout(state, remaining);
-            } else
-                status = -ETIME;
-        }
+        now = ktime_sub(ktime_get(), start);
+        if (ktime_compare(timeout, now) > 0)
+            remaining = ktime_sub(timeout, now);
+        else
+            remaining = ktime_set(0, 0);
+        /* We force everyone though msg_wait_timeout() for diagnostics. */
+        (void)msg_wait_timeout(state, remaining);
         list_del(&state->msg_list);
         msg_state_free(state);
     }
@@ -874,6 +869,10 @@ int zhpe_msg_send_UUID_IMPORT(struct bridge *br,
     ret = msg_insert_send_cmd_wait(xdmi, state, dgcid, rspctxid);
     if (ret < 0)
         goto state_free;
+    if (state->rsp_msg.hdr.status != 0) {
+        ret = -EINVAL;
+        goto state_free;
+    }
 
     *ro_rkey = state->rsp_msg.rsp.uuid_import.ro_rkey;
     *rw_rkey = state->rsp_msg.rsp.uuid_import.rw_rkey;
@@ -922,6 +921,14 @@ struct zhpe_msg_state *zhpe_msg_send_UUID_FREE(struct bridge *br,
     if (wait) {
         /* send cmd and wait for reply */
         ret = msg_insert_send_cmd_wait(xdmi, state, dgcid, rspctxid);
+        if (ret >= 0 && state->rsp_msg.hdr.status) {
+            /* No UUID can happen if the remote process exits first. */
+            if (state->rsp_msg.hdr.status == ZHPE_MSG_ERR_NO_UUID)
+                ret = -ENOENT;
+            else
+                /* I can't think of a better errno for the rest. */
+                ret = -EINVAL;
+        }
         msg_state_free(state);
         state = NULL;
     } else {

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2017-2020 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -348,6 +348,7 @@ struct zhpe_xdm_active_status_error {
  * is the trigger, so write the second half, first.
  */
 #define ZHPE_XDM_QCM_CMD_BUF_OFFSET             0x800
+#define ZHPE_XDM_QCM_CMD_BUF_CLEAR              0x800
 
 struct zhpe_xdm_cmpl_queue_tail_toggle {
     uint64_t cmpl_q_tail_idx  : 16;
