@@ -1878,8 +1878,8 @@ static uint32_t asic_slice_to_off(uint32_t pslice_id)
     return ((pslice_id >> 1) + 1) * 0x800000 + (pslice_id & 1) * 0x1000;
 }
 
-static int csr_access(struct slice *sl, bool read, struct zhpe_csr *zcsr,
-                      uint64_t *data)
+static int csr_access(struct slice *sl, struct zhpe_csr *zcsr,
+                      uint64_t *data, bool read)
 {
     int                 ret = -EIO;
     uint32_t            off = 0;
@@ -1956,6 +1956,33 @@ out:
     return ret;
 }
 
+static int csr_access_rd(struct slice *sl, struct zhpe_csr *zcsr,
+                         uint64_t *data)
+{
+    return csr_access(sl, zcsr, data, true);
+}
+
+static int csr_access_wr(struct slice *sl, struct zhpe_csr *zcsr,
+                         uint64_t data)
+{
+    return csr_access(sl, zcsr, &data, false);
+}
+
+static int csr_access_rdwr(struct slice *sl, struct zhpe_csr *zcsr,
+                           uint64_t data)
+{
+    int                 ret;
+    uint64_t            dummy;
+
+    /* Read the current value to get it logged. */
+    ret = csr_access_rd(sl, zcsr, &dummy);
+    if (!ret)
+        ret = csr_access_wr(sl, zcsr, data);
+
+    return ret;
+}
+
+
 static int csr_get_gcid(struct bridge *br, struct slice *sl)
 {
     int                 ret = 0;
@@ -1964,7 +1991,7 @@ static int csr_get_gcid(struct bridge *br, struct slice *sl)
 
     if (br->gcid != INVALID_GCID)
         goto out;
-    ret = csr_access(sl, true, &ozs_core_reg_24, &cid);
+    ret = csr_access_rd(sl, &ozs_core_reg_24, &cid);
     if (ret < 0)
         goto out;
     if (!(cid & OZS_CORE_REG_24_CID0_VALID)) {
@@ -1973,7 +2000,7 @@ static int csr_get_gcid(struct bridge *br, struct slice *sl)
     }
 
     if (cid & OZS_CORE_REG_24_SID_VALID) {
-        ret = csr_access(sl, true, &ozs_core_reg_23, &sid);
+        ret = csr_access_rd(sl, &ozs_core_reg_23, &sid);
         if (ret < 0)
             goto out;
         sid = (sid & ZHPE_GCID_SID_MASK) << ZHPE_GCID_SID_SHIFT;
@@ -1991,12 +2018,12 @@ static int csr_set_inb_cfg(struct bridge *br, struct slice *sl)
     int                 ret;
     uint64_t            cfg;
 
-    ret = csr_access(sl, true, &skw_shim_inb_cfg, &cfg);
+    ret = csr_access_rd(sl, &skw_shim_inb_cfg, &cfg);
     if (ret < 0)
         goto out;
     cfg &= skw_shim_inb_cfg_mask;
     cfg |= skw_shim_inb_cfg_bits;
-    ret = csr_access(sl, false, &skw_shim_inb_cfg, &cfg);
+    ret = csr_access_wr(sl, &skw_shim_inb_cfg, cfg);
     if (ret < 0)
         goto out;
     ret = 0;
@@ -2010,28 +2037,28 @@ static int csr_set_xdm_prio(struct bridge *br, struct slice *sl)
     int                 ret;
     uint64_t            cfg;
 
-    ret = csr_access(sl, true, &xdm_size_cfg0, &cfg);
+    ret = csr_access_rd(sl, &xdm_size_cfg0, &cfg);
     if (ret < 0)
         goto out;
     cfg &= xdm_size_cfg0_mask;
     cfg |= xdm_size_cfg0_bits;
-    ret = csr_access(sl, false, &xdm_size_cfg0, &cfg);
+    ret = csr_access_wr(sl, &xdm_size_cfg0, cfg);
     if (ret < 0)
         goto out;
-    ret = csr_access(sl, true, &xdm_priority_cfg0, &cfg);
+    ret = csr_access_rd(sl,&xdm_priority_cfg0, &cfg);
     if (ret < 0)
         goto out;
     cfg &= xdm_priority_cfg0_mask;
     cfg |= xdm_priority_cfg0_bits;
-    ret = csr_access(sl, false, &xdm_priority_cfg0, &cfg);
+    ret = csr_access_wr(sl, &xdm_priority_cfg0, cfg);
     if (ret < 0)
         goto out;
-    ret = csr_access(sl, true, &xdm_priority_cfg1, &cfg);
+    ret = csr_access_rd(sl, &xdm_priority_cfg1, &cfg);
     if (ret < 0)
         goto out;
     cfg &= xdm_priority_cfg1_mask;
     cfg |= xdm_priority_cfg1_bits;
-    ret = csr_access(sl, false, &xdm_priority_cfg1, &cfg);
+    ret = csr_access_wr(sl, &xdm_priority_cfg1, cfg);
     if (ret < 0)
         goto out;
     ret = 0;
@@ -2045,25 +2072,30 @@ static int csr_reset_logs(struct bridge *br, struct slice *sl)
     int                 ret = 0;
     uint64_t            val;
 
-    val = 1;
-    ret = csr_access(sl, false, &xdm_err_hwa_all_status, &val);
+    ret = csr_access_rdwr(sl, &xdm_err_hwa_all_status, 0x1);
     if (ret < 0)
         goto out;
-    ret = csr_access(sl, false, &xdm_err_hwa_pri_status, &val);
+    ret = csr_access_rdwr(sl, &xdm_err_hwa_pri_status, 0x1);
     if (ret < 0)
         goto out;
-    ret = csr_access(sl, false, &xdm_err_hwe_all_status, &val);
+    ret = csr_access_rdwr(sl, &xdm_err_hwe_all_status, 0x1);
     if (ret < 0)
         goto out;
-    ret = csr_access(sl, false, &xdm_err_hwe_pri_status, &val);
+    ret = csr_access_rdwr(sl, &xdm_err_hwe_pri_status, 0x1);
     if (ret < 0)
         goto out;
 
-    val = 0xc;
-    ret = csr_access(sl, false, &xdm_err_all_status, &val);
+    ret = csr_access_rdwr(sl, &xdm_err_all_status, 0xC);
     if (ret < 0)
         goto out;
-    ret = csr_access(sl, false, &xdm_err_pri_status, &val);
+    ret = csr_access_rdwr(sl, &xdm_err_pri_status, 0xC);
+    if (ret < 0)
+        goto out;
+    /* Read things back to get them in the log. */
+    ret = csr_access_rd(sl, &xdm_err_all_status, &val);
+    if (ret < 0)
+        goto out;
+    ret = csr_access_rd(sl, &xdm_err_pri_status, &val);
     if (ret < 0)
         goto out;
     ret = 0;
