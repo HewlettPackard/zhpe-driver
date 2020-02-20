@@ -453,14 +453,19 @@ void _zpages_free(const char *callf, uint line, union zpages *zpages)
     /* Revisit: most of these need zap_vma_ptes(vma, addr, size); */
     switch (zpages->hdr.page_type) {
     case QUEUE_PAGE:
+
     case LOCAL_SHARED_PAGE:
         queue_zpages_free(zpages);
         break;
+
     case GLOBAL_SHARED_PAGE:
+        break;
+
     case HSR_PAGE:
     case RMR_PAGE:
         /* Nothing to do */
         break;
+
     case DMA_PAGE:
         dma_free_coherent(zpages->dma.dev, zpages->dma.size,
                           zpages->dma.cpu_addr, zpages->dma.dma_addr);
@@ -1395,9 +1400,14 @@ static int zhpe_vm_access(struct vm_area_struct *vma, unsigned long addr,
                           void *buf, int len, int write)
 {
     int                 ret = -EFAULT;
+    struct file_data    *fdata = vma->vm_file->private_data;
     struct zmap         *zmap = vma->vm_private_data;
     union zpages        *zpages = zmap->zpages;
     uintptr_t           off;
+    uint64_t            *buf64;
+    void                *barp;
+    struct slice        *sl;
+    size_t              i;
 
     if (write)
         goto done;
@@ -1414,11 +1424,35 @@ static int zhpe_vm_access(struct vm_area_struct *vma, unsigned long addr,
         ret = len;
         break;
 
-    default:
-        goto done;
-    }
- done:
+    case HSR_PAGE:
+        /* Both vaddr and len on a 64-bit boundary. */
+        if ((addr | len) & (sizeof(uint64_t) - 1))
+            goto done;
+        for (i = 0; i < SLICES; i++) {
+            sl = &fdata->bridge->slice[i];
+            if (!SLICE_VALID(sl))
+                continue;
+            if ((uintptr_t)sl->phys_base <= zpages->hsr.base_addr &&
+                zpages->hsr.base_addr <
+                ((uintptr_t)sl->phys_base + sizeof(*sl->bar)))
+                break;
+        }
+        if (i == SLICES)
+            goto done;
+        addr -= vma->vm_start;
+        addr += (zpages->hsr.base_addr - sl->phys_base);
+        barp = (void *)sl->bar + addr;
+        buf64 = buf;
+        for (i = 0; i < len; i +=  sizeof(uint64_t), barp += sizeof(uint64_t))
+            buf64[i] = ioread64(barp);
+        ret = len;
+        break;
 
+    default:
+        break;
+    }
+
+ done:
     return ret;
 }
 
