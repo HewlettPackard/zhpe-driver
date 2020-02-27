@@ -84,6 +84,7 @@ enum {
     ZHPE_OP_XQFREE,
     ZHPE_OP_RQALLOC,
     ZHPE_OP_RQFREE,
+    ZHPE_OP_RQALLOC_SPECIFIC,
     ZHPE_OP_RESPONSE = 0x80,
     ZHPE_OP_VERSION = 1,
 };
@@ -268,6 +269,12 @@ struct zhpe_rsp_RQALLOC {
     struct zhpe_rqinfo  info;
 };
 
+struct zhpe_req_RQALLOC_SPECIFIC {
+    struct zhpe_common_hdr hdr;
+    uint32_t            cmplq_ent;           /* Minimum entries the queue. */
+    uint32_t            qspecific;           /* Specific queue, 0 => any. */
+};
+
 struct zhpe_req_RQFREE {
     struct zhpe_common_hdr hdr;
     struct zhpe_rqinfo  info;
@@ -291,6 +298,7 @@ union zhpe_req {
     struct zhpe_req_XQFREE      xqfree;
     struct zhpe_req_RQALLOC     rqalloc;
     struct zhpe_req_RQFREE      rqfree;
+    struct zhpe_req_RQALLOC_SPECIFIC rqalloc_specific;
 };
 
 union zhpe_rsp {

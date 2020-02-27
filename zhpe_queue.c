@@ -603,6 +603,37 @@ static int alloc_xqueue(
     }
 }
 
+static int alloc_rqspecific(struct bridge *br, int qspecific, int *slice,
+                            int *queue, int *irq_vector)
+{
+    int                 ret;
+    struct slice        *cur_slice;
+
+    *slice = qspecific & (SLICES - 1);
+    *queue = qspecific / SLICES;
+    cur_slice = &br->slice[*slice];
+    if (!SLICE_VALID(cur_slice) || *queue >= zhpe_rdm_queues_per_slice) {
+        ret =  -ENOENT;
+        goto done;
+    }
+    *irq_vector = (*slice * VECTORS_PER_SLICE +
+                   (*queue /
+                    (MAX_RDM_QUEUES_PER_SLICE / cur_slice->irq_vectors_count)));
+    debug(DEBUG_RQUEUE, "considering slice %d, queue %d vector %d\n",
+          *slice, *queue, *irq_vector);
+
+    spin_lock (&cur_slice->rdm_slice_lock);
+    if (likely(!__test_and_set_bit(*queue, cur_slice->rdm_alloced_bitmap))) {
+        cur_slice->rdm_alloc_count++;
+        ret = 0;
+    } else
+        ret = -EADDRINUSE;
+    spin_unlock (&cur_slice->rdm_slice_lock);
+
+ done:
+    return ret;
+}
+
 /* Allocate a queue from a slice according to the slice_mask. */
 static int alloc_rqueue(
     struct bridge *br,
@@ -1271,6 +1302,26 @@ uint32_t zhpe_rspctxid_alloc(int slice, int queue)
     return rspctxid;
 }
 
+int zhpe_user_req_RQALLOC_SPECIFIC(struct io_entry *entry)
+{
+    int	 		  ret = -EINVAL;
+    struct zhpe_req_RQALLOC_SPECIFIC *req = &entry->op.req.rqalloc_specific;
+    struct zhpe_rsp_RQALLOC rsp;
+
+    CHECK_INIT_STATE(entry, ret, done);
+
+    if (req->qspecific >= MAX_RDM_QUEUES_PER_SLICE * SLICES)
+        goto done;
+
+    ret = zhpe_req_RQALLOC(req->cmplq_ent, 0, req->qspecific, &rsp,
+                           entry->fdata);
+
+ done:
+    /* Copy the response to the req/rsp union */
+    entry->op.rsp.rqalloc = rsp;
+    return queue_io_rsp(entry, sizeof(rsp), ret);
+}
+
 int zhpe_user_req_RQALLOC(struct io_entry *entry)
 {
     int	 		  ret = -EINVAL;
@@ -1279,7 +1330,8 @@ int zhpe_user_req_RQALLOC(struct io_entry *entry)
 
     CHECK_INIT_STATE(entry, ret, done);
 
-    ret = zhpe_req_RQALLOC(req, &rsp, entry->fdata);
+    ret = zhpe_req_RQALLOC(req->cmplq_ent, req->slice_mask, 0,
+                           &rsp, entry->fdata);
 
  done:
     /* Copy the response to the req/rsp union */
@@ -1355,24 +1407,22 @@ static int rdm_queue_sizes(uint32_t *cmplq_ent, size_t *cmplq_size,
     return ret;
 }
 
-int zhpe_req_RQALLOC(struct zhpe_req_RQALLOC *req,
+int zhpe_req_RQALLOC(uint32_t cmplq_ent, uint8_t slice_mask, uint32_t qspecific,
                      struct zhpe_rsp_RQALLOC *rsp,
                      struct file_data *fdata)
 {
-    int	 		  ret = -EINVAL;
-    uint32_t                  cmplq_ent;
-    size_t			  qcm_size = 0, cmplq_size = 0;
-    int			  slice, queue, irq_vector;
-    struct rdm_qcm            *hw_qcm_addr, *app_qcm_addr;
-    phys_addr_t               app_qcm_physaddr;
-    struct slice		  *sl;
-    union zpages		  *qcm_zpage, *cmplq_zpage;
-    struct zmap		  *qcm_zmap, *cmplq_zmap;
+    int                 ret = -EINVAL;
+    size_t              qcm_size = 0, cmplq_size = 0;
+    int                 slice, queue, irq_vector;
+    struct rdm_qcm      *hw_qcm_addr, *app_qcm_addr;
+    phys_addr_t         app_qcm_physaddr;
+    struct slice        *sl;
+    union zpages        *qcm_zpage, *cmplq_zpage;
+    struct zmap         *qcm_zmap, *cmplq_zmap;
 
-    debug(DEBUG_RQUEUE,
-          "rqalloc req cmplq_ent %d, slice_mask 0x%x\n", req->cmplq_ent, req->slice_mask);
+    debug(DEBUG_RQUEUE, "rqalloc req cmplq_ent %d, slice_mask 0x%x\n",
+          cmplq_ent, slice_mask);
 
-    cmplq_ent = req->cmplq_ent;
     ret = rdm_queue_sizes(&cmplq_ent, &cmplq_size, &qcm_size);
     if (ret)
         goto done;
@@ -1385,16 +1435,19 @@ int zhpe_req_RQALLOC(struct zhpe_req_RQALLOC *req,
           cmplq_ent, cmplq_size);
 
     /* Pick which slice has a free queue based on the slice_mask */
-    ret = alloc_rqueue(fdata->bridge, req->slice_mask,
-                       &slice, &queue, &irq_vector);
+    if (qspecific == 0) {
+        ret = alloc_rqueue(fdata->bridge, slice_mask,
+                           &slice, &queue, &irq_vector);
+    } else
+        ret = alloc_rqspecific(fdata->bridge, qspecific,
+                               &slice, &queue, &irq_vector);
+
     rsp->hdr.status = ret;
-    debug(DEBUG_RQUEUE,
-          "rqalloc rsp slice %d queue %d irq_vector %d\n",
+    debug(DEBUG_RQUEUE, "rqalloc rsp slice %d queue %d irq_vector %d\n",
           slice, queue, irq_vector);
-    if (ret) {
-        debug(DEBUG_RQUEUE,
-              "Request for slice_mask 0x%x failed\n",
-              req->slice_mask);
+    if (ret < 0) {
+        debug(DEBUG_RQUEUE, "Request for slice_mask/qspecifc 0x%x/%u failed\n",
+              slice_mask, qspecific);
         goto done;
     }
     /* set bit in this file_data as owner */

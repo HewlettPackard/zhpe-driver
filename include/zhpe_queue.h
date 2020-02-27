@@ -136,15 +136,15 @@ int zhpe_user_req_XQFREE(struct io_entry *entry);
 int zhpe_user_req_XQALLOC(struct io_entry *entry);
 int zhpe_user_req_RQFREE(struct io_entry *entry);
 int zhpe_user_req_RQALLOC(struct io_entry *entry);
+int zhpe_user_req_RQALLOC_SPECIFIC(struct io_entry *entry);
 int zhpe_req_XQALLOC(struct zhpe_req_XQALLOC *req,
-			struct zhpe_rsp_XQALLOC	*rsp,
-			struct file_data *fdata);
-int zhpe_req_XQFREE(union zhpe_req *req, 
-			union zhpe_rsp *rsp, struct file_data *fdata);
-int zhpe_req_RQALLOC(struct zhpe_req_RQALLOC *req,
-			struct zhpe_rsp_RQALLOC *rsp, struct file_data *fdata);
+                     struct zhpe_rsp_XQALLOC *rsp, struct file_data *fdata);
+int zhpe_req_XQFREE(union zhpe_req *req,
+                    union zhpe_rsp *rsp, struct file_data *fdata);
+int zhpe_req_RQALLOC(uint32_t cmpq_ent, uint8_t slice_mask, uint32_t qspecific,
+                     struct zhpe_rsp_RQALLOC *rsp, struct file_data *fdata);
 int zhpe_req_RQFREE(struct zhpe_req_RQFREE *req, struct zhpe_rsp_RQFREE *rsp,
-			struct file_data *fdata);
+                    struct file_data *fdata);
 int zhpe_kernel_XQALLOC(struct xdm_info *xdmi);
 int zhpe_kernel_RQALLOC(struct rdm_info *rdmi);
 int zhpe_kernel_XQFREE(struct xdm_info *xdmi);

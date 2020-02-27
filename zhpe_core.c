@@ -1325,6 +1325,7 @@ static ssize_t zhpe_write(struct file *file, const char __user *buf,
     USER_REQ_HANDLER(XQFREE);
     USER_REQ_HANDLER(RQALLOC);
     USER_REQ_HANDLER(RQFREE);
+    USER_REQ_HANDLER(RQALLOC_SPECIFIC);
 
     default:
         zprintk(KERN_ERR, "Unexpected opcode 0x%02x\n", op_hdr->opcode);
