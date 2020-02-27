@@ -359,8 +359,13 @@ static int msg_wait_timeout(struct zhpe_msg_state *state, ktime_t timeout)
 
     debug(DEBUG_MSG, "waiting for reply to msgid=%u, timeout %lld\n",
           state->req_msg.hdr.msgid, ktime_to_ns(timeout));
-    ret = wait_event_interruptible_hrtimeout(state->wq, state->ready,
-                                             timeout);
+    /*
+     * Used to be interruptible and this was mistake that caused hangs
+     * in the "remote" thread in the loopback case. This is probably
+     * needs reference counting of some form, but I'm just going to
+     * step on the signals for now.
+     */
+    ret = wait_event_hrtimeout(state->wq, state->ready, timeout);
     if (ret < 0) {  /* interrupted or timeout expired */
         debug(DEBUG_MSG, "wait on msgid=%u returned ret=%d\n",
               state->req_msg.hdr.msgid, ret);

@@ -387,43 +387,6 @@ static void file_data_free(const char *callf, uint line, void *ptr)
     _do_kfree(callf, line, ptr);
 }
 
-static inline void _put_file_data(const char *callf, uint line,
-                                  struct file_data *fdata)
-{
-    int                 count;
-
-    if (fdata) {
-        count = atomic_dec_return(&fdata->count);
-        debug_caller(DEBUG_COUNT, callf, line, "%s:fdata 0x%px count %d\n",
-                     __func__, fdata, count);
-        if (!count && fdata->free)
-            fdata->free(callf, line, fdata);
-    }
-}
-
-#define put_file_data(...) \
-    _put_file_data(__func__, __LINE__, __VA_ARGS__)
-
-static inline struct file_data *_get_file_data(const char *callf, uint line,
-                                               struct file_data *fdata)
-{
-    int                 count;
-
-    if (!fdata)
-        return NULL;
-
-    count = atomic_inc_return(&fdata->count);
-    /* Override unused variable warning. */
-    (void)count;
-    debug_caller(DEBUG_COUNT, callf, line, "%s:fdata 0x%px count %d\n",
-                 __func__, fdata, count);
-
-    return fdata;
-}
-
-#define get_file_data(...) \
-    _get_file_data(__func__, __LINE__, __VA_ARGS__)
-
 void queue_zpages_free(union zpages *zpages)
 {
     size_t              npages;

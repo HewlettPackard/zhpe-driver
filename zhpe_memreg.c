@@ -357,6 +357,7 @@ struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
 
     info = &umem->pte_info;
     umem->fdata      = fdata;
+    get_file_data(umem->fdata);
     umem->vaddr      = vaddr;
     info->addr       = vaddr;
     info->length     = size;
@@ -507,6 +508,7 @@ static void umem_free(struct zhpe_umem *umem)
     zhpe_pte_info_dbg(DEBUG_MEMREG, __func__, __LINE__, &umem->pte_info);
     _zhpe_umem_release(umem);
     put_pid(umem->pid);
+    put_file_data(umem->fdata);
     do_kfree(umem);
 }
 
@@ -708,6 +710,7 @@ static void rmr_free(struct kref *ref)
     if (rmr->un_erase)
         rb_erase(&rmr->un_node, &rmr->unode->un_rmr_tree);
     zhpe_uuid_remove(rmr->uu);  /* remove reference to uu */
+    put_file_data(rmr->fdata);
     do_kfree(rmr);
 }
 
@@ -1019,6 +1022,7 @@ int zhpe_user_req_RMR_IMPORT(struct io_entry *entry)
     if (uu->remote->rkeys_valid)
         rkey = (writable) ? uu->remote->rw_rkey : uu->remote->ro_rkey;
     rmr->fdata       = entry->fdata;
+    get_file_data(rmr->fdata);
     rmr->rkey        = rkey;
     rmr->rsp_zaddr   = rsp_zaddr;
     rmr->uu          = uu;
@@ -1031,6 +1035,7 @@ int zhpe_user_req_RMR_IMPORT(struct io_entry *entry)
      * zhpe_zmmu_req_pte_alloc().
      */
     if(!rmr->pte_info) {
+        put_file_data(rmr->fdata);
         do_kfree(rmr);
         status = -ENOMEM;
         goto out;
@@ -1051,6 +1056,7 @@ int zhpe_user_req_RMR_IMPORT(struct io_entry *entry)
     if (found != rmr) {
         zhpe_uuid_remove(uu);  /* release uu reference */
         do_kfree(rmr->pte_info);
+        put_file_data(rmr->fdata);
         do_kfree(rmr);
         req_addr = zhpe_zmmu_pte_addr(found->pte_info);
         goto addr;

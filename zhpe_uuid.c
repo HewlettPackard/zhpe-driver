@@ -164,6 +164,7 @@ struct uuid_tracker *zhpe_uuid_tracker_alloc(uuid_t *uuid,
             ret = -ENOMEM;
             goto done;
         }
+        uu->local->fdata = NULL;
     }
 
     if (type & UUID_TYPE_REMOTE) {
@@ -189,8 +190,10 @@ struct uuid_tracker *zhpe_uuid_tracker_alloc(uuid_t *uuid,
 
 static inline void _uuid_tracker_free(struct uuid_tracker *uu)
 {
-    if (uu->local)
+    if (uu->local) {
+        put_file_data(uu->local->fdata);
         do_kfree(uu->local);
+    }
     if (uu->remote)
         do_kfree(uu->remote);
     do_kfree(uu);

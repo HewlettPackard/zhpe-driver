@@ -163,6 +163,7 @@ static inline struct uuid_tracker *zhpe_uuid_tracker_alloc_and_insert(
     if (uu) {
         if (type & UUID_TYPE_LOCAL) {
             uu->local->fdata = fdata;
+            get_file_data(uu->local->fdata);
             uu->local->uu_remote_uuid_tree = RB_ROOT;
         }
         if (type & UUID_TYPE_REMOTE) {
