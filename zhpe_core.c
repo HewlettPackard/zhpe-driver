@@ -1006,8 +1006,6 @@ static int zhpe_user_req_INIT(struct io_entry *entry)
     uint32_t            ro_rkey;
     uint32_t            rw_rkey;
     char                str[UUID_STRING_LEN+1];
-    struct uuid_tracker *luu;
-    struct uuid_tracker *ruu;
 
     rsp->init.magic = ZHPE_MAGIC;
 
@@ -1029,42 +1027,11 @@ static int zhpe_user_req_INIT(struct io_entry *entry)
     if (!uu)
         goto out;
 
-    luu = zhpe_uuid_tracker_alloc_and_insert(&uu->uuid, UUID_TYPE_LOOPBACK,
-                                             0, fdata, GFP_KERNEL, &status);
-    debug(DEBUG_IO, "luu = %px status = %d\n", uu, status);
-
-    zhpe_remote_uuid_alloc_and_insert(luu, &fdata->uuid_lock,
-                                      &fdata->fd_remote_uuid_tree,
-                                      GFP_KERNEL, &status);
-
-    debug(DEBUG_IO, "status = %d\n", status);
-    kref_get(&uu->refcount);
-
-    zhpe_remote_uuid_alloc_and_insert(uu, &uu->remote->local_uuid_lock,
-                                      &uu->remote->local_uuid_tree,
-                                      GFP_KERNEL, &status);
-
-    debug(DEBUG_IO, "status = %d\n", status);
-
-    ruu = zhpe_uuid_tracker_alloc_and_insert(&uu->uuid, UUID_TYPE_REMOTE, 0,
-                                             fdata, GFP_KERNEL, &status);
-    debug(DEBUG_IO, "ruu = %px status = %d\n", ruu, status);
-
-    /* and we hold a reference to suu */
-    zhpe_remote_uuid_alloc_and_insert(ruu, &fdata->uuid_lock,
-                                      &uu->local->uu_remote_uuid_tree,
-                                      GFP_KERNEL, &status);
-    debug(DEBUG_IO, "status = %d\n",status);
-
     status = zhpe_rkey_alloc(&ro_rkey, &rw_rkey);
     if (status < 0) {
         zhpe_uuid_remove(uu);
         goto out;
     }
-
-    luu->remote->ro_rkey = ro_rkey;
-    luu->remote->rw_rkey = rw_rkey;
-    luu->remote->rkeys_valid = true;
 
     spin_lock(&fdata->io_lock);
     if (fdata->state & STATE_INIT) {  /* another INIT */
