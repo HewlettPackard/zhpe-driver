@@ -17,7 +17,7 @@
  *
  *   * Redistributions in binary form must reproduce the above
  *     copyright notice, this list of conditions and the following
- *     disclaimer in the documentation and/or other materials provided
+ *     disclaimer in the documentation and/or other materials5B provided
  *     with the distribution.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
@@ -1162,6 +1162,22 @@ int zhpe_req_XQALLOC(
     return ret;
 }
 
+#define CTXID_QUEUE_SHIFT		2
+#define CTXID_UPPER_SLICE_SHIFT         10
+
+static uint32_t zhpe_ctxid_alloc(int slice, int queue)
+{
+    /*
+     * bits 0-1 select the slice.
+     * bits 9:2 select the queue number
+     * bits 10:24 are the same for all queues
+     * Revisit FabricManager: 10:24 are 0 until we have a fabric manger
+     * interface
+     */
+
+    return (queue << CTXID_QUEUE_SHIFT) | slice;
+}
+
 int zhpe_kernel_XQALLOC(struct xdm_info *xdmi)
 {
     int ret = 0;
@@ -1178,6 +1194,7 @@ int zhpe_kernel_XQALLOC(struct xdm_info *xdmi)
                        &xdmi->slice, &xdmi->queue);
     if (ret)
         goto done;
+
     /* Get a pointer to the qcm chosen to initialize it's fields */
     xdmi->sl = &(xdmi->br->slice[xdmi->slice]);
     xdmi->hw_qcm_addr = &(xdmi->sl->bar->xdm[xdmi->queue*2]);
@@ -1203,6 +1220,7 @@ int zhpe_kernel_XQALLOC(struct xdm_info *xdmi)
     xdmi->cmdq_tail_shadow = 0;
     xdmi->cmplq_head = 0;
     xdmi->cmplq_tail_shadow = 0;
+    xdmi->reqctxid = zhpe_ctxid_alloc(xdmi->slice, xdmi->queue);
     ret = 0;
     debug(DEBUG_XQUEUE, "slice=%d, queue=%d\n", xdmi->slice, xdmi->queue);
     goto done;
@@ -1286,20 +1304,6 @@ int zhpe_kernel_XQFREE(struct xdm_info *xdmi)
 
  done:
     return ret;
-}
-
-#define RSPCTXID_QUEUE_SHIFT		2
-#define RSPCTXID_UPPER_SLICE_SHIFT	10
-uint32_t zhpe_rspctxid_alloc(int slice, int queue)
-{
-    uint32_t rspctxid;
-
-    /* bits 0-1 select the RDM instance in the bridge - use the slice. */
-    /* bits 9:2 select the RDM queue number */
-    /* bits 10:24 are the same for all 256 completion queues */
-    /* Revisit FabricManager: 10:24 are 0 until we have a fabric manger interface */
-    rspctxid = (queue<<RSPCTXID_QUEUE_SHIFT)|slice;
-    return rspctxid;
 }
 
 int zhpe_user_req_RQALLOC_SPECIFIC(struct io_entry *entry)
@@ -1459,7 +1463,7 @@ int zhpe_req_RQALLOC(uint32_t cmplq_ent, uint8_t slice_mask, uint32_t qspecific,
     rsp->info.queue = queue;
     rsp->info.clump = MAX_RDM_QUEUES_PER_SLICE / sl->irq_vectors_count;
     rsp->info.irq_vector = irq_vector;
-    rsp->info.rspctxid = zhpe_rspctxid_alloc(slice, queue);
+    rsp->info.rspctxid = zhpe_ctxid_alloc(slice, queue);
 
     /* Get a pointer to the qcm chosen to initialize it's fields */
     hw_qcm_addr = &(sl->bar->rdm[queue*2]);
@@ -1549,7 +1553,7 @@ int zhpe_kernel_RQALLOC(struct rdm_info *rdmi)
                        &rdmi->slice, &rdmi->queue, &rdmi->vector);
     if (ret)
         goto done;
-    rdmi->rspctxid = zhpe_rspctxid_alloc(rdmi->slice, rdmi->queue);
+    rdmi->rspctxid = zhpe_ctxid_alloc(rdmi->slice, rdmi->queue);
     /* Get a pointer to the qcm chosen to initialize it's fields */
     rdmi->sl = &(rdmi->br->slice[rdmi->slice]);
     rdmi->hw_qcm_addr = &(rdmi->sl->bar->rdm[rdmi->queue*2]);

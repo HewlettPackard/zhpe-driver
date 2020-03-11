@@ -387,6 +387,7 @@ struct xdm_info {
     struct xdm_qcm *hw_qcm_addr;
     union zpages   *cmdq_zpage, *cmplq_zpage;
     int            slice, queue;
+    uint32_t       reqctxid;
     uint           cmdq_tail_shadow, cmdq_head_shadow; /* shadow of HW reg */
     uint           cmplq_tail_shadow;                  /* shadow of HW reg */
     uint           cmplq_head;                         /* SW-only */

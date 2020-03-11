@@ -312,21 +312,40 @@ static inline void msg_setup_rsp_hdr(union zhpe_msg *rsp_msg,
     rsp_msg->hdr.rspctxid = rspctxid;
 }
 
+static void process_msg(struct rdm_info *rdmi, struct xdm_info *xdmi,
+                        struct zhpe_rdm_hdr *msg_hdr, union zhpe_msg *msg);
+
 static inline int msg_send_cmd(struct xdm_info *xdmi,
                                union zhpe_msg *msg,
                                uint32_t dgcid, uint32_t rspctxid)
 {
     union zhpe_hw_wq_entry cmd = { 0 };
     size_t size;
+    struct bridge *br;
+    struct zhpe_rdm_hdr msg_hdr;
 
-    /* fill in cmd */
-    cmd.hdr.opcode = ZHPE_HW_OPCODE_ENQA;
-    cmd.enqa.dgcid = dgcid;
-    cmd.enqa.rspctxid = rspctxid;
     size = min(sizeof(*msg), sizeof(cmd.enqa.payload));
-    memcpy(&cmd.enqa.payload, msg, size);
-    /* send cmd */
-    return msg_xdm_queue_cmd(xdmi, &cmd);
+    br = xdmi->br;
+
+    debug(DEBUG_MSG, "self check 0x%x 0x%x\n", dgcid, br->gcid);
+
+    if (dgcid != br->gcid) {
+        if (!xdmi->sl)
+            return -ENXIO;
+        /* fill in cmd */
+        cmd.hdr.opcode = ZHPE_HW_OPCODE_ENQA;
+        cmd.enqa.dgcid = dgcid;
+        cmd.enqa.rspctxid = rspctxid;
+        memcpy(&cmd.enqa.payload, msg, size);
+        /* send cmd */
+        return msg_xdm_queue_cmd(xdmi, &cmd);
+    }
+
+    msg_hdr.sgcid = br->gcid;
+    msg_hdr.reqctxid = xdmi->reqctxid;
+    process_msg(&br->msg_rdm, xdmi, &msg_hdr, msg);
+
+    return 0;
 }
 
 static int msg_insert_send_cmd(struct xdm_info *xdmi,
@@ -721,20 +740,107 @@ static irqreturn_t msg_rdm_interrupt_handler(int irq_index, void *data)
     return IRQ_HANDLED;
 }
 
+static void process_msg(struct rdm_info *rdmi, struct xdm_info *xdmi,
+                        struct zhpe_rdm_hdr *msg_hdr, union zhpe_msg *msg)
+{
+    int                 rc;
+    struct zhpe_msg_state *state;
+    uint                opcode;
+    bool                response;
+    char sgstr[GCID_STRING_LEN+1];
+    char dgstr[GCID_STRING_LEN+1];
+
+    response = !!(msg->hdr.opcode & ZHPE_MSG_RESPONSE);
+    opcode = msg->hdr.opcode & ~ZHPE_MSG_RESPONSE;
+
+    if (response) {
+        state = msg_state_search(msg->hdr.msgid);
+        if (!state) {
+            debug(DEBUG_MSG, "msg_state_search for msgid=%u failed\n",
+                  msg->hdr.msgid);
+            return;
+        }
+
+        switch (opcode) {
+
+        case ZHPE_MSG_NOP:
+            rc = msg_rsp_NOP(msg_hdr, msg);
+            break;
+
+        case ZHPE_MSG_UUID_IMPORT:
+            rc = msg_rsp_UUID_IMPORT(msg_hdr, msg);
+            break;
+
+        case ZHPE_MSG_UUID_FREE:
+            rc = msg_rsp_UUID_FREE(msg_hdr, msg);
+            break;
+
+        case ZHPE_MSG_UUID_TEARDOWN:
+            rc = msg_rsp_UUID_TEARDOWN(msg_hdr, msg);
+            break;
+
+        default:
+            debug(DEBUG_MSG, "unknown opcode 0x%x for msgid=%u\n",
+                  msg->hdr.opcode, msg->hdr.msgid);
+            return;
+        }
+
+        if (msg_hdr->sgcid != state->dgcid) {
+            debug(DEBUG_MSG,
+                  "msg SGCID (%s) != state DGCID (%s) for msgid=%u\n",
+                  zhpe_gcid_str(msg_hdr->sgcid, sgstr, sizeof(sgstr)),
+                  zhpe_gcid_str(state->dgcid, dgstr, sizeof(dgstr)),
+                  msg->hdr.msgid);
+            return;
+        }
+        state->rsp_msg = *msg;
+        state->ready = true;
+        wake_up_interruptible(&state->wq);
+
+    } else {
+
+        /* request */
+        switch (opcode) {
+
+        case ZHPE_MSG_NOP:
+            rc = msg_req_NOP(rdmi, xdmi, msg_hdr, msg);
+            break;
+
+        case ZHPE_MSG_UUID_IMPORT:
+            rc = msg_req_UUID_IMPORT(rdmi, xdmi, msg_hdr, msg);
+            break;
+
+        case ZHPE_MSG_UUID_FREE:
+            rc = msg_req_UUID_FREE(rdmi, xdmi, msg_hdr, msg);
+            break;
+
+        case ZHPE_MSG_UUID_TEARDOWN:
+            rc = msg_req_UUID_TEARDOWN(rdmi, xdmi, msg_hdr, msg);
+            break;
+
+        default:
+            rc = msg_req_ERROR(rdmi, xdmi, msg_hdr, msg,
+                               ZHPE_MSG_ERR_UNKNOWN_OPCODE);
+            break;
+        }
+
+    }
+
+    debug(DEBUG_MSG, "opcode 0x%x rc %d\n", opcode, rc);
+}
+
 void zhpe_msg_worker(struct work_struct *work)
 {
     struct bridge *br = container_of(work, struct bridge, msg_work);
     struct xdm_info *xdmi = &br->msg_xdm;
     struct rdm_info *rdmi = &br->msg_rdm;
     int ret;
-    bool more, response;
-    uint handled = 0, tail, opcode;
+    bool more;
+    uint handled = 0, tail;
     uint32_t rspctxid;
     struct zhpe_rdm_hdr msg_hdr;
     union zhpe_msg msg;
-    struct zhpe_msg_state  *state;
     char sgstr[GCID_STRING_LEN+1];
-    char dgstr[GCID_STRING_LEN+1];
 
     do {
         do {
@@ -765,69 +871,12 @@ void zhpe_msg_worker(struct work_struct *work)
                 debug(DEBUG_MSG, "UNKNOWN_VERSION, ret=%d\n", ret);
                 continue;
             }
-            response = (msg.hdr.opcode & ZHPE_MSG_RESPONSE) != 0;
-            opcode   = msg.hdr.opcode & ~ZHPE_MSG_RESPONSE;
-            if (response) {
-                state = msg_state_search(msg.hdr.msgid);
-                if (!state) {
-                    debug(DEBUG_MSG, "msg_state_search for msgid=%u failed\n",
-                          msg.hdr.msgid);
-                    continue;
-                }
-                switch (opcode) {
-                case ZHPE_MSG_NOP:
-                    ret = msg_rsp_NOP(&msg_hdr, &msg);
-                    break;
-                case ZHPE_MSG_UUID_IMPORT:
-                    ret = msg_rsp_UUID_IMPORT(&msg_hdr, &msg);
-                    break;
-                case ZHPE_MSG_UUID_FREE:
-                    ret = msg_rsp_UUID_FREE(&msg_hdr, &msg);
-                    break;
-                case ZHPE_MSG_UUID_TEARDOWN:
-                    ret = msg_rsp_UUID_TEARDOWN(&msg_hdr, &msg);
-                    break;
-                default:
-                    debug(DEBUG_MSG, "unknown opcode 0x%x for msgid=%u\n",
-                          msg.hdr.opcode, msg.hdr.msgid);
-                    continue;
-                }
-                if (msg_hdr.sgcid != state->dgcid) {
-                    debug(DEBUG_MSG,
-                          "msg SGCID (%s) != state DGCID (%s) for msgid=%u\n",
-                          zhpe_gcid_str(msg_hdr.sgcid, sgstr, sizeof(sgstr)),
-                          zhpe_gcid_str(state->dgcid, dgstr, sizeof(dgstr)),
-                          msg.hdr.msgid);
-                    continue;
-                }
-                state->rsp_msg = msg;
-                state->ready = true;
-                wake_up_interruptible(&state->wq);
-            } else {  /* request */
-                switch (opcode) {
-                case ZHPE_MSG_NOP:
-                    ret = msg_req_NOP(rdmi, xdmi, &msg_hdr, &msg);
-                    break;
-                case ZHPE_MSG_UUID_IMPORT:
-                    ret = msg_req_UUID_IMPORT(rdmi, xdmi, &msg_hdr, &msg);
-                    break;
-                case ZHPE_MSG_UUID_FREE:
-                    ret = msg_req_UUID_FREE(rdmi, xdmi, &msg_hdr, &msg);
-                    break;
-                case ZHPE_MSG_UUID_TEARDOWN:
-                    ret = msg_req_UUID_TEARDOWN(rdmi, xdmi, &msg_hdr, &msg);
-                    break;
-                default:
-                    ret = msg_req_ERROR(rdmi, xdmi, &msg_hdr, &msg,
-                                        ZHPE_MSG_ERR_UNKNOWN_OPCODE);
-                    break;
-                }
-            }
+            process_msg(rdmi, xdmi, &msg_hdr, &msg);
         } while (more);
         /* read tail to prevent race with HW writing new completions */
-        tail = rdm_qcm_read(rdmi->hw_qcm_addr,
-                            ZHPE_RDM_QCM_RCV_QUEUE_TAIL_TOGGLE_OFFSET) &
-            ZHPE_MAX_RDM_QLEN;
+        tail = (rdm_qcm_read(rdmi->hw_qcm_addr,
+                             ZHPE_RDM_QCM_RCV_QUEUE_TAIL_TOGGLE_OFFSET) &
+                ZHPE_MAX_RDM_QLEN);
     } while (rdmi->cmplq_head_shadow != tail);
 
  out:
