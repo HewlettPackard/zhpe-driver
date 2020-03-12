@@ -15,7 +15,7 @@
  *   * Redistributions of source code must retain the above copyright
  *     notice, this list of conditions and the following disclaimer.
  *
- *   * Redistributions in binary form must reproduce the above
+< *   * Redistributions in binary form must reproduce the above
  *     copyright notice, this list of conditions and the following
  *     disclaimer in the documentation and/or other materials provided
  *     with the distribution.
@@ -857,8 +857,8 @@ int queue_io_rsp(struct io_entry *entry, size_t data_len, int status)
 
 static int parse_platform(char *str)
 {
-    struct pci_dev		*pdev = NULL;
-    uint			slices_seen = 0;
+    struct pci_dev      *pdev = NULL;
+    uint                slices_seen = 0;
 
     if (!str)
         return -EINVAL;
@@ -875,10 +875,8 @@ static int parse_platform(char *str)
         zhpe_rsp_zmmu_entries = PFSLICE_RSP_ZMMU_ENTRIES;
         zhpe_xdm_queues_per_slice = PFSLICE_XDM_QUEUES_PER_SLICE;
         zhpe_rdm_queues_per_slice = PFSLICE_RDM_QUEUES_PER_SLICE;
-        zhpe_reqz_min_cpuvisible_addr =
-            PFSLICE_REQZ_MIN_CPUVISIBLE_ADDR;
-        zhpe_reqz_max_cpuvisible_addr =
-            PFSLICE_REQZ_MAX_CPUVISIBLE_ADDR;
+        zhpe_reqz_min_cpuvisible_addr = PFSLICE_REQZ_MIN_CPUVISIBLE_ADDR;
+        zhpe_reqz_max_cpuvisible_addr = PFSLICE_REQZ_MAX_CPUVISIBLE_ADDR;
         if (strcmp(req_page_grid, "default") == 0)
             req_page_grid =
                 "1G*800,1G:16,128T:128";
@@ -895,12 +893,10 @@ static int parse_platform(char *str)
         zhpe_rsp_zmmu_entries = WILDCAT_RSP_ZMMU_ENTRIES;
         zhpe_xdm_queues_per_slice = WILDCAT_XDM_QUEUES_PER_SLICE;
         zhpe_rdm_queues_per_slice = WILDCAT_RDM_QUEUES_PER_SLICE;
-        zhpe_reqz_min_cpuvisible_addr =
-            WILDCAT_REQZ_MIN_CPUVISIBLE_ADDR;
-        zhpe_reqz_max_cpuvisible_addr =
-            WILDCAT_REQZ_MAX_CPUVISIBLE_ADDR;
+        zhpe_reqz_min_cpuvisible_addr = WILDCAT_REQZ_MIN_CPUVISIBLE_ADDR;
+        zhpe_reqz_max_cpuvisible_addr = WILDCAT_REQZ_MAX_CPUVISIBLE_ADDR;
         if (strcmp(req_page_grid, "default") == 0)
-            req_page_grid = "1G*104K,1G:8K,128T:16K";
+            req_page_grid = "128M*104K,1G:8K,128T:16K";
         if (strcmp(rsp_page_grid, "default") == 0)
             rsp_page_grid = "128T:1K,1G:63K";
         zhpe_no_avx = 0;
@@ -912,12 +908,9 @@ static int parse_platform(char *str)
         zhpe_rsp_zmmu_entries = CARBON_RSP_ZMMU_ENTRIES;
         zhpe_xdm_queues_per_slice = CARBON_XDM_QUEUES_PER_SLICE;
         zhpe_rdm_queues_per_slice = CARBON_RDM_QUEUES_PER_SLICE;
-        zhpe_reqz_min_cpuvisible_addr =
-            CARBON_REQZ_MIN_CPUVISIBLE_ADDR;
-        zhpe_reqz_max_cpuvisible_addr =
-            CARBON_REQZ_MAX_CPUVISIBLE_ADDR;
-        zhpe_reqz_phy_cpuvisible_off =
-            CARBON_REQZ_PHY_CPUVISIBLE_OFF;
+        zhpe_reqz_min_cpuvisible_addr = CARBON_REQZ_MIN_CPUVISIBLE_ADDR;
+        zhpe_reqz_max_cpuvisible_addr = CARBON_REQZ_MAX_CPUVISIBLE_ADDR;
+        zhpe_reqz_phy_cpuvisible_off = CARBON_REQZ_PHY_CPUVISIBLE_OFF;
         if (strcmp(req_page_grid, "default") == 0)
             req_page_grid = "1G*104K,1G:8K,128T:16K";
         if (strcmp(rsp_page_grid, "default") == 0)
@@ -1751,7 +1744,7 @@ static int zhpe_open(struct inode *inode, struct file *file)
 #define ZHPE_DVSEC_WP_ADDR_LO_OFF (0x1C)
 #define ZHPE_DVSEC_WP_ADDR_HI_OFF (0x20)
 #define ZHPE_DVSEC_WP_CTL_24_OFF  (0x24)
-#define ZHPE_DVSEC_WP_CTL_24_VAL  (0)           /* Zero bytes, physical addr. */
+#define ZHPE_DVSEC_WP_CTL_24_VAL  (0)           /* Physical addr zero. */
 #define ZHPE_DVSEC_WP_CTL_28_OFF  (0x28)
 #define ZHPE_DVSEC_SLICE_OFF      (0x2C)
 #define ZHPE_DVSEC_PSLICE_SHIFT   (0xD)
@@ -1765,7 +1758,11 @@ static int zhpe_open(struct inode *inode, struct file *file)
 #define ZHPE_DVSEC_MBOX_ADDR_OFF  (0x34)
 #define ZHPE_DVSEC_MBOX_DATAL_OFF (0x38)
 #define ZHPE_DVSEC_MBOX_DATAH_OFF (0x3C)
-#define ZHPE_DVSEC_SLINK_BASE_OFF (0x40)
+#define ZHPE_DVSEC_SLINK_OFF      (0x40)
+#define ZHPE_DVSEC_SLINK_BASE_MASK (0x000FFFFU)
+#define ZHPE_DVSEC_SLINK_BASE_LSHIFT (30)
+#define ZHPE_DVSEC_SLINK_SIZE_MASK (0xFFF0000U)
+#define ZHPE_DVSEC_SLINK_SIZE_LSHIFT (18)
 
 /*
  * pfslice: LARK1.SLOT1.PFS0.SKWGPSHIMINBOUND0.SKW_SHIM_INB_CFG
@@ -2113,37 +2110,130 @@ static int csr_set_xdm(struct slice *sl, uint32_t chip_id)
     return ret;
 }
 
-static int probe_setup_csrs(struct bridge *br)
+static int probe_setup_slices(struct bridge *br)
 {
     int                 ret = 0;
     uint32_t            chip_mask = 0;
+    struct slice        *sl1 = NULL;
+    struct pci_dev      *pdev1 = NULL;
+    struct slice        *sl;
     uint32_t            chip_id;
     uint32_t            i;
-    struct slice        *sl = NULL;
+    int                 pos;
+    int                 slink_val1;
+    int                 slink_val2;
+    uint64_t            slink_size;
 
+    /* Find the first valid slice and there must be at least one. */
     for (i = 0; i < SLICES; i++) {
-        if (SLICE_VALID(&br->slice[i])) {
-            chip_mask |= (1U << (i / 2 + CHIP_ID_SKW0));
-            if (!sl)
-                sl = &br->slice[i];
+        sl = &br->slice[i];
+        if (!SLICE_VALID(sl))
+            continue;
+
+        chip_mask |= (1U << (i / 2 + CHIP_ID_SKW0));
+        if (!sl1) {
+            sl1 = sl;
+            pdev1 = sl1->pdev;
         }
     }
+
+    /* Determine S-link base and aperture. */
+    slink_val1 = 0;
+    /* Default aperture set in parse_platform(). */
+    slink_size = zhpe_reqz_max_cpuvisible_addr - zhpe_reqz_min_cpuvisible_addr;
+
+    switch (zhpe_platform) {
+
+    case ZHPE_PFSLICE:
+        /* Should be only one slice. */
+        pos = pci_find_ext_capability(sl1->pdev, PCI_EXT_CAP_ID_DVSEC);
+        pci_read_config_dword(sl1->pdev, pos + ZHPE_DVSEC_SLINK_OFF,
+                              &slink_val1);
+        dev_info(&sl1->pdev->dev, "%s:pslice = %u, slink = 0x%x\n",
+                 __func__, sl1->phys_id, slink_val1);
+        break;
+
+    case ZHPE_WILDCAT:
+        /* Both slices 2 and 3 must be valid. */
+        sl = &br->slice[0];
+        if (!SLICE_VALID(&sl[2]) || !SLICE_VALID(&sl[3]))
+            break;
+        pos = pci_find_ext_capability(sl[2].pdev, PCI_EXT_CAP_ID_DVSEC);
+        pci_read_config_dword(sl[2].pdev, pos + ZHPE_DVSEC_SLINK_OFF,
+                              &slink_val1);
+        dev_info(&sl[2].pdev->dev, "%s:pslice = %u, slink = 0x%x\n",
+                 __func__, sl[2].phys_id, slink_val1);
+        pos = pci_find_ext_capability(sl[3].pdev, PCI_EXT_CAP_ID_DVSEC);
+        pci_read_config_dword(sl[3].pdev, pos + ZHPE_DVSEC_SLINK_OFF,
+                              &slink_val2);
+        dev_info(&sl[3].pdev->dev, "%s:pslice = %u, slink = 0x%x\n",
+                 __func__, sl[3].phys_id, slink_val2);
+        if (slink_val1 != slink_val2) {
+            dev_warn(&sl[3].pdev->dev, "%s:slices inconsistent\n", __func__);
+            slink_val1 = 0;
+            break;
+        }
+        if (!(slink_val1 & ZHPE_DVSEC_SLINK_SIZE_MASK)) {
+            slink_val1 = 0;
+            break;
+        }
+        /* Each slice's side is half the aperture. */
+        slink_size = (((uint64_t)(slink_val1 & ZHPE_DVSEC_SLINK_SIZE_MASK)
+                       << (ZHPE_DVSEC_SLINK_SIZE_LSHIFT + 1)) - 1);
+        break;
+
+    }
+
+    if (!slink_val1) {
+        dev_warn(&pdev1->dev, "%s:slink disabled\n", __func__);
+        zhpe_reqz_phy_cpuvisible_off |= 1;
+    } else {
+        zhpe_reqz_phy_cpuvisible_off =
+            ((uint64_t)(slink_val1 & ZHPE_DVSEC_SLINK_BASE_MASK)
+             << ZHPE_DVSEC_SLINK_BASE_LSHIFT);
+        dev_warn(&pdev1->dev, "%s:slink phyaddr 0x%llx - 0x%llx\n",
+                 __func__, zhpe_reqz_phy_cpuvisible_off,
+                 zhpe_reqz_phy_cpuvisible_off + slink_size);
+        zhpe_reqz_max_cpuvisible_addr =
+            zhpe_reqz_min_cpuvisible_addr + slink_size;
+    }
+
     for (chip_id = CHIP_ID_SKW0; chip_id <= CHIP_ID_SKW1; chip_id++) {
         debug(DEBUG_PCI, "chip_id = %u, chip_mask 0x%x\n", chip_id, chip_mask);
         if (!(chip_mask & (1U << chip_id)))
             continue;
         /* OZS (chip 0) can only be access via mailbox on chip 1 */
         if (chip_id == 1) {
-            ret = csr_get_gcid(sl, &br->gcid);
+            ret = csr_get_gcid(sl1, &br->gcid);
             if (ret < 0)
                 goto out;
         }
-        ret = csr_set_shim_inb_cfg(sl, chip_id);
+        ret = csr_set_shim_inb_cfg(sl1, chip_id);
         if (ret < 0)
             goto out;
-        ret = csr_set_xdm(sl, chip_id);
+        ret = csr_set_xdm(sl1, chip_id);
         if (ret < 0)
             goto out;
+    }
+
+    for (i = 0; i < SLICES; i++) {
+        sl = &br->slice[i];
+        if (!SLICE_VALID(sl))
+            continue;
+
+        /* Configure write pusher. */
+        pos = pci_find_ext_capability(sl->pdev, PCI_EXT_CAP_ID_DVSEC);
+        pci_write_config_dword(sl->pdev, pos + ZHPE_DVSEC_WP_CTL_28_OFF, 0);
+        pci_write_config_dword(sl->pdev, pos + ZHPE_DVSEC_WP_ADDR_LO_OFF,
+                               wr_pusher_phyaddr);
+        pci_write_config_dword(sl->pdev, pos + ZHPE_DVSEC_WP_ADDR_HI_OFF,
+                               wr_pusher_phyaddr >> 32);
+        pci_write_config_dword(sl->pdev, pos + ZHPE_DVSEC_WP_CTL_24_OFF,
+                               ZHPE_DVSEC_WP_CTL_24_VAL);
+        pci_write_config_dword(sl->pdev, pos + ZHPE_DVSEC_WP_CTL_28_OFF,
+                               wr_pusher_dvsec_28);
+
+        zhpe_zmmu_setup_slice(sl);
     }
 
  out:
@@ -2162,7 +2252,6 @@ static int zhpe_probe(struct pci_dev *pdev,
     struct slice *sl = NULL;
     phys_addr_t phys_base;
     uint16_t devctl2;
-    int slink_base;
 
     /* No setup for function 0 */
     if (PCI_FUNC(pdev->devfn) == 0) {
@@ -2183,24 +2272,20 @@ static int zhpe_probe(struct pci_dev *pdev,
         ret = pcie_capability_read_word(pdev, PCI_EXP_DEVCTL2, &devctl2);
         if (ret < 0) {
             dev_warn(&pdev->dev,
-                     "%s,%u,%d:"
-                     "PCIe AtomicOp pcie_capability_read_word failed,"
-                     " ret = 0x%x\n",
-                     __func__, __LINE__, task_pid_nr(current), ret);
+                     "%s:PCIe AtomicOp pcie_capability_read_word failed,"
+                     " ret = 0x%x\n", __func__, ret);
             goto err_out;
         } else if (!(devctl2 & PCI_EXP_DEVCTL2_ATOMIC_REQ)) {
             dev_warn(&pdev->dev,
-                     "%s,%u,%d:"
-                     "PCIe AtomicOp capability enable failed, devctl2 = 0x%x\n",
-                     __func__, __LINE__, task_pid_nr(current), (uint)devctl2);
+                     "%s:PCIe AtomicOp capability enable failed,"
+                     " devctl2 = 0x%x\n", __func__, (uint)devctl2);
             ret = -EIO;
             goto err_out;
         }
         /* Get the virtual slice ID from the device. */
         pos = pci_find_ext_capability(pdev, PCI_EXT_CAP_ID_DVSEC);
         if (!pos) {
-            dev_warn(&pdev->dev, "%s,%u,%d:No DVSEC capability found\n",
-                     __func__, __LINE__, task_pid_nr(current));
+            dev_warn(&pdev->dev, "%s:No DVSEC capability found\n", __func__);
             ret = -ENODEV;
             goto err_out;
         }
@@ -2211,11 +2296,9 @@ static int zhpe_probe(struct pci_dev *pdev,
         pslice_id &= ZHPE_DVSEC_SLICE_MASK;
         vslice_id >>= ZHPE_DVSEC_VSLICE_SHIFT;
         vslice_id &= ZHPE_DVSEC_SLICE_MASK;
-        pci_read_config_dword(pdev, pos + ZHPE_DVSEC_SLINK_BASE_OFF,
-                              &slink_base);
         /* Revisit: vslice not working. */
         vslice_id = pslice_id;
-        /* Ignore duplicates. */
+        /* Duplicates are an error. */
         sl = &br->slice[vslice_id];
         if (SLICE_VALID(sl)) {
             dev_warn(&pdev->dev, "%s,%u,%d:slice %d already found\n",
@@ -2223,36 +2306,8 @@ static int zhpe_probe(struct pci_dev *pdev,
             ret = -ENODEV;
             goto err_out;
         }
-        if (zhpe_platform == ZHPE_WILDCAT && !slink_base)
-            slink_base = 0x400;
-        dev_info(&pdev->dev, "%s,%u,%d:pslice = %d, vslice = %d slink = 0x%x\n",
-                 __func__, __LINE__, task_pid_nr(current),
-                 pslice_id, vslice_id, slink_base);
-
-        /* Base is in GiB */
-        if (slink_base) {
-            if (!zhpe_reqz_phy_cpuvisible_off) {
-                zhpe_reqz_phy_cpuvisible_off = (uint64_t)slink_base << 30;
-                debug(DEBUG_PCI, "phy_cpuvisible_off 0x%llx\n",
-                      zhpe_reqz_phy_cpuvisible_off);
-            } else if (zhpe_reqz_phy_cpuvisible_off !=
-                       ((uint64_t)slink_base << 30)) {
-                dev_warn(&pdev->dev, "%s,%u,%d:slink disabled\n",
-                         __func__, __LINE__, task_pid_nr(current));
-                zhpe_reqz_phy_cpuvisible_off |= 1;
-            }
-        }
-
-        /* Configure write pusher. */
-        pci_write_config_dword(pdev, pos + ZHPE_DVSEC_WP_CTL_28_OFF, 0);
-        pci_write_config_dword(pdev, pos + ZHPE_DVSEC_WP_ADDR_LO_OFF,
-                               wr_pusher_phyaddr);
-        pci_write_config_dword(pdev, pos + ZHPE_DVSEC_WP_ADDR_HI_OFF,
-                               wr_pusher_phyaddr >> 32);
-        pci_write_config_dword(pdev, pos + ZHPE_DVSEC_WP_CTL_24_OFF,
-                               ZHPE_DVSEC_WP_CTL_24_VAL);
-        pci_write_config_dword(pdev, pos + ZHPE_DVSEC_WP_CTL_28_OFF,
-                               wr_pusher_dvsec_28);
+        dev_info(&pdev->dev, "%s:pslice = %d, vslice = %d\n",
+                 __func__, pslice_id, vslice_id);
     } else {
         /* Carbon:zero based slice ID */
         pslice_id = br->num_slices;
@@ -2311,7 +2366,6 @@ static int zhpe_probe(struct pci_dev *pdev,
     sl->valid = true;
 
     zhpe_zmmu_clear_slice(sl);
-    zhpe_zmmu_setup_slice(sl);
 
     zhpe_xqueue_init(sl);
     if (zhpe_clear_xdm_qcm(sl->bar->xdm)) {
@@ -2359,7 +2413,7 @@ static int zhpe_probe(struct pci_dev *pdev,
         }
 
         if (zhpe_platform != ZHPE_CARBON) {
-            ret = probe_setup_csrs(br);
+            ret = probe_setup_slices(br);
             if (ret < 0)
                 goto err_free_interrupts;
         }
@@ -2371,12 +2425,12 @@ static int zhpe_probe(struct pci_dev *pdev,
                 ret = -EINVAL;
                 goto err_free_interrupts;
             }
-            dev_info(&pdev->dev, "%s,%u,%d:using genz_gcid = 0x%07x\n",
-                     __func__, __LINE__, task_pid_nr(current), genz_gcid);
+            dev_info(&pdev->dev, "%s:using genz_gcid = 0x%07x\n",
+                     __func__, genz_gcid);
             br->gcid = genz_gcid;
         } else
-            dev_info(&pdev->dev, "%s,%u,%d:gcid = 0x%07x\n",
-                     __func__, __LINE__, task_pid_nr(current), br->gcid);
+            dev_info(&pdev->dev, "%s:gcid = 0x%07x\n",
+                     __func__, br->gcid);
     }
 
     pci_set_master(pdev);

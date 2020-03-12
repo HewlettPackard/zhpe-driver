@@ -399,7 +399,8 @@ static int zmmu_find_addr_range(struct page_grid_info *pgi, uint pg_index)
         ret = zmmu_base_addr_insert(pgi, pg_index);
         if (ret == 0)
             ret = min_addr;
-    }
+    } else
+        debug(DEBUG_ZMMU, "No range found\n");
 
     return ret;
 }

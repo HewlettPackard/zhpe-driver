@@ -253,8 +253,7 @@ extern uint64_t zhpe_reqz_phy_cpuvisible_off;
 #define CARBON_XDM_QUEUES_PER_SLICE         (256)
 #define CARBON_RDM_QUEUES_PER_SLICE         (256)
 #define CARBON_REQZ_MIN_CPUVISIBLE_ADDR     (GB(4)+TB(1))
-#define CARBON_REQZ_MAX_CPUVISIBLE_ADDR \
-    (CARBON_REQZ_MIN_CPUVISIBLE_ADDR+TB(250)-1UL)
+#define CARBON_REQZ_MAX_CPUVISIBLE_ADDR     (TB(13312) - 1)
 #define CARBON_REQZ_PHY_CPUVISIBLE_OFF      (GB(0))
 
 /* PFslice FPGA Platform */
@@ -263,7 +262,7 @@ extern uint64_t zhpe_reqz_phy_cpuvisible_off;
 #define PFSLICE_XDM_QUEUES_PER_SLICE        (256)
 #define PFSLICE_RDM_QUEUES_PER_SLICE        (256)
 #define PFSLICE_REQZ_MIN_CPUVISIBLE_ADDR    (GB(0))
-#define PFSLICE_REQZ_MAX_CPUVISIBLE_ADDR    (TB(192) - 1)
+#define PFSLICE_REQZ_MAX_CPUVISIBLE_ADDR    (GB(13312) - 1)
 
 /* Wildcat Hardware Platform */
 #define WILDCAT_REQ_ZMMU_ENTRIES            (128*1024)
@@ -271,7 +270,7 @@ extern uint64_t zhpe_reqz_phy_cpuvisible_off;
 #define WILDCAT_XDM_QUEUES_PER_SLICE        (256)
 #define WILDCAT_RDM_QUEUES_PER_SLICE        (256)
 #define WILDCAT_REQZ_MIN_CPUVISIBLE_ADDR    (GB(0))
-#define WILDCAT_REQZ_MAX_CPUVISIBLE_ADDR    (TB(192) - 1)
+#define WILDCAT_REQZ_MAX_CPUVISIBLE_ADDR    (GB(13312) - 1)
 
 /* Platform values common to all platforms */
 #define ZHPE_MAX_XDM_QLEN                 (BIT(16)-1)
