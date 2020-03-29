@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2018-2020 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -316,7 +316,7 @@ struct slice * zhpe_irq_index_to_slice(
 static int zhpe_poll_open(struct inode *inode, struct file *file)
 {
     struct file_data *fdata;
-    pid_t  pid = task_pid_nr(current);
+    pid_t  pid = task_tgid_nr(current);
     struct bridge *br = &zhpe_bridge;
     struct slice *sl;
     int irq_index = iminor(inode);

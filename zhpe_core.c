@@ -1648,7 +1648,7 @@ static int zhpe_open(struct inode *inode, struct file *file)
     if (!fdata)
         goto done;
 
-    fdata->pid = task_pid_nr(current); /* Associate this fdata with pid */
+    fdata->pid = task_tgid_nr(current); /* Associate this fdata with pid */
     fdata->free = file_data_free;
     atomic_set(&fdata->count, 1);
     spin_lock_init(&fdata->io_lock);
