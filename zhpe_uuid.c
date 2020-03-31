@@ -489,7 +489,7 @@ void zhpe_notify_remote_uuids(struct file_data *fdata)
         goto teardown_done;
     }
 
-    /* Revisit: what if rbtree changes while we're looping? */
+    spin_lock(&fdata->uuid_lock);  /* nothing in this loop sleeps */
     prev_gcid = -1u;
     for (rb = rb_first(&fdata->local_uuid->local->uu_remote_uuid_tree); rb;
          rb = rb_next(rb)) {
@@ -512,12 +512,13 @@ void zhpe_notify_remote_uuids(struct file_data *fdata)
         }
         list_add_tail(&state->msg_list, &teardown_msg_list);
     }
+    spin_unlock(&fdata->uuid_lock);
 
  teardown_done:
-    /* wait for replies to all TEARDOWN messages */
+    /* wait for replies to all TEARDOWN messages - can sleep */
     zhpe_msg_list_wait(&teardown_msg_list, start);
 
-    /* Revisit: what if rbtree changes while we're looping? */
+    spin_lock(&fdata->uuid_lock);  /* nothing in this loop sleeps */
     for (rb = rb_first(&fdata->fd_remote_uuid_tree); rb; rb = rb_next(rb)) {
         node = container_of(rb, struct uuid_node, node);
         uu = node->tracker;
@@ -539,8 +540,9 @@ void zhpe_notify_remote_uuids(struct file_data *fdata)
         }
         list_add_tail(&state->msg_list, &free_msg_list);
     }
+    spin_unlock(&fdata->uuid_lock);
 
-    /* wait for replies to all the FREE messages */
+    /* wait for replies to all the FREE messages - can sleep */
     zhpe_msg_list_wait(&free_msg_list, start);
 }
 
