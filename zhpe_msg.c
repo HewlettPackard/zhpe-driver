@@ -321,31 +321,17 @@ static inline int msg_send_cmd(struct xdm_info *xdmi,
 {
     union zhpe_hw_wq_entry cmd = { 0 };
     size_t size;
-    struct bridge *br;
-    struct zhpe_rdm_hdr msg_hdr;
 
+    if (!xdmi->sl)
+        return -ENXIO;
+    /* fill in cmd */
+    cmd.hdr.opcode = ZHPE_HW_OPCODE_ENQA;
+    cmd.enqa.dgcid = dgcid;
+    cmd.enqa.rspctxid = rspctxid;
     size = min(sizeof(*msg), sizeof(cmd.enqa.payload));
-    br = xdmi->br;
-
-    debug(DEBUG_MSG, "self check 0x%x 0x%x\n", dgcid, br->gcid);
-
-    if (dgcid != br->gcid) {
-        if (!xdmi->sl)
-            return -ENXIO;
-        /* fill in cmd */
-        cmd.hdr.opcode = ZHPE_HW_OPCODE_ENQA;
-        cmd.enqa.dgcid = dgcid;
-        cmd.enqa.rspctxid = rspctxid;
-        memcpy(&cmd.enqa.payload, msg, size);
-        /* send cmd */
-        return msg_xdm_queue_cmd(xdmi, &cmd);
-    }
-
-    msg_hdr.sgcid = br->gcid;
-    msg_hdr.reqctxid = xdmi->reqctxid;
-    process_msg(&br->msg_rdm, xdmi, &msg_hdr, msg);
-
-    return 0;
+    memcpy(&cmd.enqa.payload, msg, size);
+    /* send cmd */
+    return msg_xdm_queue_cmd(xdmi, &cmd);
 }
 
 static int msg_insert_send_cmd(struct xdm_info *xdmi,
