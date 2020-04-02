@@ -781,7 +781,7 @@ static void process_msg(struct rdm_info *rdmi, struct xdm_info *xdmi,
         }
         state->rsp_msg = *msg;
         state->ready = true;
-        wake_up_interruptible(&state->wq);
+        wake_up(&state->wq);
 
     } else {
 
