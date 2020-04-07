@@ -90,8 +90,9 @@ do {                                                                    \
 #define GB(_x)            ((_x)*BIT_ULL(30))
 #define TB(_x)            ((_x)*BIT_ULL(40))
 
-/* platforms that the zhpe driver supports through the platform parameter */
+/* platforms that the zhpe driver supports */
 enum {
+    ZHPE_UNKNOWN         = 0x0,
     ZHPE_CARBON          = 0x1,
     ZHPE_PFSLICE         = 0x2,
     ZHPE_WILDCAT         = 0x3,
