@@ -102,7 +102,7 @@ int xqcm_hsr_offsets[] =
  * ECC.
  */
 int rqcm_hsr_offsets[] =
-{ 0x0, 0x08, 0x40, 0x80, 0xc0 };
+{ 0x0, 0x08, 0x40, 0x80 };
 #define RDM_A_MASK		0x0000000000000001
 
 static DECLARE_WAIT_QUEUE_HEAD(wqA);
@@ -343,6 +343,9 @@ static int clear_rdm_qcm(struct rdm_qcm *qcm)
     hsr_count = sizeof(rqcm_hsr_offsets)/sizeof(rqcm_hsr_offsets[0]);
     for (h = 0; h < hsr_count; h++)
         rdm_qcm_write_val(0, qcm, rqcm_hsr_offsets[h]);
+    /* Set head to 1 to workaround SKW-1203. */
+    rdm_qcm_write_val(1, qcm, ZHPE_RDM_QCM_RCV_QUEUE_HEAD_OFFSET);
+
     return 0;
 }
 
