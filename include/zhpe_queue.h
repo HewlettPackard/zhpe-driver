@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2018, 2020 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -62,8 +62,6 @@
 #define XDM_CMPL_ADDR_OFFSET    0x10
 #define XDM_PASID_OFFSET        0x18
 #define XDM_PASID_QVIRT_FLAG    (1ULL << 31)
-#define XDM_MASTER_STOP_OFFSET 	0x20
-#define XDM_STOP_OFFSET		0x40
 #define XDM_A_OFFSET 		0x28
 #define XDM_DUMP_08_START       0x10
 #define XDM_DUMP_08_END         0x28
@@ -73,8 +71,6 @@
 #define RDM_CMPL_ADDR_OFFSET    0x00
 #define RDM_SIZE_OFFSET         0x08
 #define RDM_SIZE_QVIRT_FLAG     (1ULL << 63)
-#define RDM_MASTER_STOP_OFFSET 	0x10
-#define RDM_STOP_OFFSET		0x40
 #define RDM_A_OFFSET		0x18
 #define RDM_DUMP_08_START       0x08
 #define RDM_DUMP_08_END         0x18

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2019 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2017-2020 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -55,15 +55,63 @@ _EXTERN_C_BEG
 #define ZHPE_MAX_RDMQS_PER_SLICE ((size_t)256)
 #define ZHPE_MAX_XDMQS_PER_SLICE ((size_t)256)
 
-#define ZHPE_MAX_IRQS   (ZHPE_MAX_IRQS_PER_SLICE * ZHPE_MAX_SLICES)
-#define ZHPE_MAX_RDMQS  (ZHPE_MAX_RDMQS_PER_SLICE * ZHPE_MAX_SLICES)
-#define ZHPE_MAX_XDMQS  (ZHPE_MAX_XDMQS_PER_SLICE * ZHPE_MAX_SLICES)
+#define ZHPE_MAX_IRQS           (ZHPE_MAX_IRQS_PER_SLICE * ZHPE_MAX_SLICES)
+#define ZHPE_MAX_RDMQS          (ZHPE_MAX_RDMQS_PER_SLICE * ZHPE_MAX_SLICES)
+#define ZHPE_MAX_XDMQS          (ZHPE_MAX_XDMQS_PER_SLICE * ZHPE_MAX_SLICES)
 
 #define ZHPE_MAX_IMM            ((size_t)32)
 #define ZHPE_MAX_ENQA           ((size_t)52)
 
-#define ZHPE_XDM_QCM_CMD_BUF_COUNT         0x10
-#define ZHPE_RDM_QCM_RCV_QUEUE_HEAD_OFFSET 0xc0
+/* XDM QCM access macros and structures. Reads and writes must be 64 bits */
+
+struct zhpe_xdm_active_status_error {
+    uint64_t active_cmd_cnt   : 11;
+    uint64_t rv1              : 4;
+    uint64_t active           : 1;
+    uint64_t status           : 3;
+    uint64_t rv2              : 12;
+    uint64_t error            : 1;
+    uint64_t rv3              : 32;
+};
+#define ZHPE_XDM_QCM_STATUS_CMD_ERROR           0x1
+#define ZHPE_XDM_QCM_MASTER_STOP_OFFSET         0x20
+#define ZHPE_XDM_QCM_ACTIVE_STATUS_ERROR_OFFSET 0x28
+#define ZHPE_XDM_QCM_STOP_OFFSET                0x40
+#define ZHPE_XDM_QCM_CMD_QUEUE_TAIL_OFFSET      0x80
+#define ZHPE_XDM_QCM_CMD_QUEUE_HEAD_OFFSET      0xc0
+#define ZHPE_XDM_QCM_CMD_BUF_OFFSET             0x800
+#define ZHPE_XDM_QCM_CMD_BUF_CLEAR              0x800
+#define ZHPE_XDM_QCM_CMD_BUF_COUNT              0x10
+
+#define ZHPE_RDM_QCM_MASTER_STOP_OFFSET         0x10
+#define ZHPE_RDM_QCM_STOP_OFFSET                0x40
+#define ZHPE_RDM_QCM_RCV_QUEUE_HEAD_OFFSET      0xc0
+/*
+ * XDM command buffers should be written with as two 32 AVX ops, byte 0 is
+ * is the trigger, so write the second half, first.
+ */
+struct zhpe_xdm_cmpl_queue_tail_toggle {
+    uint64_t cmpl_q_tail_idx  : 16;
+    uint64_t rv1              : 15;
+    uint64_t toggle_valid     : 1;
+    uint64_t rv2              : 32;
+};
+#define ZHPE_XDM_QCM_CMPL_QUEUE_TAIL_TOGGLE_OFFSET 0x100
+
+/* RDM QCM access macros and structures. Reads and writes must be 64 bits */
+struct zhpe_rdm_active {
+    uint64_t active : 1;
+};
+#define ZHPE_RDM_QCM_ACTIVE_OFFSET              0x18
+
+struct zhpe_rdm_rcv_queue_tail_toggle {
+    uint64_t rcv_q_tail_idx   : 20;
+    uint64_t rv1              : 11;
+    uint64_t toggle_valid     : 1;
+    uint64_t rv2              : 32;
+};
+#define ZHPE_RDM_QCM_RCV_QUEUE_TAIL_TOGGLE_OFFSET 0x80
+
 
 #define ZHPE_MR_GET             ((uint32_t)1 << 0)
 #define ZHPE_MR_PUT             ((uint32_t)1 << 1)
@@ -106,7 +154,6 @@ enum zhpe_hw_cq_status {
     ZHPE_HW_CQ_STATUS_GENZ_RDM_QUEUE_FULL       = 0x93,
     ZHPE_HW_CQ_STATUS_GENZ_UNSUPPORTED_SVC      = 0x95,
     ZHPE_HW_CQ_STATUS_GENZ_RETRIES_EXCEEDED     = 0xA2,
-
 };
 
 /*
@@ -313,6 +360,10 @@ struct zhpe_queue {
     uint32_t           size;   /* Bytes allocated for the queue */
     uint64_t           off;    /* File descriptor offset to the queue */
 };
+
+/* Defines for the XQALLOC/RQALLOC slice_mask */
+#define SLICE_DEMAND 0x80
+#define ALL_SLICES 0x0f
 
 struct zhpe_xqinfo {
     struct zhpe_qcm     qcm;   /* XDM Queue Control Memory */

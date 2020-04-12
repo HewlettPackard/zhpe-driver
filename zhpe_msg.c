@@ -312,9 +312,6 @@ static inline void msg_setup_rsp_hdr(union zhpe_msg *rsp_msg,
     rsp_msg->hdr.rspctxid = rspctxid;
 }
 
-static void process_msg(struct rdm_info *rdmi, struct xdm_info *xdmi,
-                        struct zhpe_rdm_hdr *msg_hdr, union zhpe_msg *msg);
-
 static inline int msg_send_cmd(struct xdm_info *xdmi,
                                union zhpe_msg *msg,
                                uint32_t dgcid, uint32_t rspctxid)
@@ -779,6 +776,7 @@ static void process_msg(struct rdm_info *rdmi, struct xdm_info *xdmi,
                   msg->hdr.msgid);
             return;
         }
+        debug(DEBUG_MSG, "wake up %u\n", msg->hdr.msgid);
         state->rsp_msg = *msg;
         state->ready = true;
         wake_up(&state->wq);
@@ -842,11 +840,11 @@ void zhpe_msg_worker(struct work_struct *work)
             handled++;
 
             rspctxid = msg.hdr.rspctxid;
-            debug(DEBUG_MSG, "sgcid=%s, reqctxid=%u, version=%u, opcode=0x%x,"
-                  " status=%d, rspctxid=%u, handled=%u, more=%u\n",
+            debug(DEBUG_MSG, "sgcid=%s, reqctxid=%u, version=%u, msgid=%u,"
+                  " opcode=0x%x, status=%d, rspctxid=%u, handled=%u, more=%u\n",
                   zhpe_gcid_str(msg_hdr.sgcid, sgstr, sizeof(sgstr)),
-                  msg_hdr.reqctxid, msg.hdr.version, msg.hdr.opcode,
-                  msg.hdr.status, rspctxid, handled, more);
+                  msg_hdr.reqctxid, msg.hdr.version, msg.hdr.msgid,
+                  msg.hdr.opcode, msg.hdr.status, rspctxid, handled, more);
             /* Revisit: verify that msg came from reqctxid 0? */
             if (msg.hdr.version != ZHPE_MSG_VERSION) {
                 /* if we don't recognize the version, we can't know
@@ -1064,8 +1062,8 @@ int zhpe_msg_qalloc(struct bridge *br)
         goto rqfree;
 
     /* clear stop bits - queues are now ready */
-    xdm_qcm_write_val(0, xdmi->hw_qcm_addr, XDM_STOP_OFFSET);
-    rdm_qcm_write_val(0, rdmi->hw_qcm_addr, RDM_STOP_OFFSET);
+    xdm_qcm_write_val(0, xdmi->hw_qcm_addr, ZHPE_XDM_QCM_STOP_OFFSET);
+    rdm_qcm_write_val(0, rdmi->hw_qcm_addr, ZHPE_RDM_QCM_STOP_OFFSET);
 
     return 0;
 

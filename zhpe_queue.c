@@ -264,10 +264,10 @@ static int clear_xdm_qcm(struct xdm_qcm *qcm)
     int hsr_count;
 
     /* Set the master stop bit */
-    xdm_qcm_write_val(1, qcm, XDM_MASTER_STOP_OFFSET);
+    xdm_qcm_write_val(1, qcm, ZHPE_XDM_QCM_MASTER_STOP_OFFSET);
 
     /* Read back to ensure synchronization. */
-    junk = xdm_qcm_read(qcm, XDM_MASTER_STOP_OFFSET);
+    junk = xdm_qcm_read(qcm, ZHPE_XDM_QCM_MASTER_STOP_OFFSET);
 
     if (xdm_wait_for_active_clear(qcm)) {
         return -1;
@@ -313,7 +313,7 @@ int zhpe_clear_xdm_qcm(
     }
 
     /* Read back one value to ensure synchronization. */
-    junk = xdm_qcm_read(&qcm[0], XDM_MASTER_STOP_OFFSET);
+    junk = xdm_qcm_read(&qcm[0], ZHPE_XDM_QCM_MASTER_STOP_OFFSET);
 
     return 0;
 }
@@ -326,10 +326,10 @@ static int clear_rdm_qcm(struct rdm_qcm *qcm)
     int hsr_count;
 
     /* Set the master stop bit */
-    rdm_qcm_write_val(1, qcm, RDM_MASTER_STOP_OFFSET);
+    rdm_qcm_write_val(1, qcm, ZHPE_RDM_QCM_MASTER_STOP_OFFSET);
 
     /* Read back to ensure synchronization. */
-    junk = rdm_qcm_read(qcm, RDM_MASTER_STOP_OFFSET);
+    junk = rdm_qcm_read(qcm, ZHPE_RDM_QCM_MASTER_STOP_OFFSET);
 
     /* Busy wait on the A bit */
     while (rdm_get_A_bit(qcm) == 1) {
@@ -372,7 +372,7 @@ int zhpe_clear_rdm_qcm(
     }
 
     /* Read back one value to ensure synchronization. */
-    junk = rdm_qcm_read(&qcm[0], RDM_MASTER_STOP_OFFSET);
+    junk = rdm_qcm_read(&qcm[0], ZHPE_RDM_QCM_MASTER_STOP_OFFSET);
 
     return 0;
 }
@@ -579,7 +579,7 @@ static int alloc_xqueue(
 
     if (slice_mask == SLICE_DEMAND) {
         /* seting the DEMAND flag without any slices is an error. */
-        return -1;
+        return -EINVAL;
     }
     if (slice_mask == 0) {
         /* Caller did not specify any specific slices so use all. */
@@ -716,7 +716,8 @@ static int _xqueue_free(
     clear_bit(queue, slices[slice].xdm_alloced_bitmap);
     spin_unlock (&slices[slice].xdm_slice_lock);
 
-    debug(DEBUG_XQUEUE, "Freed queue %d on slice %d qcm=0x%px\n", queue, slice, hw_qcm_addr);
+    debug(DEBUG_XQUEUE, "Freed queue %d on slice %d qcm=0x%px\n",
+          queue, slice, hw_qcm_addr);
     return 0;
 }
 
@@ -978,11 +979,11 @@ static void xdm_qcm_setup(struct xdm_qcm *hw_qcm_addr,
                   ZHPE_XDM_QCM_CMPL_QUEUE_TAIL_TOGGLE_OFFSET);
 
     /* Now set the stop bits to turn control over to application. */
-    xdm_qcm_write(&qcm, hw_qcm_addr, XDM_STOP_OFFSET);
-    xdm_qcm_write(&qcm, hw_qcm_addr, XDM_MASTER_STOP_OFFSET);
+    xdm_qcm_write(&qcm, hw_qcm_addr, ZHPE_XDM_QCM_STOP_OFFSET);
+    xdm_qcm_write(&qcm, hw_qcm_addr, ZHPE_XDM_QCM_MASTER_STOP_OFFSET);
 
     /* Read back to ensure synchronization */
-    junk = xdm_qcm_read(hw_qcm_addr, XDM_MASTER_STOP_OFFSET);
+    junk = xdm_qcm_read(hw_qcm_addr, ZHPE_XDM_QCM_MASTER_STOP_OFFSET);
 
     zhpe_debug_xdm_qcm(__func__, __LINE__, hw_qcm_addr);
 }
@@ -1071,15 +1072,15 @@ int zhpe_req_XQALLOC(
     ret = alloc_xqueue(fdata->bridge, req->slice_mask,
                        &slice, &queue);
     rsp->hdr.status = ret;
-    debug(DEBUG_XQUEUE,
-          "xqalloc rsp slice %d queue %d\n",
-          slice, queue);
     if (ret) {
         debug(DEBUG_XQUEUE,
               "Request for slice_mask 0x%x failed\n",
               req->slice_mask);
         goto done;
     }
+    debug(DEBUG_XQUEUE,
+          "xqalloc rsp slice %d queue %d\n",
+          slice, queue);
     /* set bit in this file_data as owner */
     spin_lock(&fdata->xdm_queue_lock);
     set_bit((slice*zhpe_xdm_queues_per_slice)+queue, fdata->xdm_queues);
@@ -1258,7 +1259,8 @@ int zhpe_req_XQFREE(union zhpe_req *req,
     struct zmap		*next;
 
     debug(DEBUG_XQUEUE,
-          "xqfree req slice %d queue %d qcm.off 0x%llx cmd.off 0x%llx cmpl.off 0x%llx\n",
+          "xqfree req slice %d queue %d qcm.off 0x%llx cmd.off 0x%llx"
+          " cmpl.off 0x%llx\n",
           req->xqfree.info.slice, req->xqfree.info.queue,
           req->xqfree.info.qcm.off, req->xqfree.info.cmdq.off,
           req->xqfree.info.cmplq.off);
@@ -1289,6 +1291,7 @@ int zhpe_req_XQFREE(union zhpe_req *req,
         ret = -ENOENT;
 
  done:
+    debug(DEBUG_XQUEUE, "xqfree ret = %d\n", ret);
     return ret;
 }
 
@@ -1375,11 +1378,11 @@ static void rdm_qcm_setup(struct rdm_qcm *hw_qcm_addr,
     rdm_qcm_write(&qcm, hw_qcm_addr, ZHPE_RDM_QCM_RCV_QUEUE_HEAD_OFFSET);
 
     /* Now set the stop bits to turn control over to application. */
-    rdm_qcm_write(&qcm, hw_qcm_addr, RDM_STOP_OFFSET);
-    rdm_qcm_write(&qcm, hw_qcm_addr, RDM_MASTER_STOP_OFFSET);
+    rdm_qcm_write(&qcm, hw_qcm_addr, ZHPE_RDM_QCM_STOP_OFFSET);
+    rdm_qcm_write(&qcm, hw_qcm_addr, ZHPE_RDM_QCM_MASTER_STOP_OFFSET);
 
     /* Read back to ensure synchronization */
-    junk = rdm_qcm_read(hw_qcm_addr, RDM_MASTER_STOP_OFFSET);
+    junk = rdm_qcm_read(hw_qcm_addr, ZHPE_RDM_QCM_MASTER_STOP_OFFSET);
 
     zhpe_debug_rdm_qcm(__func__, __LINE__, hw_qcm_addr);
 }
