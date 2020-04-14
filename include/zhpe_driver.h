@@ -307,7 +307,8 @@ struct req_zmmu {
 #define RSP_RV1_SZ       (0x400000 - 0x200000)
 #define RSP_RV2_SZ       (0x600000 - (0x400000 + PAGE_GRID_SZ))
 #define RSP_RV3_SZ       (0x2000000 - 0x600008)
-#define RSP_TAKE_SNAPSHOT_MASK (0x2FF)
+#define RSP_TAKE_SNAPSHOT_MASK (0x3FF)
+#define RSP_TAKE_SNAPSHOT_TRIES 100
 
 struct rsp_zmmu {
     struct rsp_pte                pte[MAX_RSP_ZMMU_ENTRIES];
@@ -425,6 +426,10 @@ struct bridge {
     struct list_head      fdata_list;
     struct work_struct    msg_work;
     wait_queue_head_t     zhpe_poll_wq[MAX_IRQ_VECTORS];
+    spinlock_t            snap_lock;
+    struct task_struct    *snap_owner, *prev_snap_owner;
+    wait_queue_head_t     snap_wqh;
+    uint                  cur_snap[SLICES]; /* updated by snap_owner */
 };
 
 struct queue_zpage {
@@ -636,6 +641,8 @@ struct zmap *_zmap_alloc(
 	union zpages *zpages);
 #define zmap_alloc(...) \
     _zmap_alloc(__func__, __LINE__, __VA_ARGS__)
+
+void zhpe_disable_dbg_obs(struct bridge *br);
 
 struct file_data *pid_to_fdata(struct bridge *br, pid_t pid);
 
