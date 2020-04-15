@@ -194,6 +194,15 @@ uint zhpe_no_rkeys = 1;
 module_param_named(no_rkeys, zhpe_no_rkeys, uint, S_IRUGO);
 MODULE_PARM_DESC(no_rkeys, "Disable Gen-Z R-keys");
 
+uint snap_tries = RSP_TAKE_SNAPSHOT_TRIES;
+module_param(snap_tries, uint, S_IRUGO);
+MODULE_PARM_DESC(snap_tries,
+                 "Number of tries before aborting TAKE_SNAPSHOT loop");
+uint snap_dbg_obs = 1;
+module_param(snap_dbg_obs, uint, S_IRUGO);
+MODULE_PARM_DESC(snap_dbg_obs,
+                 "Disable HW dbg_obs on TAKE_SNAPSHOT failure");
+
 static int __init zhpe_init(void);
 static void zhpe_exit(void);
 
@@ -1750,6 +1759,7 @@ static int zhpe_open(struct inode *inode, struct file *file)
 #define ZHPE_DVSEC_PSLICE_SHIFT   (0xD)
 #define ZHPE_DVSEC_SLICE_MASK     (0x3)
 #define ZHPE_DVSEC_VSLICE_SHIFT   (0xF)
+#define ZHPE_DVSEC_DBG_OBS_MASK   (0x10)
 #define ZHPE_DVSEC_MBOX_CTRL_OFF  (0x30)
 #define ZHPE_DVSEC_MBOX_CTRL_TRIG (0x1)
 #define ZHPE_DVSEC_MBOX_CTRL_WR   (0x2)
@@ -2240,6 +2250,24 @@ static int probe_setup_slices(struct bridge *br)
     return ret;
 }
 
+void zhpe_disable_dbg_obs(struct bridge *br)
+{
+    uint                sl;
+    int                 pos;
+    uint32_t            slice_data;
+    struct pci_dev      *pdev;
+
+    for (sl = 0; sl < SLICES; sl++) {
+        if (!SLICE_VALID(&br->slice[sl])) {
+            continue;
+        }
+        pdev = br->slice[sl].pdev;
+        pos = pci_find_ext_capability(pdev, PCI_EXT_CAP_ID_DVSEC);
+        pci_read_config_dword(pdev, pos + ZHPE_DVSEC_SLICE_OFF, &slice_data);
+        slice_data &= ~ZHPE_DVSEC_DBG_OBS_MASK;
+        pci_write_config_dword(pdev, pos + ZHPE_DVSEC_SLICE_OFF, slice_data);
+    }
+}
 
 static int zhpe_probe(struct pci_dev *pdev,
                       const struct pci_device_id *pdev_id)
@@ -2583,6 +2611,8 @@ static int __init zhpe_init(void)
     INIT_LIST_HEAD(&zhpe_bridge.fdata_list);
     zhpe_bridge.gcid = INVALID_GCID;
     INIT_WORK(&zhpe_bridge.msg_work, zhpe_msg_worker);
+    spin_lock_init(&zhpe_bridge.snap_lock);
+    init_waitqueue_head(&zhpe_bridge.snap_wqh);
 
     debug(DEBUG_ZMMU, "calling zhpe_zmmu_clear_all\n");
     zhpe_zmmu_clear_all(&zhpe_bridge, false);
