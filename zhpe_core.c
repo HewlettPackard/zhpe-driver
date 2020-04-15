@@ -2257,6 +2257,7 @@ void zhpe_disable_dbg_obs(struct bridge *br)
     uint32_t            slice_data;
     struct pci_dev      *pdev;
 
+    mutex_lock(&br->probe_mutex);
     for (sl = 0; sl < SLICES; sl++) {
         if (!SLICE_VALID(&br->slice[sl])) {
             continue;
@@ -2267,6 +2268,10 @@ void zhpe_disable_dbg_obs(struct bridge *br)
         slice_data &= ~ZHPE_DVSEC_DBG_OBS_MASK;
         pci_write_config_dword(pdev, pos + ZHPE_DVSEC_SLICE_OFF, slice_data);
     }
+    if (br->probe_error >= 0)
+        br->probe_error = -EIO;
+    mutex_unlock(&br->probe_mutex);
+
 }
 
 static int zhpe_probe(struct pci_dev *pdev,
