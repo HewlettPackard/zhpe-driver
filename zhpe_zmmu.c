@@ -263,7 +263,7 @@ static void zmmu_rsp_pte_write(struct zhpe_pte_info *info,
         pte.va = va;
         window_sz = min(ps - offset, length);
         pte.window_sz = window_sz % BIT_ULL(PAGE_GRID_MAX_PAGESIZE);
-        debug(DEBUG_ZMMU, "pte[%u]@%px:va=0x%llx, pasid=0x%x, "
+        debug(0x8000, "pte[%u]@%px:va=0x%llx, pasid=0x%x, "
               "rke=%u, ro_rkey=0x%x, rw_rkey=0x%x, "
               "window_sz=0x%llx, v=%u\n",
               i, &rspz->pte[i],
@@ -1067,125 +1067,110 @@ int zhpe_zmmu_rsp_pte_alloc(struct zhpe_pte_info *info, uint64_t *rsp_zaddr,
 
 static inline uint snap_delta(uint first_snap, uint second_snap)
 {
-    return (second_snap - first_snap) & RSP_TAKE_SNAPSHOT_MASK;
+    if (unlikely(first_snap > second_snap))
+        second_snap += RSP_TAKE_SNAPSHOT_MASK + 1;
+    return (second_snap - first_snap);
 }
 
 void zhpe_zmmu_rsp_take_snapshot(struct bridge *br)
 {
-    uint                  sl, tries = 0;
-    struct rsp_zmmu       *rspz;
-    int                   slice_mask = ALL_SLICES;
-    int                   cur_mask;
-    uint                  cur_snap, delta1, delta2;
-    uint                  first_snap[SLICES];
-    bool                  snap_owner = false;
+    uint                sl, tries;
+    struct rsp_zmmu     *rspz;
+    int                 slice_mask = ALL_SLICES;
+    int                 cur_mask;
+    uint                first_snap[SLICES];
+    uint                cur_snap;
+    uint                delta;
+    uint                group;
+    uint                wait_idx;
     DEFINE_WAIT(wait);
 
     if (zhpe_platform == ZHPE_CARBON)
         return;
 
-    for (sl = 0; sl < SLICES; sl++) {  /* initial reads holding no lock */
+    spin_lock(&br->snap_lock);
+    group = br->snap_group + 1;
+    wait_idx = br->snap_wait_idx;
+    if (!br->snap_failed && br->snap_active) {
+        debug(0x8000, "Group %u, queue %u, sleeping\n", group, wait_idx);
+        prepare_to_wait_exclusive(&br->snap_wqh[wait_idx], &wait,
+                                  TASK_UNINTERRUPTIBLE);
+        spin_unlock(&br->snap_lock);
+        schedule();
+        finish_wait(&br->snap_wqh[wait_idx], &wait);
+        debug(0x8000, "Group %u, queue %u, awake\n", group, wait_idx);
+        spin_lock(&br->snap_lock);
+    }
+    if (br->snap_failed) {
+        /* We're broken. */
+        spin_unlock(&br->snap_lock);
+        zprintk(KERN_WARNING, "snap failed\n");
+        return;
+    }
+    /* We're done. */
+    if ((int)(group - br->snap_group) <= 0) {
+        spin_unlock(&br->snap_lock);
+        debug(0x8000, "Group %u, queue %u, done\n", group, wait_idx);
+        return;
+    }
+    /* Switch to other wait queue for new entries. */
+    br->snap_active = true;
+    br->snap_group++;
+    br->snap_wait_idx ^= 1;
+    spin_unlock(&br->snap_lock);
+    debug(0x8000, "Group %u, queue %u, leading\n", group, wait_idx);
+
+    for (sl = 0; sl < SLICES; sl++) {
         if (!SLICE_VALID(&br->slice[sl])) {
             slice_mask &= ~(1 << sl);
             continue;
         }
         rspz = &br->slice[sl].bar->rsp_zmmu;
-        first_snap[sl] = ioread64(&rspz->take_snapshot);
-        debug(DEBUG_ZMMU, "first_snap[%u] %u\n",
-              sl, first_snap[sl] & RSP_TAKE_SNAPSHOT_MASK);
+        first_snap[sl] = (ioread64(&rspz->take_snapshot) &
+                          RSP_TAKE_SNAPSHOT_MASK);
+        debug(0x8000, "slice %u, first %u\n", sl, first_snap[sl]);
     }
 
-    spin_lock(&br->snap_lock);
-    if (br->snap_owner == NULL) {
-        br->snap_owner = current;  /* mark ourselves as owner */
-        snap_owner = true;
-        debug(DEBUG_ZMMU, "owner\n");
-    }
-
-    if (snap_owner) {  /* advance global br->cur_snap values */
+    for (tries = 0; slice_mask && tries < snap_tries; tries++) {
         cur_mask = slice_mask;
         for (sl = ffs(cur_mask); sl; sl = ffs(cur_mask)) {
             sl--;
-            cur_snap = br->cur_snap[sl];
-            delta1 = snap_delta(cur_snap, first_snap[sl]);
-            delta2 = snap_delta(first_snap[sl], cur_snap);
-            if (delta1 < delta2) {  /* our first_snap is ahead of cur_snap */
-                br->cur_snap[sl] = first_snap[sl];  /* only owner writes */
-                debug(DEBUG_ZMMU, "setting br->cur_snap[%u]=%u\n",
-                      sl, first_snap[sl] & RSP_TAKE_SNAPSHOT_MASK);
-            }
             cur_mask &= ~(1 << sl);
+            rspz = &br->slice[sl].bar->rsp_zmmu;
+            cur_snap = ioread64(&rspz->take_snapshot) & RSP_TAKE_SNAPSHOT_MASK;
+            delta = snap_delta(first_snap[sl], cur_snap);
+            debug(0x8000, "slice %u, first %u, cur %u, delta %u\n",
+                  sl, first_snap[sl], cur_snap, delta);
+            if (delta >= 2)
+                slice_mask &= ~(1 << sl);
         }
-        spin_unlock(&br->snap_lock);
-    } else {  /* !snap_owner */
-        spin_unlock(&br->snap_lock);
-        while (1) {
-            /* check if owner has advanced br->cur_snap for us - no lock */
-            cur_mask = slice_mask;
-            for (sl = ffs(cur_mask); sl; sl = ffs(cur_mask)) {
-                sl--;
-                cur_snap = br->cur_snap[sl];
-                debug(DEBUG_ZMMU, "br->cur_snap[%u] %u\n",
-                      sl, cur_snap & RSP_TAKE_SNAPSHOT_MASK);
-                cur_mask &= ~(1 << sl);
-                delta1 = snap_delta(cur_snap, first_snap[sl]);
-                delta2 = snap_delta(first_snap[sl], cur_snap);
-                if (delta2 < delta1 && delta2 >= 2)
-                    slice_mask &= ~(1 << sl);
-            }
-            if (slice_mask == 0) {  /* we are done */
-                debug(DEBUG_ZMMU, "wait done\n");
-                break;
-            }
-            spin_lock(&br->snap_lock);
-            if (br->snap_owner == NULL) {  /* take over as owner */
-                br->snap_owner = current;
-                snap_owner = true;
-                spin_unlock(&br->snap_lock);
-                debug(DEBUG_ZMMU, "take over owner from %d\n",
-                      task_pid_nr(br->prev_snap_owner));
-                break;
-            }
-            /* someone else is owner - wait */
-            prepare_to_wait(&br->snap_wqh, &wait, TASK_UNINTERRUPTIBLE);
-            spin_unlock(&br->snap_lock);
-            debug(DEBUG_ZMMU, "waiting\n");
-            schedule();
-        }
-        finish_wait(&br->snap_wqh, &wait);
     }
-
-    if (snap_owner) {  /* only owner spins on reads - no lock */
-        while (slice_mask && tries++ < snap_tries) {
-            cur_mask = slice_mask;
-            for (sl = ffs(cur_mask); sl; sl = ffs(cur_mask)) {
-                sl--;
-                rspz = &br->slice[sl].bar->rsp_zmmu;
-                cur_snap = ioread64(&rspz->take_snapshot);
-                br->cur_snap[sl] = cur_snap;  /* only owner writes */
-                debug(DEBUG_ZMMU, "cur_snap[%u] %u tries %u\n",
-                      sl, cur_snap & RSP_TAKE_SNAPSHOT_MASK, tries);
-                cur_mask &= ~(1 << sl);
-                if (snap_delta(first_snap[sl], cur_snap) >= 2)
-                    slice_mask &= ~(1 << sl);
-            }
-        }
-
-        if (tries >= snap_tries) {
-            if (snap_dbg_obs) {  /* optionally disable HW dbg_obs */
-                zhpe_disable_dbg_obs(br);
-                zprintk(KERN_WARNING, "disabled HW dbg_obs\n");
-            }
-            zprintk(KERN_WARNING,
-                    "TAKE_SNAPSHOT failed to advance after %d tries, slice_mask=0x%x\n",
-                    tries - 1, slice_mask);
+    if (slice_mask) {
+        zprintk(KERN_WARNING, "Group %u, queue %u, snapshot failed: %u tries\n",
+                group, wait_idx, tries);
+        if (snap_dbg_obs) {  /* optionally disable HW dbg_obs */
+            zhpe_disable_dbg_obs(br);
+            zprintk(KERN_WARNING, "disabled HW dbg_obs and driver\n");
         }
         spin_lock(&br->snap_lock);
-        br->prev_snap_owner = br->snap_owner;  /* debug */
-        br->snap_owner = NULL;  /* we are done - release owner while locked */
-        debug(DEBUG_ZMMU, "snap done\n");
+        br->snap_active = false;
+        br->snap_failed = true;
+        /* Wake up everyone. */
+        wake_up_all(&br->snap_wqh[0]);
+        wake_up_all(&br->snap_wqh[1]);
         spin_unlock(&br->snap_lock);
-        wake_up(&br->snap_wqh);  /* wake all non-owner waiters */
+    } else {
+        spin_lock(&br->snap_lock);
+        debug(0x8000, "Group %u, queue %u, success: %u tries\n",
+              group, wait_idx, tries);
+        /* Wake up everyone on our queue. */
+        wake_up_all(&br->snap_wqh[wait_idx]);
+        /* If there is anyone sleeping on the other queue, wake up one. */
+        if (waitqueue_active(&br->snap_wqh[wait_idx ^ 1]))
+            wake_up(&br->snap_wqh[wait_idx ^ 1]);
+        else
+            br->snap_active = false;
+        spin_unlock(&br->snap_lock);
     }
 }
 

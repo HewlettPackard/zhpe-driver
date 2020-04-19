@@ -427,9 +427,11 @@ struct bridge {
     struct work_struct    msg_work;
     wait_queue_head_t     zhpe_poll_wq[MAX_IRQ_VECTORS];
     spinlock_t            snap_lock;
-    struct task_struct    *snap_owner, *prev_snap_owner;
-    wait_queue_head_t     snap_wqh;
-    uint                  cur_snap[SLICES]; /* updated by snap_owner */
+    wait_queue_head_t     snap_wqh[2];
+    uint                  snap_group;
+    uint8_t               snap_wait_idx;
+    bool                  snap_active;
+    bool                  snap_failed;
 };
 
 struct queue_zpage {

@@ -2617,7 +2617,8 @@ static int __init zhpe_init(void)
     zhpe_bridge.gcid = INVALID_GCID;
     INIT_WORK(&zhpe_bridge.msg_work, zhpe_msg_worker);
     spin_lock_init(&zhpe_bridge.snap_lock);
-    init_waitqueue_head(&zhpe_bridge.snap_wqh);
+    init_waitqueue_head(&zhpe_bridge.snap_wqh[0]);
+    init_waitqueue_head(&zhpe_bridge.snap_wqh[1]);
 
     debug(DEBUG_ZMMU, "calling zhpe_zmmu_clear_all\n");
     zhpe_zmmu_clear_all(&zhpe_bridge, false);
