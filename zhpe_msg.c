@@ -1033,8 +1033,8 @@ int zhpe_msg_qalloc(struct bridge *br)
 
     /* Set up the XDM info structure */
     xdmi->br = br;
-    xdmi->cmdq_ent = 64;
-    xdmi->cmplq_ent = 64;
+    xdmi->cmdq_ent = 256;
+    xdmi->cmplq_ent = 256;
     xdmi->traffic_class = ZHPE_TC_0;
     xdmi->priority = 0;
     xdmi->slice_mask = ALL_SLICES;
@@ -1045,7 +1045,7 @@ int zhpe_msg_qalloc(struct bridge *br)
 
     /* Set up the RDM info structure */
     rdmi->br = br;
-    rdmi->cmplq_ent = 128;
+    rdmi->cmplq_ent = 256;
     rdmi->slice_mask = SLICE_DEMAND|0x1;  /* slice 0 only */
     rdmi->cur_valid = 1;
     ret = zhpe_kernel_RQALLOC(rdmi);
