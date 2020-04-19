@@ -253,7 +253,7 @@ extern uint64_t zhpe_reqz_phy_cpuvisible_off;
 #define CARBON_XDM_QUEUES_PER_SLICE         (256)
 #define CARBON_RDM_QUEUES_PER_SLICE         (256)
 #define CARBON_REQZ_MIN_CPUVISIBLE_ADDR     (GB(4)+TB(1))
-#define CARBON_REQZ_MAX_CPUVISIBLE_ADDR     (TB(13312) - 1)
+#define CARBON_REQZ_MAX_CPUVISIBLE_ADDR     (GB(13312) - 1)
 #define CARBON_REQZ_PHY_CPUVISIBLE_OFF      (GB(0))
 
 /* PFslice FPGA Platform */
