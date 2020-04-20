@@ -1746,6 +1746,9 @@ static int zhpe_open(struct inode *inode, struct file *file)
 
 #define ZHPE_ZMMU_XDM_RDM_HSR_BAR 0
 
+#define PCI_TPH_CTL_OFF         (0x08)
+#define PCI_TPH_CTL_DEF         (0x100) /* Default enabled */
+
 #ifndef PCI_EXT_CAP_ID_DVSEC
 #define PCI_EXT_CAP_ID_DVSEC 0x23  /* Revisit: should be in pci.h */
 #endif
@@ -2230,6 +2233,14 @@ static int probe_setup_slices(struct bridge *br)
         sl = &br->slice[i];
         if (!SLICE_VALID(sl))
             continue;
+
+        /* Configure TPH */
+        pos = pci_find_ext_capability(sl->pdev, PCI_EXT_CAP_ID_TPH);
+        if (pos)
+            pci_write_config_dword(sl->pdev, pos + PCI_TPH_CTL_OFF,
+                                   PCI_TPH_CTL_DEF);
+        else
+            dev_warn(&sl->pdev->dev, "TPH ECAP not found\n");
 
         /* Configure write pusher. */
         pos = pci_find_ext_capability(sl->pdev, PCI_EXT_CAP_ID_DVSEC);
