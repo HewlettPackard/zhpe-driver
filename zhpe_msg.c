@@ -142,7 +142,7 @@ static void msg_state_free(struct zhpe_msg_state *ms)
 static int _msg_xdm_get_cmpl(struct xdm_info *xdmi, struct zhpe_cq_entry *entry)
 {
     int ret = 0;
-    uint head, next_head, cmdq_ent, cmpl_index;
+    uint head, next_head, cmdq_ent;
     struct zhpe_cq_entry *xdm_entry, *next_entry;
     void *cpu_addr;
 
@@ -168,13 +168,6 @@ static int _msg_xdm_get_cmpl(struct xdm_info *xdmi, struct zhpe_cq_entry *entry)
         xdmi->cur_valid = !xdmi->cur_valid;
     /* update cmplq_head - SW-only */
     xdmi->cmplq_head = next_head;
-    /* update cmdq_head_shadow if this completion moves it forward */
-    cmpl_index = entry->index;
-    if (cmpl_index < cmdq_ent) {
-        if (((xdmi->cmdq_tail_shadow - cmpl_index) % cmdq_ent) <
-            ((xdmi->cmdq_tail_shadow - xdmi->cmdq_head_shadow) % cmdq_ent))
-            xdmi->cmdq_head_shadow = cmpl_index;
-    }  /* Revisit: add support for cmd buffers */
     /* peek at next entry to determine if it is valid */
     next_entry = &(((struct zhpe_cq_entry *)cpu_addr)[next_head]);
     ret = (next_entry->valid == xdmi->cur_valid);
@@ -197,7 +190,7 @@ static int msg_xdm_queue_cmd(struct xdm_info *xdmi,
                              union zhpe_hw_wq_entry *cmd)
 {
     int ret = 0, cmpl_ret;
-    uint head, tail, next_tail;
+    uint tail, next_tail;
     union zhpe_hw_wq_entry *xdm_entry;
     struct zhpe_cq_entry cq_entry;
     void *cpu_addr;
@@ -208,17 +201,7 @@ static int msg_xdm_queue_cmd(struct xdm_info *xdmi,
     tail = xdmi->cmdq_tail_shadow;
     /* do mod-add to compute next tail value */
     next_tail = (tail + 1) % xdmi->cmdq_ent;
- restart_head:
-    head = xdmi->cmdq_head_shadow;
-    if (next_tail == head) {  /* cmdq appears to be full */
-        /* our cmdq_head_shadow might be out-of-date - read HW */
-        xdmi->cmdq_head_shadow =
-            xdm_qcm_read(xdmi->hw_qcm_addr,
-                         ZHPE_XDM_QCM_CMD_QUEUE_HEAD_OFFSET);
-        if (head != xdmi->cmdq_head_shadow)
-            goto restart_head;
-        ret = -EBUSY;
-    } else if (xdmi->active_cmds + 1 >= xdmi->cmplq_ent) {
+    if (xdmi->active_cmds + 1 >= xdmi->cmplq_ent) {
         do {  /* process completions */
             cmpl_ret = _msg_xdm_get_cmpl(xdmi, &cq_entry);
             if (cmpl_ret == -EBUSY && more == 0) {
@@ -228,7 +211,7 @@ static int msg_xdm_queue_cmd(struct xdm_info *xdmi,
             /* Revisit: examine status */
             if (cq_entry.status)
                 debug(DEBUG_MSG, "idx 0x%x status 0x%0x\n",
-                      xdmi->cmplq_head, cq_entry.status);
+                      cq_entry.index, cq_entry.status);
             more = cmpl_ret;
         } while (more);
     }
@@ -236,7 +219,7 @@ static int msg_xdm_queue_cmd(struct xdm_info *xdmi,
         /* Revisit: add to workqueue for later processing */
         goto out;
     }
-    cmd->hdr.cmp_index = tail;
+    cmd->hdr.cmp_index = xdmi->cmp_index++;
     cpu_addr = xdmi->cmdq_zpage->dma.cpu_addr;
     xdm_entry = &(((union zhpe_hw_wq_entry *)cpu_addr)[tail]);
     *xdm_entry = *cmd;

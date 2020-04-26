@@ -1220,7 +1220,7 @@ int zhpe_kernel_XQALLOC(struct xdm_info *xdmi)
                   xdmi->cmdq_ent, xdmi->cmplq_ent,
                   xdmi->traffic_class, xdmi->priority, xdmi->cur_valid,
                   NO_PASID, NO_PASID);
-    xdmi->cmdq_head_shadow = 0;
+    xdmi->cmp_index = 0;
     xdmi->cmdq_tail_shadow = 0;
     xdmi->cmplq_head = 0;
     xdmi->cmplq_tail_shadow = 0;
