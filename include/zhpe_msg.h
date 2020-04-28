@@ -134,6 +134,12 @@ union zhpe_msg {
     union zhpe_msg_rsp              rsp;
 };
 
+struct zhpe_msg_id {
+    uint32_t               dgcid;
+    uint32_t               rspctxid;
+    struct rb_node         node;
+};
+
 struct zhpe_msg_state {
     uint32_t               dgcid;
     uint32_t               rspctxid;
@@ -146,9 +152,12 @@ struct zhpe_msg_state {
 };
 
 extern uint zhpe_kmsg_timeout;
+extern uint msg_qsize;
 
 /* Function Prototypes */
 void zhpe_msg_list_wait(struct list_head *msg_wait_list, ktime_t start);
+struct zhpe_msg_state *zhpe_msg_send_NOP(struct bridge *br, uint32_t dgcid,
+                                         uint32_t tgtctxid, uint64_t seq);
 int zhpe_msg_send_UUID_IMPORT(struct bridge *br,
                               uuid_t *src_uuid, uuid_t *tgt_uuid,
                               uint32_t *ro_rkey, uint32_t *rw_rkey);
@@ -158,7 +167,7 @@ struct zhpe_msg_state *zhpe_msg_send_UUID_FREE(struct bridge *br,
 struct zhpe_msg_state *zhpe_msg_send_UUID_TEARDOWN(struct bridge *br,
                                 uuid_t *src_uuid, uuid_t *tgt_uuid);
 int zhpe_msg_qalloc(struct bridge *br);
-int zhpe_msg_qfree(struct bridge *br);
+int zhpe_msg_qfree(struct slice *sl);
 void zhpe_msg_worker(struct work_struct *work);
 
 #endif /* _ZHPE_MSG_H_ */

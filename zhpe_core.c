@@ -203,6 +203,11 @@ module_param(snap_dbg_obs, uint, S_IRUGO);
 MODULE_PARM_DESC(snap_dbg_obs,
                  "Disable HW dbg_obs on TAKE_SNAPSHOT failure");
 
+uint msg_qsize = 256;
+module_param(msg_qsize, uint, S_IRUGO);
+MODULE_PARM_DESC(msg_qsize,
+                 "Number of entries in driver-to-driver msg queues");
+
 static int __init zhpe_init(void);
 static void zhpe_exit(void);
 
@@ -1506,6 +1511,13 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
         }
         break;
     case RMR_PAGE:
+        if (zhpe_platform == ZHPE_WILDCAT &&
+            fdata->bridge->slice_mask != WILDCAT_SLINK_SLICE_MASK) {
+            zprintk(KERN_ERR, "RMR mmap requires slice_mask 0x%x, not 0x%x",
+                    WILDCAT_SLINK_SLICE_MASK, fdata->bridge->slice_mask);
+            ret = -ENODEV;
+            goto done;
+        }
         rmr = zpages->rmrz.rmr;
         cache_flags = rmr->pte_info->access & ZHPE_MR_REQ_CPU_CACHE;
         switch (cache_flags) {
@@ -2408,6 +2420,7 @@ static int zhpe_probe(struct pci_dev *pdev,
     sl->phys_id = pslice_id;
     sl->pdev = pdev;
     sl->valid = true;
+    br->slice_mask |= (1 << pslice_id);
 
     zhpe_zmmu_clear_slice(sl);
 
@@ -2444,16 +2457,11 @@ static int zhpe_probe(struct pci_dev *pdev,
     }
 
     if (br->num_slices == br->expected_slices) {
-        if (SLICE_VALID(&br->slice[0])) {
-            /* allocate driver-driver msg queues on slice 0 only */
-            ret = zhpe_msg_qalloc(br);
-            if (ret) {
-                debug(DEBUG_PCI, "zhpe_msg_qalloc failed with error %d\n", ret);
-                goto err_free_interrupts;
-            }
-        } else {
-            br->msg_xdm.br = br;
-            br->msg_rdm.br = br;
+        /* allocate driver-driver msg queues */
+        ret = zhpe_msg_qalloc(br);
+        if (ret) {
+            debug(DEBUG_PCI, "zhpe_msg_qalloc failed with error %d\n", ret);
+            goto err_free_interrupts;
         }
 
         if (zhpe_platform != ZHPE_CARBON) {
@@ -2526,9 +2534,7 @@ static void zhpe_remove(struct pci_dev *pdev)
     debug(DEBUG_PCI, "device = %s, slice = %u\n", pci_name(pdev), sl->id);
 
     zhpe_free_interrupts(pdev);
-    if (sl->id == 0) {
-        zhpe_msg_qfree(BRIDGE_FROM_SLICE(sl));
-    }
+    zhpe_msg_qfree(sl);
     pci_clear_master(pdev);
 
     /* If we are using the IOMMU, free the device */
@@ -2630,6 +2636,8 @@ static int __init zhpe_init(void)
     spin_lock_init(&zhpe_bridge.snap_lock);
     init_waitqueue_head(&zhpe_bridge.snap_wqh[0]);
     init_waitqueue_head(&zhpe_bridge.snap_wqh[1]);
+    spin_lock_init(&zhpe_bridge.rspctxid_rbtree_lock);
+    zhpe_bridge.rspctxid_rbtree = RB_ROOT;
 
     debug(DEBUG_ZMMU, "calling zhpe_zmmu_clear_all\n");
     zhpe_zmmu_clear_all(&zhpe_bridge, false);
