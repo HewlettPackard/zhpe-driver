@@ -64,15 +64,16 @@ def runtime_err(*arg):
 #    else:
 #        print(*arg)
 
+def auto_int(x):
+    return int(x, 0)
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', '--devfile', default='/dev/zhpe',
                         help='the zhpe character device file')
     parser.add_argument('-k', '--keyboard', action='store_true',
                         help='invoke interactive keyboard')
-    parser.add_argument('-c', '--commands', default=1, type=int,
-                        help='total number of commands')
-    parser.add_argument('-D', '--dgcid', default=-1, type=int,
+    parser.add_argument('-D', '--dgcid', default=-1, type=auto_int,
                         help='Destination Global Component ID')
     parser.add_argument('-P', '--post_mortem', action='store_true',
                         help='enter debugger on uncaught exception')
@@ -82,7 +83,7 @@ def parse_args():
                         help='slice 0-3')
     parser.add_argument('-v', '--verbosity', action='count', default=0,
                         help='increase output verbosity')
-    parser.add_argument('-X', '--XDM_only', default=-1, type=int,
+    parser.add_argument('-X', '--XDM_only', default=-1, type=auto_int,
                         help='only do XDM allocation and transmit')
     return parser.parse_args()
 
@@ -121,7 +122,7 @@ def main():
         smask |= 0x80
         if not args.RDM_only:
             xdm = zhpe.XDM(conn, 256, 256, slice_mask=smask)
-            print('XDM gcid {} slice {}  queue {}'.format(
+            print('XDM gcid 0x{:04x} slice {}  queue {}'.format(
                 gcid, xdm.rsp_xqa.info.slice, xdm.rsp_xqa.info.queue))
             if args.XDM_only != -1:
                 rspctxid = args.XDM_only
@@ -129,7 +130,7 @@ def main():
         if args.XDM_only == -1:
             rdm = zhpe.RDM(conn, 1024, slice_mask=smask)
             rspctxid = rdm.rsp_rqa.info.rspctxid
-            print('RDM gcid {} slice {}  queue {} rspctxid {}'.format(
+            print('RDM gcid 0x{:04x} slice {}  queue {} rspctxid {}'.format(
                 gcid, rdm.rsp_rqa.info.slice, rdm.rsp_rqa.info.queue,
                 rspctxid))
     
