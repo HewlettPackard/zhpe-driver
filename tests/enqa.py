@@ -91,7 +91,7 @@ def rdm_check(rdm_cmpl, enqa):
         print('RDM cmpl: {}'.format(rdm_cmpl.enqa))
     if enqa.enqa.payload[0:52] != rdm_cmpl.enqa.payload[0:52]:
         runtime_err('FAIL: RDM: payload is {} and should be {}'.format(
-            rdm_cmpl.enqa.payload[0:len1], enq.ena.payload[0:52]))
+            rdm_cmpl.enqa.payload[0:52], enq.ena.payload[0:52]))
 
 def main():
     global args
