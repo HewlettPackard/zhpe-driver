@@ -404,38 +404,184 @@ static int msg_insert_send_cmd_wait(struct xdm_info *xdmi,
     return ret;
 }
 
+static struct zhpe_msg_id *msg_rspctxid_search(struct bridge *br,
+                                               uint32_t dgcid)
+{
+    struct zhpe_msg_id *id;
+    struct rb_node *node;
+    struct rb_root *root = &br->rspctxid_rbtree;
+
+    spin_lock(&br->rspctxid_rbtree_lock);
+    node = root->rb_node;
+
+    while (node) {
+        int result;
+
+        id = container_of(node, struct zhpe_msg_id, node);
+        result = arithcmp(dgcid, id->dgcid);
+        if (result < 0) {
+            node = node->rb_left;
+        } else if (result > 0) {
+            node = node->rb_right;
+        } else {
+            goto out;
+        }
+    }
+
+    id = NULL;
+
+ out:
+    spin_unlock(&br->rspctxid_rbtree_lock);
+    return id;
+}
+
+static struct zhpe_msg_id *msg_rspctxid_insert(struct bridge *br,
+                                               uint32_t dgcid,
+                                               uint32_t rspctxid)
+{
+    struct rb_root *root = &br->rspctxid_rbtree;
+    struct rb_node **new = &root->rb_node, *parent = NULL;
+    struct zhpe_msg_id *id;
+    int ret = 0;
+
+    id = do_kmalloc(sizeof(*id), GFP_KERNEL, true);
+    if (!id) {
+        ret = -ENOMEM;
+        goto out;
+    }
+    id->dgcid = dgcid;
+    id->rspctxid = rspctxid;
+
+    spin_lock(&br->rspctxid_rbtree_lock);
+
+    /* figure out where to put new node */
+    while (*new) {
+        struct zhpe_msg_id *this =
+            container_of(*new, struct zhpe_msg_id, node);
+        int result = arithcmp(id->dgcid, this->dgcid);
+
+        parent = *new;
+        if (result < 0) {
+            new = &((*new)->rb_left);
+        } else if (result > 0) {
+            new = &((*new)->rb_right);
+        } else {  /* already there */
+            do_kfree(id);
+            id = this;
+            goto unlock;
+        }
+    }
+
+    /* add new node and rebalance tree */
+    rb_link_node(&id->node, parent, new);
+    rb_insert_color(&id->node, root);
+
+ unlock:
+    spin_unlock(&br->rspctxid_rbtree_lock);
+ out:
+    return (ret < 0) ? ERR_PTR(ret) : id;
+}
+
+static void msg_rspctxid_free(struct bridge *br)
+{
+    struct zhpe_msg_id *id, *next;
+
+    spin_lock(&br->rspctxid_rbtree_lock);
+    rbtree_postorder_for_each_entry_safe(id, next, &br->rspctxid_rbtree, node) {
+        do_kfree(id);
+    }
+    br->rspctxid_rbtree = RB_ROOT;
+    spin_unlock(&br->rspctxid_rbtree_lock);
+}
+
+static int msg_lookup_rspctxid(struct bridge *br, uint32_t dgcid,
+                               uint32_t *rspctxid)
+{
+    struct zhpe_msg_id      *id;
+    struct list_head        nop_msg_list;
+    ktime_t                 start;
+    uint32_t                tryctxid;
+    struct zhpe_msg_state   *state;
+    int                     sl, status, ret = 0;
+
+    id = msg_rspctxid_search(br, dgcid);
+    if (id != NULL)
+        goto found;
+
+    INIT_LIST_HEAD(&nop_msg_list);
+    start = ktime_get();
+    for (sl = 0; sl < SLICES; sl++) {
+        tryctxid = zhpe_ctxid(sl, 0);
+        state = zhpe_msg_send_NOP(br, dgcid, tryctxid, sl);
+        if (IS_ERR(state)) {
+            status = PTR_ERR(state);
+            debug(DEBUG_MSG, "zhpe_msg_send_NOP to sl=%d, I/O error=%d\n",
+                  sl, status);
+            continue;
+        }
+        list_add_tail(&state->msg_list, &nop_msg_list);
+    }
+
+    /* wait for replies to all NOP messages - can sleep */
+    zhpe_msg_list_wait(&nop_msg_list, start);
+
+    id = msg_rspctxid_search(br, dgcid);
+    if (id != NULL)
+        goto found;
+    ret = -ETIMEDOUT;
+    *rspctxid = 0;
+    return ret;
+
+ found:
+    *rspctxid = id->rspctxid;
+    return ret;
+}
+
 static int msg_req_NOP(struct rdm_info *rdmi, struct xdm_info *xdmi,
                        struct zhpe_rdm_hdr *req_hdr,
                        union zhpe_msg *req_msg)
 {
-    uint32_t         rspctxid = req_msg->hdr.rspctxid;
-    union zhpe_msg   rsp_msg = { 0 };
-    uint64_t         seq;
-    char             str[GCID_STRING_LEN+1];
+    uint32_t           rspctxid = req_msg->hdr.rspctxid;
+    union zhpe_msg     rsp_msg = { 0 };
+    uint64_t           seq;
+    struct zhpe_msg_id *id;
+    int8_t             status = ZHPE_MSG_OK;
+    char               str[GCID_STRING_LEN+1];
 
     seq = req_msg->req.nop.seq;
     debug(DEBUG_MSG, "sgcid=%s, reqctxid=%u, rspctxid=%u, msgid=%u, seq=%llu\n",
           zhpe_gcid_str(req_hdr->sgcid, str, sizeof(str)),
           req_hdr->reqctxid, rspctxid, req_msg->hdr.msgid, seq);
+    /* insert source rspctxid in our tracker */
+    id = msg_rspctxid_insert(rdmi->br, req_hdr->sgcid, rspctxid);
+    if (IS_ERR(id)) {
+        status = ZHPE_MSG_ERR_NO_MEMORY;  /* this is the only error */
+    }
     /* fill in rsp_msg */
-    msg_setup_rsp_hdr(&rsp_msg, req_msg, ZHPE_MSG_OK, rdmi->rspctxid);
+    msg_setup_rsp_hdr(&rsp_msg, req_msg, status, rdmi->rspctxid);
     rsp_msg.rsp.nop.seq = req_msg->req.nop.seq;
     /* send cmd */
     return msg_send_cmd(xdmi, &rsp_msg, req_hdr->sgcid, rspctxid);
 }
 
-static int msg_rsp_NOP(struct zhpe_rdm_hdr *rsp_hdr,
+static int msg_rsp_NOP(struct rdm_info *rdmi, struct zhpe_rdm_hdr *rsp_hdr,
                        union zhpe_msg *rsp_msg)
 {
-    int ret = 0;
-    uint32_t rspctxid = rsp_msg->hdr.rspctxid;
-    uint64_t seq;
-    char str[GCID_STRING_LEN+1];
+    int                ret = 0;
+    uint32_t           rspctxid = rsp_msg->hdr.rspctxid;
+    uint64_t           seq;
+    struct zhpe_msg_id *id;
+    char               str[GCID_STRING_LEN+1];
 
     seq = rsp_msg->rsp.nop.seq;
     debug(DEBUG_MSG, "sgcid=%s, reqctxid=%u, rspctxid=%u, msgid=%u, seq=%llu\n",
           zhpe_gcid_str(rsp_hdr->sgcid, str, sizeof(str)),
           rsp_hdr->reqctxid, rspctxid, rsp_msg->hdr.msgid, seq);
+    /* insert rspctxid in our tracker */
+    id = msg_rspctxid_insert(rdmi->br, rsp_hdr->sgcid, rspctxid);
+    if (IS_ERR(id)) {
+        ret = PTR_ERR(id);
+    }
     return ret;
 }
 
@@ -730,7 +876,7 @@ static void process_msg(struct rdm_info *rdmi, struct xdm_info *xdmi,
         switch (opcode) {
 
         case ZHPE_MSG_NOP:
-            rc = msg_rsp_NOP(msg_hdr, msg);
+            rc = msg_rsp_NOP(rdmi, msg_hdr, msg);
             break;
 
         case ZHPE_MSG_UUID_IMPORT:
@@ -850,6 +996,42 @@ void zhpe_msg_worker(struct work_struct *work)
     return;
 }
 
+struct zhpe_msg_state *zhpe_msg_send_NOP(struct bridge *br, uint32_t dgcid,
+                                         uint32_t tgtctxid, uint64_t seq)
+{
+    struct xdm_info         *xdmi = &br->msg_xdm;
+    struct rdm_info         *rdmi = &br->msg_rdm;
+    uint32_t                rspctxid = rdmi->rspctxid;
+    struct zhpe_msg_state   *state;
+    union zhpe_msg          *req_msg;
+    int                     ret = 0;
+    char                    gcstr[GCID_STRING_LEN+1];
+
+    state = msg_state_alloc();
+    if (!state) {
+        debug(DEBUG_MSG, "msg_state_alloc failed, dgcid=%s, tgtctxid=%u\n",
+              zhpe_gcid_str(dgcid, gcstr, sizeof(gcstr)), tgtctxid);
+        ret = -ENOMEM;
+        goto out;
+    }
+
+    /* fill in req_msg */
+    req_msg = &state->req_msg;
+    msg_setup_req_hdr(req_msg, ZHPE_MSG_NOP, rspctxid);
+    req_msg->req.nop.seq = seq;
+    debug(DEBUG_MSG,
+          "dgcid=%s, tgtctxid=%u, seq=%llu, msgid=%u\n",
+          zhpe_gcid_str(dgcid, gcstr, sizeof(gcstr)), tgtctxid,
+          seq, req_msg->hdr.msgid);
+    /* send cmd (no wait) */
+    ret = msg_insert_send_cmd(xdmi, state, dgcid, tgtctxid);
+
+ out:
+    if (ret < 0 && state)
+        msg_state_free(state);
+    return (ret < 0) ? ERR_PTR(ret) : state;
+}
+
 int zhpe_msg_send_UUID_IMPORT(struct bridge *br,
                               uuid_t *src_uuid, uuid_t *tgt_uuid,
                               uint32_t *ro_rkey, uint32_t *rw_rkey)
@@ -859,17 +1041,21 @@ int zhpe_msg_send_UUID_IMPORT(struct bridge *br,
     int                     ret = 0;
     uint32_t                dgcid = zhpe_gcid_from_uuid(tgt_uuid);
     uint32_t                rspctxid = rdmi->rspctxid;
+    uint32_t                tgtctxid;
     struct zhpe_msg_state   *state;
     union zhpe_msg          *req_msg;
     char                    gcstr[GCID_STRING_LEN+1];
     char                    suustr[UUID_STRING_LEN+1];
     char                    tuustr[UUID_STRING_LEN+1];
 
+    ret = msg_lookup_rspctxid(br, dgcid, &tgtctxid);
+    if (ret < 0)
+        goto out;
     state = msg_state_alloc();
     if (!state) {
         debug(DEBUG_MSG, "msg_state_alloc failed, "
-              "dgcid=%s, rspctxid=%u, src_uuid=%s, tgt_uuid=%s\n",
-              zhpe_gcid_str(dgcid, gcstr, sizeof(gcstr)), rspctxid,
+              "dgcid=%s, tgtctxid=%u, src_uuid=%s, tgt_uuid=%s\n",
+              zhpe_gcid_str(dgcid, gcstr, sizeof(gcstr)), tgtctxid,
               zhpe_uuid_str(src_uuid, suustr, sizeof(suustr)),
               zhpe_uuid_str(tgt_uuid, tuustr, sizeof(tuustr)));
         ret = -ENOMEM;
@@ -881,13 +1067,13 @@ int zhpe_msg_send_UUID_IMPORT(struct bridge *br,
     uuid_copy(&req_msg->req.uuid_import.src_uuid, src_uuid);
     uuid_copy(&req_msg->req.uuid_import.tgt_uuid, tgt_uuid);
     debug(DEBUG_MSG,
-          "dgcid=%s, rspctxid=%u, src_uuid=%s, tgt_uuid=%s, msgid=%u\n",
-          zhpe_gcid_str(dgcid, gcstr, sizeof(gcstr)), rspctxid,
+          "dgcid=%s, tgtctxid=%u, src_uuid=%s, tgt_uuid=%s, msgid=%u\n",
+          zhpe_gcid_str(dgcid, gcstr, sizeof(gcstr)), tgtctxid,
           zhpe_uuid_str(src_uuid, suustr, sizeof(suustr)),
           zhpe_uuid_str(tgt_uuid, tuustr, sizeof(tuustr)),
           req_msg->hdr.msgid);
     /* send cmd and wait for reply */
-    ret = msg_insert_send_cmd_wait(xdmi, state, dgcid, rspctxid);
+    ret = msg_insert_send_cmd_wait(xdmi, state, dgcid, tgtctxid);
     if (ret < 0)
         goto state_free;
     if (state->rsp_msg.hdr.status != 0) {
@@ -912,17 +1098,21 @@ struct zhpe_msg_state *zhpe_msg_send_UUID_FREE(struct bridge *br,
     int                     ret = 0;
     uint32_t                dgcid = zhpe_gcid_from_uuid(tgt_uuid);
     uint32_t                rspctxid = rdmi->rspctxid;
-    struct zhpe_msg_state   *state;
+    uint32_t                tgtctxid;
+    struct zhpe_msg_state   *state = NULL;
     union zhpe_msg          *req_msg;
     char                    gcstr[GCID_STRING_LEN+1];
     char                    suustr[UUID_STRING_LEN+1];
     char                    tuustr[UUID_STRING_LEN+1];
 
+    ret = msg_lookup_rspctxid(br, dgcid, &tgtctxid);
+    if (ret < 0)
+        goto out;
     state = msg_state_alloc();
     if (!state) {
         debug(DEBUG_MSG, "msg_state_alloc failed, "
-              "dgcid=%s, rspctxid=%u, src_uuid=%s, tgt_uuid=%s\n",
-              zhpe_gcid_str(dgcid, gcstr, sizeof(gcstr)), rspctxid,
+              "dgcid=%s, tgtctxid=%u, src_uuid=%s, tgt_uuid=%s\n",
+              zhpe_gcid_str(dgcid, gcstr, sizeof(gcstr)), tgtctxid,
               zhpe_uuid_str(src_uuid, suustr, sizeof(suustr)),
               zhpe_uuid_str(tgt_uuid, tuustr, sizeof(tuustr)));
         ret = -ENOMEM;
@@ -934,14 +1124,14 @@ struct zhpe_msg_state *zhpe_msg_send_UUID_FREE(struct bridge *br,
     uuid_copy(&req_msg->req.uuid_free.src_uuid, src_uuid);
     uuid_copy(&req_msg->req.uuid_free.tgt_uuid, tgt_uuid);
     debug(DEBUG_MSG,
-          "dgcid=%s, rspctxid=%u, src_uuid=%s, tgt_uuid=%s, msgid=%u\n",
-          zhpe_gcid_str(dgcid, gcstr, sizeof(gcstr)), rspctxid,
+          "dgcid=%s, tgtctxid=%u, src_uuid=%s, tgt_uuid=%s, msgid=%u\n",
+          zhpe_gcid_str(dgcid, gcstr, sizeof(gcstr)), tgtctxid,
           zhpe_uuid_str(src_uuid, suustr, sizeof(suustr)),
           zhpe_uuid_str(tgt_uuid, tuustr, sizeof(tuustr)),
           req_msg->hdr.msgid);
     if (wait) {
         /* send cmd and wait for reply */
-        ret = msg_insert_send_cmd_wait(xdmi, state, dgcid, rspctxid);
+        ret = msg_insert_send_cmd_wait(xdmi, state, dgcid, tgtctxid);
         if (ret >= 0 && state->rsp_msg.hdr.status) {
             /* No UUID can happen if the remote process exits first. */
             if (state->rsp_msg.hdr.status == ZHPE_MSG_ERR_NO_UUID)
@@ -954,7 +1144,7 @@ struct zhpe_msg_state *zhpe_msg_send_UUID_FREE(struct bridge *br,
         state = NULL;
     } else {
         /* send cmd (no wait) */
-        ret = msg_insert_send_cmd(xdmi, state, dgcid, rspctxid);
+        ret = msg_insert_send_cmd(xdmi, state, dgcid, tgtctxid);
     }
 
  out:
@@ -972,17 +1162,21 @@ struct zhpe_msg_state *zhpe_msg_send_UUID_TEARDOWN(struct bridge *br,
     int                     ret = 0;
     uint32_t                dgcid = zhpe_gcid_from_uuid(tgt_uuid);
     uint32_t                rspctxid = rdmi->rspctxid;
-    struct zhpe_msg_state   *state;
+    uint32_t                tgtctxid;
+    struct zhpe_msg_state   *state = NULL;
     union zhpe_msg          *req_msg;
     char                    gcstr[GCID_STRING_LEN+1];
     char                    suustr[UUID_STRING_LEN+1];
     char                    tuustr[UUID_STRING_LEN+1];
 
+    ret = msg_lookup_rspctxid(br, dgcid, &tgtctxid);
+    if (ret < 0)
+        goto out;
     state = msg_state_alloc();
     if (!state) {
         debug(DEBUG_MSG, "msg_state_alloc failed, "
-              "dgcid=%s, rspctxid=%u, src_uuid=%s, tgt_uuid=%s\n",
-              zhpe_gcid_str(dgcid, gcstr, sizeof(gcstr)), rspctxid,
+              "dgcid=%s, tgtctxid=%u, src_uuid=%s, tgt_uuid=%s\n",
+              zhpe_gcid_str(dgcid, gcstr, sizeof(gcstr)), tgtctxid,
               zhpe_uuid_str(src_uuid, suustr, sizeof(suustr)),
               zhpe_uuid_str(tgt_uuid, tuustr, sizeof(tuustr)));
         ret = -ENOMEM;
@@ -994,13 +1188,13 @@ struct zhpe_msg_state *zhpe_msg_send_UUID_TEARDOWN(struct bridge *br,
     uuid_copy(&req_msg->req.uuid_teardown.src_uuid, src_uuid);
     uuid_copy(&req_msg->req.uuid_teardown.tgt_uuid, tgt_uuid);
     debug(DEBUG_MSG,
-          "dgcid=%s, rspctxid=%u, src_uuid=%s, tgt_uuid=%s, msgid=%u\n",
-          zhpe_gcid_str(dgcid, gcstr, sizeof(gcstr)), rspctxid,
+          "dgcid=%s, tgtctxid=%u, src_uuid=%s, tgt_uuid=%s, msgid=%u\n",
+          zhpe_gcid_str(dgcid, gcstr, sizeof(gcstr)), tgtctxid,
           zhpe_uuid_str(src_uuid, suustr, sizeof(suustr)),
           zhpe_uuid_str(tgt_uuid, tuustr, sizeof(tuustr)),
           req_msg->hdr.msgid);
     /* send cmd (no wait) */
-    ret = msg_insert_send_cmd(xdmi, state, dgcid, rspctxid);
+    ret = msg_insert_send_cmd(xdmi, state, dgcid, tgtctxid);
 
  out:
     if (ret < 0 && state)
@@ -1016,8 +1210,8 @@ int zhpe_msg_qalloc(struct bridge *br)
 
     /* Set up the XDM info structure */
     xdmi->br = br;
-    xdmi->cmdq_ent = 256;
-    xdmi->cmplq_ent = 256;
+    xdmi->cmdq_ent = msg_qsize;
+    xdmi->cmplq_ent = msg_qsize;
     xdmi->traffic_class = ZHPE_TC_0;
     xdmi->priority = 0;
     xdmi->slice_mask = ALL_SLICES;
@@ -1028,16 +1222,12 @@ int zhpe_msg_qalloc(struct bridge *br)
 
     /* Set up the RDM info structure */
     rdmi->br = br;
-    rdmi->cmplq_ent = 256;
-    rdmi->slice_mask = SLICE_DEMAND|0x1;  /* slice 0 only */
+    rdmi->cmplq_ent = msg_qsize;
+    rdmi->slice_mask = SLICE_Q0|0x1;  /* require q0; slice 0 if possible */
     rdmi->cur_valid = 1;
     ret = zhpe_kernel_RQALLOC(rdmi);
     if (ret)
         goto xqfree;
-    if (rdmi->rspctxid != 0) { /* must be 0 for driver-driver msg RDM */
-        ret = -EBUSY;
-        goto rqfree;
-    }
 
     ret = zhpe_register_rdm_interrupt(rdmi->sl, rdmi->queue,
                                       msg_rdm_interrupt_handler, br);
@@ -1060,12 +1250,19 @@ int zhpe_msg_qalloc(struct bridge *br)
     return ret;
 }
 
-int zhpe_msg_qfree(struct bridge *br)
+int zhpe_msg_qfree(struct slice *sl)
 {
-    int ret = 0;
+    struct bridge   *br = BRIDGE_FROM_SLICE(sl);
+    struct xdm_info *xdmi = &br->msg_xdm;
+    struct rdm_info *rdmi = &br->msg_rdm;
+    int             ret = 0;
 
-    ret |= zhpe_kernel_XQFREE(&br->msg_xdm);
-    ret |= zhpe_kernel_RQFREE(&br->msg_rdm);
+    if (sl == xdmi->sl) {
+        ret |= zhpe_kernel_XQFREE(xdmi);
+        msg_rspctxid_free(br);
+    }
+    if (sl == rdmi->sl)
+        ret |= zhpe_kernel_RQFREE(rdmi);
 
     return ret;
 }

@@ -68,8 +68,6 @@ void zhpe_xqueue_init(struct slice *sl)
     spin_lock_init(&sl->xdm_slice_lock);
     bitmap_zero(sl->xdm_alloced_bitmap, MAX_XDM_QUEUES_PER_SLICE);
     sl->xdm_alloc_count = 0;
-
-    return;
 }
 
 /*
@@ -80,8 +78,6 @@ void zhpe_rqueue_init(struct slice *sl)
     spin_lock_init(&sl->rdm_slice_lock);
     bitmap_zero(sl->rdm_alloced_bitmap, MAX_RDM_QUEUES_PER_SLICE);
     sl->rdm_alloc_count = 0;
-
-    return;
 }
 
 /*
@@ -385,8 +381,12 @@ static int distribute_irq(unsigned long *alloced_bitmap,
     int v;
     int count;
     int clump_size = MAX_RDM_QUEUES_PER_SLICE / sl->irq_vectors_count;
+    bool q0;
     DECLARE_BITMAP(tmp_bitmap, MAX_RDM_QUEUES_PER_SLICE);
 
+    /* caller must hold rdm_slice_lock */
+
+    q0 = test_and_set_bit(0, alloced_bitmap);  /* disallow choosing q0 */
     /* Make a copy of the alloced_bitmap for shifting */
     bitmap_copy(tmp_bitmap, alloced_bitmap, MAX_RDM_QUEUES_PER_SLICE);
     /*
@@ -427,6 +427,8 @@ static int distribute_irq(unsigned long *alloced_bitmap,
     q = find_next_zero_bit(alloced_bitmap, zhpe_rdm_queues_per_slice,
                            min_vector * clump_size);
     *vector = min_vector;
+    if (!q0)  /* restore q0 bit to its previous value */
+        clear_bit(0, alloced_bitmap);
     /* Return the chosen free queue */
     return q;
 }
@@ -460,26 +462,60 @@ static int xdm_choose_slice_queue(
             cur_slice = &slices[s];
             /* make sure this slice is valid */
             if (SLICE_VALID(cur_slice)) {
-                spin_lock (&cur_slice->xdm_slice_lock);
+                spin_lock(&cur_slice->xdm_slice_lock);
                 if (cur_slice->xdm_alloc_count < zhpe_xdm_queues_per_slice) {
                     /* Use this slice */
                     cur_slice->xdm_alloc_count++;
                     q = find_first_zero_bit(cur_slice->xdm_alloced_bitmap,
                                             zhpe_xdm_queues_per_slice);
                     set_bit(q, cur_slice->xdm_alloced_bitmap);
-                    spin_unlock (&cur_slice->xdm_slice_lock);
+                    spin_unlock(&cur_slice->xdm_slice_lock);
                     xdm_last_used_slice = s;
                     *slice = s;
                     *queue = q;
                     return 0;
                 }
-                spin_unlock (&cur_slice->xdm_slice_lock);
+                spin_unlock(&cur_slice->xdm_slice_lock);
             }
         }
         s = (s + 1) % SLICES;
     }
 
     /* Didn't find any queues available. */
+    return -ENOENT;
+}
+
+static int rdm_choose_slice_q0(struct bridge *br, uint8_t slice_mask,
+                               int *slice, int *queue, int *irq_vector)
+{
+    int s;
+    struct slice *slices = br->slice;
+    struct slice *cur_slice;
+
+    for (s = 0; s < SLICES; s++) {
+        if (!(slice_mask & (1<<s)))
+            continue;
+        cur_slice = &slices[s];
+        debug(DEBUG_RQUEUE, "considering slice %d\n", s);
+        if (!SLICE_VALID(cur_slice))  /* make sure this slice is valid */
+            continue;
+        spin_lock(&cur_slice->rdm_slice_lock);
+        if (test_and_set_bit(0, cur_slice->rdm_alloced_bitmap) == 0) {
+            /* Use this slice */
+            spin_unlock(&cur_slice->rdm_slice_lock);
+            rdm_last_used_slice = s;
+            *slice = s;
+            *queue = 0;
+            *irq_vector = (s * VECTORS_PER_SLICE);
+            debug(DEBUG_RQUEUE,
+                  "assigning slice %d queue %d irq_vector %d\n",
+                  *slice, *queue, *irq_vector);
+            return 0;
+        }
+        spin_unlock(&cur_slice->rdm_slice_lock);
+    }
+
+    /* Didn't find any q0 available */
     return -ENOENT;
 }
 
@@ -506,14 +542,14 @@ static int rdm_choose_slice_queue(
             debug(DEBUG_RQUEUE, "considering slice %d\n", s);
             /* make sure this slice is valid */
             if (SLICE_VALID(cur_slice)) {
-                spin_lock (&cur_slice->rdm_slice_lock);
-                if (cur_slice->rdm_alloc_count < zhpe_rdm_queues_per_slice) {
+                spin_lock(&cur_slice->rdm_slice_lock);
+                if (cur_slice->rdm_alloc_count < zhpe_rdm_queues_per_slice-1) {
                     /* Use this slice */
                     cur_slice->rdm_alloc_count++;
                     q = distribute_irq(cur_slice->rdm_alloced_bitmap,
                                        cur_slice, &vector);
                     set_bit(q, cur_slice->rdm_alloced_bitmap);
-                    spin_unlock (&cur_slice->rdm_slice_lock);
+                    spin_unlock(&cur_slice->rdm_slice_lock);
                     rdm_last_used_slice = s;
                     *slice = s;
                     *queue = q;
@@ -523,7 +559,7 @@ static int rdm_choose_slice_queue(
                           *slice, *queue, *irq_vector);
                     return 0;
                 }
-                spin_unlock (&cur_slice->rdm_slice_lock);
+                spin_unlock(&cur_slice->rdm_slice_lock);
             }
         }
         s = (s + 1) % SLICES;
@@ -544,10 +580,10 @@ static void xdm_release_slice_queue(
     slices = br->slice;
     cur_slice = &slices[slice];
 
-    spin_lock (&cur_slice->xdm_slice_lock);
+    spin_lock(&cur_slice->xdm_slice_lock);
     cur_slice->xdm_alloc_count--;
     clear_bit(queue, cur_slice->xdm_alloced_bitmap);
-    spin_unlock (&cur_slice->xdm_slice_lock);
+    spin_unlock(&cur_slice->xdm_slice_lock);
 }
 
 static void rdm_release_slice_queue(
@@ -561,10 +597,11 @@ static void rdm_release_slice_queue(
     slices = br->slice;
     cur_slice = &slices[slice];
 
-    spin_lock (&cur_slice->rdm_slice_lock);
-    cur_slice->rdm_alloc_count--;
+    spin_lock(&cur_slice->rdm_slice_lock);
+    if (queue != 0)  /* q0 is not counted */
+        cur_slice->rdm_alloc_count--;
     clear_bit(queue, cur_slice->rdm_alloced_bitmap);
-    spin_unlock (&cur_slice->rdm_slice_lock);
+    spin_unlock(&cur_slice->rdm_slice_lock);
 }
 
 /* Allocate a queue from a slice according to the slice_mask. */
@@ -606,6 +643,7 @@ static int alloc_xqueue(
     }
 }
 
+/* Allocate the specific slice & queue chosen by the (userspace) caller */
 static int alloc_rqspecific(struct bridge *br, int qspecific, int *slice,
                             int *queue, int *irq_vector)
 {
@@ -614,6 +652,10 @@ static int alloc_rqspecific(struct bridge *br, int qspecific, int *slice,
 
     *slice = qspecific & (SLICES - 1);
     *queue = qspecific / SLICES;
+    if (*queue == 0) {  /* disallow q0 from userspace */
+        ret = -EINVAL;
+        goto done;
+    }
     cur_slice = &br->slice[*slice];
     if (!SLICE_VALID(cur_slice) || *queue >= zhpe_rdm_queues_per_slice) {
         ret =  -ENOENT;
@@ -625,56 +667,46 @@ static int alloc_rqspecific(struct bridge *br, int qspecific, int *slice,
     debug(DEBUG_RQUEUE, "considering slice %d, queue %d vector %d\n",
           *slice, *queue, *irq_vector);
 
-    spin_lock (&cur_slice->rdm_slice_lock);
+    spin_lock(&cur_slice->rdm_slice_lock);
     if (likely(!__test_and_set_bit(*queue, cur_slice->rdm_alloced_bitmap))) {
         cur_slice->rdm_alloc_count++;
         ret = 0;
     } else
         ret = -EADDRINUSE;
-    spin_unlock (&cur_slice->rdm_slice_lock);
+    spin_unlock(&cur_slice->rdm_slice_lock);
 
  done:
     return ret;
 }
 
 /* Allocate a queue from a slice according to the slice_mask. */
-static int alloc_rqueue(
-    struct bridge *br,
-    uint8_t slice_mask,
-    int     *slice,
-    int     *queue,
-    int     *irq_vector)
+static int alloc_rqueue(struct bridge *br, uint8_t slice_mask,
+                        int *slice, int *queue, int *irq_vector)
 {
     int ret;
     uint8_t sm;
+    bool q0;
+
+    q0 = (slice_mask & SLICE_Q0) != 0;  /* kernel request for q0 */
+    slice_mask &= ~SLICE_Q0;
 
     if (slice_mask == SLICE_DEMAND) {
-        /* seting the DEMAND flag without any slices is an error. */
+        /* seting the DEMAND flag without any slices is an error */
         return -1;
     }
-    if (slice_mask == 0) {
-        /* Caller did not specify any specific slices so use all. */
-        sm = ALL_SLICES;
-        return rdm_choose_slice_queue(br, sm, slice, queue, irq_vector);
+    if (slice_mask == 0) /* Caller did not specify any slices so use all */
+        slice_mask = ALL_SLICES;
+    sm = slice_mask & ALL_SLICES;  /* Mask off DEMAND for now */
+    ret = q0 ? rdm_choose_slice_q0(br, sm, slice, queue, irq_vector) :
+        rdm_choose_slice_queue(br, sm, slice, queue, irq_vector);
+    if ((ret == 0) || (slice_mask & SLICE_DEMAND) || (sm == ALL_SLICES)) {
+        /* Return if success or this is a DEMAND or tried all slices */
+        return ret;
     }
-    else {
-        /* Caller set a slice mask. Mask off DEMAND for now. */
-        sm = slice_mask & ALL_SLICES;
-        ret = rdm_choose_slice_queue(br, sm, slice, queue, irq_vector);
-        if (slice_mask & SLICE_DEMAND) {
-            /* Return if this is a demand */
-            return ret;
-        }
-        if (ret == 0) {
-            /* Found a queue in specified hint slices */
-            return ret;
-        }
-        else {
-            /* This is a hint so try again with un-tried slices. */
-            sm = sm^ALL_SLICES;
-            return rdm_choose_slice_queue(br, sm, slice, queue, irq_vector);
-        }
-    }
+    /* slice_mask is a hint so try again with un-tried slices */
+    sm ^= ALL_SLICES;
+    return q0 ? rdm_choose_slice_q0(br, sm, slice, queue, irq_vector) :
+        rdm_choose_slice_queue(br, sm, slice, queue, irq_vector);
 }
 
 static int _xqueue_free(
@@ -711,10 +743,10 @@ static int _xqueue_free(
     }
 
     /* Return queue to the bridge's free pool */
-    spin_lock (&slices[slice].xdm_slice_lock);
+    spin_lock(&slices[slice].xdm_slice_lock);
     slices[slice].xdm_alloc_count--;
     clear_bit(queue, slices[slice].xdm_alloced_bitmap);
-    spin_unlock (&slices[slice].xdm_slice_lock);
+    spin_unlock(&slices[slice].xdm_slice_lock);
 
     debug(DEBUG_XQUEUE, "Freed queue %d on slice %d qcm=0x%px\n",
           queue, slice, hw_qcm_addr);
@@ -786,10 +818,10 @@ static int _rqueue_free(
     }
 
     /* Return queue to the bridge's free pool */
-    spin_lock (&sl->rdm_slice_lock);
+    spin_lock(&sl->rdm_slice_lock);
     sl->rdm_alloc_count--;
     clear_bit(queue, sl->rdm_alloced_bitmap);
-    spin_unlock (&sl->rdm_slice_lock);
+    spin_unlock(&sl->rdm_slice_lock);
 
     debug(DEBUG_RQUEUE, "Freed queue %d on slice %d qcm=0x%px\n",
           queue, slice, hw_qcm_addr);
@@ -851,8 +883,6 @@ void zhpe_release_owned_xdm_queues(struct file_data *fdata)
         bit = find_next_bit(fdata->xdm_queues, bits, bit);
     }
     spin_unlock(&fdata->xdm_queue_lock);
-
-    return;
 }
 
 void zhpe_release_owned_rdm_queues(struct file_data *fdata)
@@ -878,8 +908,6 @@ void zhpe_release_owned_rdm_queues(struct file_data *fdata)
         bit = find_next_bit(fdata->rdm_queues, bits, bit);
     }
     spin_unlock(&fdata->rdm_queue_lock);
-
-    return;
 }
 
 static int dma_zalloc_map(
@@ -1169,7 +1197,7 @@ int zhpe_req_XQALLOC(
 #define CTXID_QUEUE_SHIFT		2
 #define CTXID_UPPER_SLICE_SHIFT         10
 
-static uint32_t zhpe_ctxid_alloc(int slice, int queue)
+uint32_t zhpe_ctxid(int slice, int queue)
 {
     /*
      * bits 0-1 select the slice.
@@ -1224,7 +1252,7 @@ int zhpe_kernel_XQALLOC(struct xdm_info *xdmi)
     xdmi->cmdq_tail_shadow = 0;
     xdmi->cmplq_head = 0;
     xdmi->cmplq_tail_shadow = 0;
-    xdmi->reqctxid = zhpe_ctxid_alloc(xdmi->slice, xdmi->queue);
+    xdmi->reqctxid = zhpe_ctxid(xdmi->slice, xdmi->queue);
     ret = 0;
     debug(DEBUG_XQUEUE, "slice=%d, queue=%d\n", xdmi->slice, xdmi->queue);
     goto done;
@@ -1430,6 +1458,7 @@ int zhpe_req_RQALLOC(uint32_t cmplq_ent, uint8_t slice_mask, uint32_t qspecific,
     union zpages        *qcm_zpage, *cmplq_zpage;
     struct zmap         *qcm_zmap, *cmplq_zmap;
 
+    slice_mask &= ~SLICE_Q0;  /* disallow q0 from userspace */
     debug(DEBUG_RQUEUE, "rqalloc req cmplq_ent %d, slice_mask 0x%x\n",
           cmplq_ent, slice_mask);
 
@@ -1469,7 +1498,7 @@ int zhpe_req_RQALLOC(uint32_t cmplq_ent, uint8_t slice_mask, uint32_t qspecific,
     rsp->info.queue = queue;
     rsp->info.clump = MAX_RDM_QUEUES_PER_SLICE / sl->irq_vectors_count;
     rsp->info.irq_vector = irq_vector;
-    rsp->info.rspctxid = zhpe_ctxid_alloc(slice, queue);
+    rsp->info.rspctxid = zhpe_ctxid(slice, queue);
 
     /* Get a pointer to the qcm chosen to initialize it's fields */
     hw_qcm_addr = &(sl->bar->rdm[queue*2]);
@@ -1559,7 +1588,7 @@ int zhpe_kernel_RQALLOC(struct rdm_info *rdmi)
                        &rdmi->slice, &rdmi->queue, &rdmi->vector);
     if (ret)
         goto done;
-    rdmi->rspctxid = zhpe_ctxid_alloc(rdmi->slice, rdmi->queue);
+    rdmi->rspctxid = zhpe_ctxid(rdmi->slice, rdmi->queue);
     /* Get a pointer to the qcm chosen to initialize it's fields */
     rdmi->sl = &(rdmi->br->slice[rdmi->slice]);
     rdmi->hw_qcm_addr = &(rdmi->sl->bar->rdm[rdmi->queue*2]);

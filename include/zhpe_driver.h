@@ -271,6 +271,7 @@ extern uint64_t zhpe_reqz_phy_cpuvisible_off;
 #define WILDCAT_RDM_QUEUES_PER_SLICE        (256)
 #define WILDCAT_REQZ_MIN_CPUVISIBLE_ADDR    (GB(0))
 #define WILDCAT_REQZ_MAX_CPUVISIBLE_ADDR    (GB(13312) - 1)
+#define WILDCAT_SLINK_SLICE_MASK            (0xc)
 
 /* Platform values common to all platforms */
 #define ZHPE_MAX_XDM_QLEN                 (BIT(16)-1)
@@ -414,8 +415,9 @@ struct rdm_info {
 struct bridge {
     int                   probe_error;
     uint32_t              gcid;
-    uint32_t              expected_slices;
-    uint32_t              num_slices;
+    uint8_t               expected_slices;
+    uint8_t               num_slices;
+    uint8_t               slice_mask;
     struct slice          slice[SLICES];
     spinlock_t            zmmu_lock;  /* global bridge zmmu lock */
     struct page_grid_info req_zmmu_pg;
@@ -433,6 +435,8 @@ struct bridge {
     uint8_t               snap_wait_idx;
     bool                  snap_active;
     bool                  snap_failed;
+    spinlock_t            rspctxid_rbtree_lock; /* protects rspctxid_rbtree */
+    struct rb_root        rspctxid_rbtree;
 };
 
 struct queue_zpage {

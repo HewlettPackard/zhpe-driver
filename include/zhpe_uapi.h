@@ -363,6 +363,7 @@ struct zhpe_queue {
 
 /* Defines for the XQALLOC/RQALLOC slice_mask */
 #define SLICE_DEMAND 0x80
+#define SLICE_Q0     0x40
 #define ALL_SLICES 0x0f
 
 struct zhpe_xqinfo {
