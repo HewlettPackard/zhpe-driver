@@ -72,7 +72,7 @@ def parse_args():
                         help='invoke interactive keyboard')
     parser.add_argument('-c', '--commands', default=1, type=int,
                         help='total number of commands')
-    parser.add_argument('-d', '--dgcid', default=-1, type=int,
+    parser.add_argument('-D', '--dgcid', default=-1, type=int,
                         help='Destination Global Component ID')
     parser.add_argument('-P', '--post_mortem', action='store_true',
                         help='enter debugger on uncaught exception')
@@ -82,7 +82,7 @@ def parse_args():
                         help='slice 0-3')
     parser.add_argument('-v', '--verbosity', action='count', default=0,
                         help='increase output verbosity')
-    parser.add_argument('-X', '--XDM_only', action='store_true',
+    parser.add_argument('-X', '--XDM_only', default=-1, type=int,
                         help='only do XDM allocation and transmit')
     return parser.parse_args()
 
@@ -91,20 +91,20 @@ def rdm_check(rdm_cmpl, enqa):
         print('RDM cmpl: {}'.format(rdm_cmpl.enqa))
     if enqa.enqa.payload[0:52] != rdm_cmpl.enqa.payload[0:52]:
         runtime_err('FAIL: RDM: payload is {} and should be {}'.format(
-            rdm_cmpl.enqa.payload[0:52], enqa.enqa.payload[0:52]))
+            rdm_cmpl.enqa.payload[0:len1], enq.ena.payload[0:52]))
 
 def main():
     global args
     args = parse_args()
     if args.verbosity:
         print('pid={}'.format(os.getpid()))
-    if (args.XDM_only and args.RDM_only):
+    if (args.XDM_only != -1 and args.RDM_only):
         runtime_err('Only one of XDM-only and RDM-only allowed')
-    if (args.XDM_only or args.RDM_only):
+    if (args.XDM_only != -1):
         if args.dgcid == -1:
-            runtime_err('Require dgcid with XDM_only or RDM_only')
+            runtime_err('Require dgcid with XDM_only')
     elif args.dgcid != -1:
-        runtime_err('dgcid requires XDM_only or RDM_only')
+        runtime_err('dgcid requires XDM_only')
         
     with open(args.devfile, 'rb+', buffering=0) as f:
         conn = zhpe.Connection(f, args.verbosity)
@@ -117,46 +117,58 @@ def main():
         if args.dgcid != -1:
             gcid = args.dgcid
 
-
         smask = 1 << args.slice
         smask |= 0x80
         if not args.RDM_only:
             xdm = zhpe.XDM(conn, 256, 256, slice_mask=smask)
-        if not args.XDM_only:
-            rdm = zhpe.RDM(conn, 1024, slice_mask=smask)
+            print('XDM gcid {} slice {}  queue {}'.format(
+                gcid, xdm.rsp_xqa.info.slice, xdm.rsp_xqa.info.queue))
+            if args.XDM_only != -1:
+                rspctxid = args.XDM_only
 
+        if args.XDM_only == -1:
+            rdm = zhpe.RDM(conn, 1024, slice_mask=smask)
+            rspctxid = rdm.rsp_rqa.info.rspctxid
+            print('RDM gcid {} slice {}  queue {} rspctxid {}'.format(
+                gcid, rdm.rsp_rqa.info.slice, rdm.rsp_rqa.info.queue,
+                rspctxid))
+    
         enqa = zhpe.xdm_cmd()
         enqa.opcode = zhpe.XDM_CMD.ENQA
         enqa.enqa.dgcid = gcid
-        enqa.enqa.rspctxid = rdm.rsp_rqa.info.rspctxid
-        str1 = b'hello, world'
+        enqa.enqa.rspctxid = rspctxid
+        str1 = b'0001020304050607080910111213141516171819202122232425'
         len1 = len(str1)
         enqa.enqa.payload[0:len1] = str1
-        enqa.enqa.payload[len1:52] = os.urandom(52 - len1)
 
-        if args.verbosity:
-            print("cmd: {}".format(enqa))
+        if not args.RDM_only:
+            if args.keyboard:
+                set_trace()
+            xdm.queue_cmd(enqa)
+            try:
+                enqa_cmpl = xdm.get_cmpl()
+                if args.verbosity:
+                    print('ENQA cmpl: {}'.format(enqa_cmpl))
+            except XDMcompletionError as e:
+                print('ENQA cmpl error: {} {:#x} request_id {:#x}'.format(
+                    e, e.status, e.request_id))
+            xdm.queue_cmd(enqa)
+            try:
+                enqa_cmpl = xdm.get_cmpl()
+                if args.verbosity:
+                    print('ENQA cmpl: {}'.format(enqa_cmpl))
+            except XDMcompletionError as e:
+                print('ENQA cmpl error: {} {:#x} request_id {:#x}'.format(
+                    e, e.status, e.request_id))
 
-        xdm.queue_cmd(enqa)
-        if args.keyboard:
-            set_trace()
-        try:
-            enqa_cmpl = xdm.get_cmpl()
-            if args.verbosity:
-                print('ENQA cmpl: {}'.format(enqa_cmpl))
-        except XDMcompletionError as e:
-            print('ENQA cmpl error: {} {:#x} request_id {:#x}'.format(
-                e, e.status, e.request_id))
-        if args.keyboard:
-            set_trace()
-        rdm_cmpls= rdm.get_poll(verbosity=args.verbosity)
-        if args.verbosity:
+        if args.XDM_only == -1:
+            if args.keyboard:
+                set_trace()
+            rdm_cmpl = rdm.get_cmpl()
+            rdm_check(rdm_cmpl, enqa)
+            rdm_cmpls= rdm.get_poll(verbosity=args.verbosity)
             for c in range(len(rdm_cmpls)):
                 rdm_check(rdm_cmpls[c], enqa)
-        enqa.enqa.payload[len1:52] = os.urandom(52 - len1)
-        xdm.queue_cmd(enqa)
-        rdm_cmpl = rdm.get_cmpl()
-        rdm_check(rdm_cmpl, enqa)
 
     # end with
 
