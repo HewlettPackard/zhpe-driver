@@ -155,6 +155,10 @@ module_param(xdm_priority_cfg1_bits, ulong, 0444);
 MODULE_PARM_DESC(xdm_priority_cfg1_bits,
                  "new = (current & mask) | (bits & ~mask)");
 
+static bool allow_mmap = false;
+module_param(allow_mmap, bool, 0444);
+MODULE_PARM_DESC(wr_pusher_phyaddr, "Allow mmap when dangerous");
+
 const char zhpe_driver_name[] = DRIVER_NAME;
 
 static atomic64_t mem_total = ATOMIC64_INIT(0);
@@ -1511,7 +1515,7 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
         }
         break;
     case RMR_PAGE:
-        if (zhpe_platform == ZHPE_WILDCAT &&
+        if (!allow_mmap && zhpe_platform == ZHPE_WILDCAT &&
             fdata->bridge->slice_mask != WILDCAT_SLINK_SLICE_MASK) {
             zprintk(KERN_ERR, "RMR mmap requires slice_mask 0x%x, not 0x%x",
                     WILDCAT_SLINK_SLICE_MASK, fdata->bridge->slice_mask);
