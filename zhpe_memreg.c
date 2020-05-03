@@ -704,6 +704,8 @@ static void rmr_free(struct kref *ref)
     struct zhpe_rmr *rmr = container_of(ref, struct zhpe_rmr, refcount);
     struct file_data *fdata = rmr->fdata;
 
+    if (rmr->zmap)
+        zmap_fdata_free(fdata, rmr->zmap);
     zhpe_zmmu_req_pte_free(rmr);
     if (rmr->fd_erase)
         rb_erase(&rmr->fd_node, &fdata->fd_rmr_tree);
