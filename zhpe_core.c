@@ -157,7 +157,7 @@ MODULE_PARM_DESC(xdm_priority_cfg1_bits,
 
 static bool allow_mmap = false;
 module_param(allow_mmap, bool, 0444);
-MODULE_PARM_DESC(wr_pusher_phyaddr, "Allow mmap when dangerous");
+MODULE_PARM_DESC(allow_mmap, "Allow mmap when dangerous");
 
 const char zhpe_driver_name[] = DRIVER_NAME;
 
