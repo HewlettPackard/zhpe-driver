@@ -187,12 +187,12 @@ unsigned int zhpe_rdm_queues_per_slice;
 uint64_t zhpe_reqz_min_cpuvisible_addr;
 uint64_t zhpe_reqz_max_cpuvisible_addr;
 uint64_t zhpe_reqz_phy_cpuvisible_off;
-int zhpe_platform = ZHPE_CARBON;
-static char *platform = "carbon";
+int zhpe_platform = ZHPE_UNKNOWN;
+static char *platform = "unknown";
 module_param(platform, charp, 0444);
 MODULE_PARM_DESC(platform,
                  "Platform the driver is running on: carbon|pfslice|wildcat"
-                 " (default=carbon)");
+                 " (ignored)");
 
 uint zhpe_no_rkeys = 1;
 module_param_named(no_rkeys, zhpe_no_rkeys, uint, S_IRUGO);
@@ -873,21 +873,63 @@ int queue_io_rsp(struct io_entry *entry, size_t data_len, int status)
     return ret;
 }
 
-static int parse_platform(char *str)
+#ifndef PCI_EXT_CAP_ID_DVSEC
+#define PCI_EXT_CAP_ID_DVSEC 0x23  /* Revisit: should be in pci.h */
+#endif
+
+#define ZHPE_DVSEC_WP_ADDR_LO_OFF (0x1C)
+#define ZHPE_DVSEC_WP_ADDR_HI_OFF (0x20)
+#define ZHPE_DVSEC_WP_CTL_24_OFF  (0x24)
+#define ZHPE_DVSEC_WP_CTL_24_VAL  (0)           /* Physical addr zero. */
+#define ZHPE_DVSEC_WP_CTL_28_OFF  (0x28)
+#define ZHPE_DVSEC_SLICE_OFF      (0x2C)
+#define ZHPE_DVSEC_PSLICE_SHIFT   (0xD)
+#define ZHPE_DVSEC_SLICE_MASK     (0x3)
+#define ZHPE_DVSEC_VSLICE_SHIFT   (0xF)
+#define ZHPE_DVSEC_DBG_OBS_MASK   (0x10)
+#define ZHPE_DVSEC_MBOX_CTRL_OFF  (0x30)
+#define ZHPE_DVSEC_MBOX_CTRL_TRIG (0x1)
+#define ZHPE_DVSEC_MBOX_CTRL_WR   (0x2)
+#define ZHPE_DVSEC_MBOX_CTRL_ERR  (0x4)
+#define ZHPE_DVSEC_MBOX_CTRL_BE   (0xFF00)
+#define ZHPE_DVSEC_MBOX_ADDR_OFF  (0x34)
+#define ZHPE_DVSEC_MBOX_DATAL_OFF (0x38)
+#define ZHPE_DVSEC_MBOX_DATAH_OFF (0x3C)
+#define ZHPE_DVSEC_SLINK_OFF      (0x40)
+#define ZHPE_DVSEC_SLINK_BASE_MASK (0x000FFFFU)
+#define ZHPE_DVSEC_SLINK_BASE_LSHIFT (30)
+#define ZHPE_DVSEC_SLINK_SIZE_MASK (0xFFF0000U)
+#define ZHPE_DVSEC_SLINK_SIZE_LSHIFT (18)
+
+static const char *platform_name[] = {
+    "unknown", "carbon", "pfslice", "wildcat"
+};
+
+static int autodetect_platform(void)
 {
     struct pci_dev      *pdev = NULL;
     uint                slices_seen = 0;
+    u32                 slink_val = 0;
+    int                 pos = 0;
 
-    if (!str)
-        return -EINVAL;
-
-    while ((pdev = pci_get_device(PCI_VENDOR_ID_HP_3PAR, 0x0290, pdev)))
+    while ((pdev = pci_get_device(PCI_VENDOR_ID_HP_3PAR, 0x0290, pdev))) {
         slices_seen++;
-    zprintk(KERN_INFO, "%u slices seen\n", slices_seen);
+        pos = pci_find_ext_capability(pdev, PCI_EXT_CAP_ID_DVSEC);
+        if (!pos) { /* carbon has no DVSEC */
+            zhpe_platform = ZHPE_CARBON;
+        } else {
+            pci_read_config_dword(pdev, pos + ZHPE_DVSEC_SLINK_OFF,
+                                  &slink_val);
+            if (slink_val & ZHPE_DVSEC_SLINK_SIZE_MASK) /* wildcat has size>0 */
+                zhpe_platform = ZHPE_WILDCAT;
+            else if (zhpe_platform == ZHPE_UNKNOWN)
+                zhpe_platform = ZHPE_PFSLICE;
+        }
+    }
+    platform = (char *)platform_name[zhpe_platform];
+    zprintk(KERN_INFO, "platform %s, %u slices seen\n", platform, slices_seen);
 
-    if (strcmp(str, "pfslice") == 0) {
-        debug(DEBUG_PCI, "parse platform pfslice\n");
-        zhpe_platform = ZHPE_PFSLICE;
+    if (zhpe_platform == ZHPE_PFSLICE) {
         zhpe_bridge.expected_slices = 1;
         zhpe_req_zmmu_entries = PFSLICE_REQ_ZMMU_ENTRIES;
         zhpe_rsp_zmmu_entries = PFSLICE_RSP_ZMMU_ENTRIES;
@@ -901,9 +943,7 @@ static int parse_platform(char *str)
         if (strcmp(rsp_page_grid, "default") == 0)
             rsp_page_grid = "1G:896,128T:128";
         zhpe_no_avx = 0;
-    } else if (strcmp(str, "wildcat") == 0) {
-        debug(DEBUG_PCI, "parse platform wildcat\n");
-        zhpe_platform = ZHPE_WILDCAT;
+    } else if (zhpe_platform == ZHPE_WILDCAT) {
         zhpe_bridge.expected_slices = SLICES;
         if (slices_seen < zhpe_bridge.expected_slices)
             zhpe_bridge.expected_slices = slices_seen;
@@ -918,9 +958,7 @@ static int parse_platform(char *str)
         if (strcmp(rsp_page_grid, "default") == 0)
             rsp_page_grid = "128T:1K,1G:63K";
         zhpe_no_avx = 0;
-    } else if (strcmp(str, "carbon") == 0) {
-        debug(DEBUG_PCI, "parse platform carbon\n");
-        zhpe_platform = ZHPE_CARBON;
+    } else if (zhpe_platform == ZHPE_CARBON) {
         zhpe_bridge.expected_slices = SLICES;
         zhpe_req_zmmu_entries = CARBON_REQ_ZMMU_ENTRIES;
         zhpe_rsp_zmmu_entries = CARBON_RSP_ZMMU_ENTRIES;
@@ -1765,34 +1803,6 @@ static int zhpe_open(struct inode *inode, struct file *file)
 #define PCI_TPH_CTL_OFF         (0x08)
 #define PCI_TPH_CTL_DEF         (0x100) /* Default enabled */
 
-#ifndef PCI_EXT_CAP_ID_DVSEC
-#define PCI_EXT_CAP_ID_DVSEC 0x23  /* Revisit: should be in pci.h */
-#endif
-
-#define ZHPE_DVSEC_WP_ADDR_LO_OFF (0x1C)
-#define ZHPE_DVSEC_WP_ADDR_HI_OFF (0x20)
-#define ZHPE_DVSEC_WP_CTL_24_OFF  (0x24)
-#define ZHPE_DVSEC_WP_CTL_24_VAL  (0)           /* Physical addr zero. */
-#define ZHPE_DVSEC_WP_CTL_28_OFF  (0x28)
-#define ZHPE_DVSEC_SLICE_OFF      (0x2C)
-#define ZHPE_DVSEC_PSLICE_SHIFT   (0xD)
-#define ZHPE_DVSEC_SLICE_MASK     (0x3)
-#define ZHPE_DVSEC_VSLICE_SHIFT   (0xF)
-#define ZHPE_DVSEC_DBG_OBS_MASK   (0x10)
-#define ZHPE_DVSEC_MBOX_CTRL_OFF  (0x30)
-#define ZHPE_DVSEC_MBOX_CTRL_TRIG (0x1)
-#define ZHPE_DVSEC_MBOX_CTRL_WR   (0x2)
-#define ZHPE_DVSEC_MBOX_CTRL_ERR  (0x4)
-#define ZHPE_DVSEC_MBOX_CTRL_BE   (0xFF00)
-#define ZHPE_DVSEC_MBOX_ADDR_OFF  (0x34)
-#define ZHPE_DVSEC_MBOX_DATAL_OFF (0x38)
-#define ZHPE_DVSEC_MBOX_DATAH_OFF (0x3C)
-#define ZHPE_DVSEC_SLINK_OFF      (0x40)
-#define ZHPE_DVSEC_SLINK_BASE_MASK (0x000FFFFU)
-#define ZHPE_DVSEC_SLINK_BASE_LSHIFT (30)
-#define ZHPE_DVSEC_SLINK_SIZE_MASK (0xFFF0000U)
-#define ZHPE_DVSEC_SLINK_SIZE_LSHIFT (18)
-
 /*
  * pfslice: LARK1.SLOT1.PFS0.SKWGPSHIMINBOUND0.SKW_SHIM_INB_CFG
  * wildcat:
@@ -2168,7 +2178,7 @@ static int probe_setup_slices(struct bridge *br)
 
     /* Determine S-link base and aperture. */
     slink_val1 = 0;
-    /* Default aperture set in parse_platform(). */
+    /* Default aperture set in autodetect_platform(). */
     slink_size = zhpe_reqz_max_cpuvisible_addr - zhpe_reqz_min_cpuvisible_addr;
 
     switch (zhpe_platform) {
@@ -2321,6 +2331,14 @@ static int zhpe_probe(struct pci_dev *pdev,
     mutex_lock(&br->probe_mutex);
 
     if (br->num_slices >= SLICES) {
+        ret = -ENODEV;
+        goto err_out;
+    }
+
+    if (zhpe_platform <= 0) {
+            dev_warn(&pdev->dev,
+                     "%s:Unable to autodetect platform, zhpe_platform=%d",
+                     __func__, zhpe_platform);
         ret = -ENODEV;
         goto err_out;
     }
@@ -2595,9 +2613,9 @@ static int __init zhpe_init(void)
     int                 i;
     uint                sl, pg, cnt, pg_index;
 
-    ret = parse_platform(platform);
+    ret = autodetect_platform();
     if (ret < 0) {
-        zprintk(KERN_WARNING, "invalid platform parameter.\n");
+        zprintk(KERN_WARNING, "Unable to autodetect platform.\n");
         goto err_out;
     }
 
