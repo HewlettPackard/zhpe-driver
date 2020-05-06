@@ -1460,6 +1460,22 @@ static const struct vm_operations_struct zhpe_vm_ops = {
     .access             = zhpe_vm_access,
 };
 
+static int zhpe_dma_mmap(struct device *dev, struct vm_area_struct *vma,
+                         void *cpu_addr, dma_addr_t dma_addr, size_t size)
+{
+    int ret = -ENXIO;
+    unsigned long user_count = (vma->vm_end - vma->vm_start) >> PAGE_SHIFT;
+    unsigned long count = PAGE_ALIGN(size) >> PAGE_SHIFT;
+    unsigned long pfn = page_to_pfn(virt_to_page(cpu_addr));
+
+    if (user_count <= count) {
+        ret = remap_pfn_range(vma, vma->vm_start, pfn,
+                              user_count << PAGE_SHIFT, vma->vm_page_prot);
+    }
+
+    return ret;
+}
+
 static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
 {
     int                 ret = -ENOENT;
@@ -1467,7 +1483,7 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
     struct zmap         *zmap;
     union zpages        *zpages;
     struct zhpe_rmr     *rmr;
-    ulong               vaddr, offset, length, i, pgoff, mmap_pfn;
+    ulong               vaddr, offset, length, i, mmap_pfn;
     uint32_t            cache_flags;
 
     vma->vm_flags |= VM_MIXEDMAP | VM_DONTCOPY;
@@ -1528,16 +1544,10 @@ static int zhpe_mmap(struct file *file, struct vm_area_struct *vma)
         ret = 0;
         break;
     case DMA_PAGE:
-        /* temporarily zero vm_pgoff so dma_mmap_coherent does what we want */
-        pgoff = vma->vm_pgoff;
-        vma->vm_pgoff = 0;
-        ret = dma_mmap_coherent(zpages->dma.dev, vma,
-                                zpages->dma.cpu_addr,
-                                zpages->dma.dma_addr,
-                                length);
-        vma->vm_pgoff = pgoff;
+        ret = zhpe_dma_mmap(zpages->dma.dev, vma, zpages->dma.cpu_addr,
+                            zpages->dma.dma_addr, length);
         if (ret < 0) {
-            zprintk(KERN_ERR, "dma_mmap_coherent() returned %d\n", ret);
+            zprintk(KERN_ERR, "zhpe_dma_mmap() returned %d\n", ret);
             goto done; /* BUG to break */
         }
         break;
