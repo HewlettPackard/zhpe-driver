@@ -12,7 +12,14 @@ ccflags-y += $(RHEL)
 
 VERSION=zhpe_version.h
 
-all: version
+all:
+	@if [[ -n "$(RHEL)" ]]; then					\
+	    env - scl enable devtoolset-7 -- make all2;			\
+	else								\
+	    make all2;							\
+	fi
+
+all2: version
 	$(MAKE) -C /lib/modules/$(KVERSION)/build M=$(PWD) modules
 	$(MAKE) -C tests
 
