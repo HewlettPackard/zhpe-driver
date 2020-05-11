@@ -263,13 +263,6 @@ static void zmmu_rsp_pte_write(struct zhpe_pte_info *info,
         pte.va = va;
         window_sz = min(ps - offset, length);
         pte.window_sz = window_sz % BIT_ULL(PAGE_GRID_MAX_PAGESIZE);
-        debug(0x8000, "pte[%u]@%px:va=0x%llx, pasid=0x%x, "
-              "rke=%u, ro_rkey=0x%x, rw_rkey=0x%x, "
-              "window_sz=0x%llx, v=%u\n",
-              i, &rspz->pte[i],
-              (uint64_t)pte.va, pte.pasid,
-              pte.rke, pte.ro_rkey, pte.rw_rkey,
-              (uint64_t)pte.window_sz, pte.v);
         iowrite32by(&pte, &rspz->pte[i]);
         va = ROUND_DOWN_PAGE(va, ps) + ps;
         length -= (ps - offset);
@@ -1092,13 +1085,11 @@ void zhpe_zmmu_rsp_take_snapshot(struct bridge *br)
     group = br->snap_group + 1;
     wait_idx = br->snap_wait_idx;
     if (!br->snap_failed && br->snap_active) {
-        debug(0x8000, "Group %u, queue %u, sleeping\n", group, wait_idx);
         prepare_to_wait_exclusive(&br->snap_wqh[wait_idx], &wait,
                                   TASK_UNINTERRUPTIBLE);
         spin_unlock(&br->snap_lock);
         schedule();
         finish_wait(&br->snap_wqh[wait_idx], &wait);
-        debug(0x8000, "Group %u, queue %u, awake\n", group, wait_idx);
         spin_lock(&br->snap_lock);
     }
     if (br->snap_failed) {
@@ -1110,7 +1101,6 @@ void zhpe_zmmu_rsp_take_snapshot(struct bridge *br)
     /* We're done. */
     if ((int)(group - br->snap_group) <= 0) {
         spin_unlock(&br->snap_lock);
-        debug(0x8000, "Group %u, queue %u, done\n", group, wait_idx);
         return;
     }
     /* Switch to other wait queue for new entries. */
@@ -1118,7 +1108,6 @@ void zhpe_zmmu_rsp_take_snapshot(struct bridge *br)
     br->snap_group++;
     br->snap_wait_idx ^= 1;
     spin_unlock(&br->snap_lock);
-    debug(0x8000, "Group %u, queue %u, leading\n", group, wait_idx);
 
     for (sl = 0; sl < SLICES; sl++) {
         if (!SLICE_VALID(&br->slice[sl])) {
@@ -1128,7 +1117,6 @@ void zhpe_zmmu_rsp_take_snapshot(struct bridge *br)
         rspz = &br->slice[sl].bar->rsp_zmmu;
         first_snap[sl] = (ioread64(&rspz->take_snapshot) &
                           RSP_TAKE_SNAPSHOT_MASK);
-        debug(0x8000, "slice %u, first %u\n", sl, first_snap[sl]);
     }
 
     for (tries = 0; slice_mask && tries < snap_tries; tries++) {
@@ -1139,8 +1127,6 @@ void zhpe_zmmu_rsp_take_snapshot(struct bridge *br)
             rspz = &br->slice[sl].bar->rsp_zmmu;
             cur_snap = ioread64(&rspz->take_snapshot) & RSP_TAKE_SNAPSHOT_MASK;
             delta = snap_delta(first_snap[sl], cur_snap);
-            debug(0x8000, "slice %u, first %u, cur %u, delta %u\n",
-                  sl, first_snap[sl], cur_snap, delta);
             if (delta >= 2)
                 slice_mask &= ~(1 << sl);
         }
@@ -1161,8 +1147,6 @@ void zhpe_zmmu_rsp_take_snapshot(struct bridge *br)
         spin_unlock(&br->snap_lock);
     } else {
         spin_lock(&br->snap_lock);
-        debug(0x8000, "Group %u, queue %u, success: %u tries\n",
-              group, wait_idx, tries);
         /* Wake up everyone on our queue. */
         wake_up_all(&br->snap_wqh[wait_idx]);
         /* If there is anyone sleeping on the other queue, wake up one. */
