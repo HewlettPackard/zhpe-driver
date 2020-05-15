@@ -59,7 +59,8 @@
 #endif
 
 #define XDM_CMD_ADDR_OFFSET     0x00
-#define XDM_CMPL_ADDR_OFFSET    0x10
+#define XDM_CMPL_ADDR_OFFSET    0x08
+#define XDM_SIZE_OFFSET         0x10
 #define XDM_PASID_OFFSET        0x18
 #define XDM_PASID_QVIRT_FLAG    (1ULL << 31)
 #define XDM_A_OFFSET 		0x28
