@@ -86,7 +86,7 @@ MODULE_PARM_DESC(wr_pusher_dvsec_28, "Write-pusher DVSEC offset 0x28");
  * Driver CSR setting controls. Only fields and values the driver sets by
  * default are mentioned; other bits are preserved;.
  *
- * SKW_SHIM_INB_CFG: Set acks for right pusher.
+ * SKW_SHIM_INB_CFG: Set acks for write pusher.
  * [0:0] rspzmmu_write_ack_type, value 1
  * [1:1] rdm_write_ack_type, value 0
  * [2:2] xdm_write_ack_type, value 0
@@ -99,12 +99,12 @@ MODULE_PARM_DESC(wr_pusher_dvsec_28, "Write-pusher DVSEC offset 0x28");
  * [28:24] fab_recirc, value 1
  * [60:56] lcl_recirc, value 1
  *
- * XDM_PRIORITY_CFG0: limit local/fabric move engine to one command per prio
+ * XDM_PRIORITY_CFG0/1: limit prio to 200 command pool entries
+ * [39:32] cmd_pool_cap, value 199
+ *
+ * XDM_PRIORITY_CFG0/1: limit local/fabric move engine to one command per prio
  * [44:40] lcl_recirc_cap, value 0
  * [52:48] fab_recirc_cap, value 0
- *
- * XDM_PRIORITY_CFG1: limit prio to 200 command pool entries
- * [39:32] cmd_pool_cap, value 199
  */
 
 static ulong skw_shim_inb_cfg_mask      = ~0x000000000000000FUL;
@@ -130,7 +130,7 @@ MODULE_PARM_DESC(skw_shim_inb_cfg_bits,
                  "new = (current & mask) | (bits & ~mask)");
 
 module_param(xdm_request_cfg_mask, ulong, 0444);
-MODULE_PARM_DESC(xdm_requesst_cfg_mask,
+MODULE_PARM_DESC(xdm_request_cfg_mask,
                  "new = (current & mask) | (bits & ~mask)");
 module_param(xdm_request_cfg_bits, ulong, 0444);
 MODULE_PARM_DESC(xdm_request_cfg_bits,
