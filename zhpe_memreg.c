@@ -43,6 +43,7 @@
 
 static void umem_kref_free(struct kref *ref);  /* forward reference */
 static void umem_free(struct zhpe_umem *umem);
+static void umem_free_zmmu(struct zhpe_umem *umem);
 
 void zhpe_pte_info_dbg(uint debug_flag, const char *callf, uint line,
                        struct zhpe_pte_info *info)
@@ -99,6 +100,69 @@ static uint64_t umem_rsp_zaddr(struct zhpe_umem *umem)
 
  out:
     return ret;
+}
+
+static inline int umem_range_cmp(struct file_data *fdata,
+                                 uint64_t start, uint64_t end,
+                                 const struct zhpe_umem *u)
+{
+    int cmp;
+    const struct zhpe_pte_info *info = &u->pte_info;
+
+    if ((u != fdata->big_rsp_umem) &&
+        (start < (u->vaddr + info->length)) && (u->vaddr < end))
+        return 0;  /* range overlap */
+    cmp = arithcmp(start, u->vaddr);
+    if (cmp)
+        return cmp;
+    return arithcmp(end - start, info->length);
+}
+
+static struct zhpe_umem *__umem_range_search(struct file_data *fdata,
+                                             uint64_t start, uint64_t end)
+{
+    struct zhpe_umem *unode;
+    struct rb_node *rnode;
+    struct rb_root *root = &fdata->mr_tree;
+
+    /* caller must already hold fdata->mr_lock */
+    rnode = root->rb_node;
+
+    while (rnode) {
+        int result;
+
+        unode = container_of(rnode, struct zhpe_umem, node);
+        result = umem_range_cmp(fdata, start, end, unode);
+
+        if (result < 0) {
+            rnode = rnode->rb_left;
+        } else if (result > 0) {
+            rnode = rnode->rb_right;
+        } else {
+            goto out;
+        }
+    }
+
+    unode = NULL;
+
+ out:
+    return unode;
+}
+
+struct zhpe_umem *umem_range_search_and_unmap(struct file_data *fdata,
+                                              uint64_t start, uint64_t end)
+{
+    struct zhpe_umem *umem, *u, *next;
+
+    spin_lock(&fdata->mr_lock);
+    umem = __umem_range_search(fdata, start, end);
+    spin_unlock(&fdata->mr_lock);
+    if (umem) {  /* just to be safe, wipe out all rsp ZMMU PTEs */
+        rbtree_postorder_for_each_entry_safe(u, next, &fdata->mr_tree, node)
+            umem_free_zmmu(u);
+        zhpe_zmmu_rsp_take_snapshot(fdata->bridge);
+    }
+    return umem;
 }
 
 static struct zhpe_umem *umem_search(struct file_data *fdata,
@@ -202,6 +266,10 @@ static inline size_t zhpe_umem_num_pages(struct zhpe_umem *umem)
     return (zhpe_umem_end(umem) - zhpe_umem_start(umem)) >> umem->page_shift;
 }
 
+/* Revisit: not in public header file */
+struct iommu_domain;
+extern int amd_iommu_flush_tlb(struct iommu_domain *dom, int pasid);
+
 /**
  * zhpe_dma_map_sg_attrs - Map a scatter/gather list to DMA addresses
  * @br: The bridge for which the DMA addresses are to be created
@@ -213,7 +281,7 @@ static inline size_t zhpe_umem_num_pages(struct zhpe_umem *umem)
 static inline int zhpe_dma_map_sg_attrs(struct bridge *br,
                                         struct scatterlist *sg, int nents,
                                         enum dma_data_direction direction,
-                                        unsigned long dma_attrs)
+                                        unsigned long dma_attrs, uint pasid)
 {
     int sl, ret = 0;
 #ifdef HAVE_RHEL
@@ -224,7 +292,6 @@ static inline int zhpe_dma_map_sg_attrs(struct bridge *br,
 #else
     unsigned long attrs = dma_attrs;
 #endif
-
 
     /* Revisit: add PASID support */
     for (sl = 0; sl < SLICES; sl++) {
@@ -238,6 +305,10 @@ static inline int zhpe_dma_map_sg_attrs(struct bridge *br,
                 dma_unmap_sg(&br->slice[sl].pdev->dev, sg, nents, direction);
             break;
         }
+
+        /* Revisit: workaround for iommu bug */
+        if (!no_iommu)
+            amd_iommu_flush_tlb(br->slice[sl].dom, pasid);
     }
 
     return ret;
@@ -466,7 +537,7 @@ struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
                                        umem->sg_head.sgl,
                                        umem->npages,
                                        DMA_BIDIRECTIONAL,
-                                       dma_attrs);
+                                       dma_attrs, fdata->pasid);
     if (umem->nmap <= 0) {
         ret = -ENOMEM;
         debug(DEBUG_MEMREG, "zhpe_dma_map_sg_attrs failed\n");
@@ -1138,8 +1209,94 @@ static void zhpe_mmun_release(struct mmu_notifier *mn, struct mm_struct *mm)
     zhpe_umem_free_all(fdata);
 }
 
+static void zhpe_mmun_signal(struct file_data *fdata, struct zhpe_umem *umem,
+                             unsigned long start, unsigned long end)
+{
+    struct task_struct  *t;
+    struct siginfo      info;
+    int                 ret;
+
+    spin_lock(&fdata->io_lock);
+    fdata->state &= ~STATE_INIT;
+    fdata->state |= STATE_MR_LOCKED_DOWN;
+    spin_unlock(&fdata->io_lock);
+    t = get_pid_task(umem->pid, PIDTYPE_PID);
+    pr_warning("%s: MR overlap: %s%s(%ld), pasid=%u, start=0x%016lx, end=0x%016lx, umem->vaddr=0x%016llx, umem->len=0x%lx\n",
+               zhpe_driver_name, (signal_mr_overlap) ? "signalling " : "",
+               t->comm, (long)pid_vnr(umem->pid),
+               fdata->pasid, start, end,
+               umem->vaddr, umem->pte_info.length);
+    if (signal_mr_overlap) {
+        info.si_signo = SIGBUS;
+        info.si_errno = 0;
+        info.si_addr = (void *)start;
+        /* Revisit: si_trapno, si_addr_lsb */
+        ret = send_sig_info(SIGBUS, &info, t);
+        /* Revisit: check ret */
+    }
+}
+
+static void zhpe_mmun_invalidate_range_start(struct mmu_notifier *mn,
+                                             struct mm_struct *mm,
+                                             unsigned long start,
+                                             unsigned long end)
+{
+    struct file_data    *fdata = container_of(mn, struct file_data, mmun);
+    struct zhpe_umem    *umem;
+    bool                check = false;
+
+    spin_lock(&fdata->io_lock);
+    if (fdata->state & STATE_MR_OVERLAP_CHECKING)
+        check = true;
+    if (fdata->state & STATE_MR_LOCKED_DOWN)
+        check = false;
+    spin_unlock(&fdata->io_lock);
+    if (!check)
+        return;
+    umem = umem_range_search_and_unmap(fdata, start, end);
+    if (umem) {
+        zhpe_stop_owned_xdm_queues(fdata);
+        zhpe_mmun_signal(fdata, umem, start, end);
+    }
+}
+
+static void zhpe_mmun_invalidate_range_end(struct mmu_notifier *mn,
+                                           struct mm_struct *mm,
+                                           unsigned long start,
+                                           unsigned long end)
+{
+}
+
+static void zhpe_mmun_invalidate_page(struct mmu_notifier *mn,
+                                      struct mm_struct *mm,
+                                      unsigned long address)
+{
+    struct file_data    *fdata = container_of(mn, struct file_data, mmun);
+    struct zhpe_umem    *umem;
+    unsigned long       start = address;
+    unsigned long       end   = address + PAGE_SIZE;
+    bool                check = false;
+
+    spin_lock(&fdata->io_lock);
+    if (fdata->state & STATE_MR_OVERLAP_CHECKING)
+        check = true;
+    if (fdata->state & STATE_MR_LOCKED_DOWN)
+        check = false;
+    spin_unlock(&fdata->io_lock);
+    if (!check)
+        return;
+    umem = umem_range_search_and_unmap(fdata, start, end);
+    if (umem) {
+        zhpe_stop_owned_xdm_queues(fdata);
+        zhpe_mmun_signal(fdata, umem, start, end);
+    }
+}
+
 static const struct mmu_notifier_ops zhpe_mmun_ops = {
-    .release            = zhpe_mmun_release,
+    .release                 = zhpe_mmun_release,
+    .invalidate_page         = zhpe_mmun_invalidate_page,
+    .invalidate_range_start  = zhpe_mmun_invalidate_range_start,
+    .invalidate_range_end    = zhpe_mmun_invalidate_range_end,
 };
 
 int zhpe_mmun_init(struct file_data *fdata)

@@ -136,6 +136,8 @@ class OP(Enum):
     XQUEUE_FREE = 9
     RQUEUE_ALLOC= 10
     RQUEUE_FREE = 11
+    RQUEUE_ALLOC_SPECIFIC = 12
+    FEATURE     = 13
     RESPONSE    = 0x80
     VERSION     = 1
     INDEX_MASK  = 0xffff
@@ -168,6 +170,9 @@ class XDM_CMD(IntEnum):
 class ATOMIC_SIZE(IntEnum):
     SIZE_32BIT    = 2
     SIZE_64BIT    = 3
+
+class FEATURES(IntEnum):
+    FEATURE_MR_OVERLAP_CHECKING    = 0x1
 
 class hdr(Structure):
     _fields_ = [('version',        c_u8),
@@ -403,6 +408,12 @@ class rsp_RQUEUE_ALLOC(Structure):
                 ('info',           rqinfo),
                 ]
 
+class req_RQUEUE_ALLOC_SPECIFIC(Structure):
+    _fields_ = [('hdr',                     hdr),
+                ('cmplq_ent',               c_u32),
+                ('qspecific',               c_u32),
+                ]
+
 class req_RQUEUE_FREE(Structure):
     _fields_ = [('hdr',            hdr),
                 ('info',           rqinfo),
@@ -410,6 +421,16 @@ class req_RQUEUE_FREE(Structure):
 
 class rsp_RQUEUE_FREE(Structure):
     _fields_ = [('hdr',            hdr),
+                ]
+
+class req_FEATURE(Structure):
+    _fields_ = [('hdr',                     hdr),
+                ('features',                c_u64),
+                ]
+
+class rsp_FEATURE(Structure):
+    _fields_ = [('hdr',                     hdr),
+                ('features',                c_u64),
                 ]
 
 class xdm_cmd_hdr(Structure):
@@ -1219,6 +1240,17 @@ class Connection():
         self.rdm_per_irq_index[rdm.rsp_rqa.info.irq_vector].remove(rdm)
         if self.verbosity:
             print('RQUEUE_FREE: status={}'.format(rsp.hdr.status))
+
+    def do_FEATURE(self, features):
+        if self.verbosity:
+            print('FEATURE: features={:#x}'.format(features))
+        req = req_FEATURE(hdr(OP.FEATURE), features)
+        self.write(req)
+        rsp = rsp_FEATURE(hdr(OP.FEATURE, index=req.hdr.index, rsp=True))
+        self.read(rsp)
+        if self.verbosity:
+            print('FEATURE: rsp_features={:#x}'.format(rsp.features))
+        return rsp
 
     def poll_open(self, irq_index):
         if self.poll_file[irq_index] == None:
