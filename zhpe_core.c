@@ -50,6 +50,7 @@
 #include <linux/version.h>
 #include <linux/uaccess.h>
 #include <linux/pci.h>
+#include <linux/iommu.h>
 #include <linux/amd-iommu.h>
 #include <linux/cdev.h>
 #include <linux/delay.h>
@@ -231,6 +232,10 @@ static DECLARE_WAIT_QUEUE_HEAD(poll_wqh);
 uint no_iommu = 0;
 module_param(no_iommu, uint, S_IRUGO);
 MODULE_PARM_DESC(no_iommu, "System does not have an IOMMU (default=0)");
+
+uint signal_mr_overlap = 0;
+module_param(signal_mr_overlap, uint, S_IRUGO);
+MODULE_PARM_DESC(signal_mr_overlap, "Signal MR overlap (default=0)");
 
 #define TRACKER_MAX     (256)
 
@@ -1126,6 +1131,30 @@ static int zhpe_user_req_INIT(struct io_entry *entry)
     return queue_io_rsp(entry, sizeof(rsp->init), status);
 }
 
+static int zhpe_user_req_FEATURE(struct io_entry *entry)
+{
+    union zhpe_req      *req = &entry->op.req;
+    union zhpe_rsp      *rsp = &entry->op.rsp;
+    struct file_data    *fdata = entry->fdata;
+    int                 status = 0;
+    uint64_t            req_features, rsp_features = 0;
+
+    req_features = req->feature.features;
+    CHECK_INIT_STATE(entry, status, out);
+    if (req_features & FEATURE_MR_OVERLAP_CHECKING) {
+        spin_lock(&fdata->io_lock);
+        fdata->state |= STATE_MR_OVERLAP_CHECKING;
+        spin_unlock(&fdata->io_lock);
+        rsp_features |= FEATURE_MR_OVERLAP_CHECKING;
+    }
+
+ out:
+    rsp->feature.features = rsp_features;
+    debug(DEBUG_IO, "ret=%d, req_features=0x%016llx, rsp_features=0x%016llx\n",
+          status, req_features, rsp_features);
+    return queue_io_rsp(entry, sizeof(rsp->feature), status);
+}
+
 /* This function called by IOMMU driver on PPR failure */
 static int iommu_invalid_ppr_cb(struct pci_dev *pdev, int pasid,
                                 unsigned long address, u16 flags)
@@ -1325,6 +1354,7 @@ static ssize_t zhpe_write(struct file *file, const char __user *buf,
     USER_REQ_HANDLER(RQALLOC);
     USER_REQ_HANDLER(RQFREE);
     USER_REQ_HANDLER(RQALLOC_SPECIFIC);
+    USER_REQ_HANDLER(FEATURE);
 
     default:
         zprintk(KERN_ERR, "Unexpected opcode 0x%02x\n", op_hdr->opcode);
@@ -2480,6 +2510,7 @@ static int zhpe_probe(struct pci_dev *pdev,
                   "amd_iommu_init_device failed with error %d\n", ret);
             goto err_pci_iounmap;
         }
+        sl->dom = iommu_get_domain_for_dev(&sl->pdev->dev);
     }
 
     ret = zhpe_register_interrupts(pdev, sl);

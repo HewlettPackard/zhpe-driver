@@ -154,6 +154,7 @@ int free_xqueue(
 	struct zhpe_rsp_XQFREE * free_rsp);
 int zhpe_clear_xdm_qcm(struct xdm_qcm * xdm_qcm_base);
 int zhpe_clear_rdm_qcm(struct rdm_qcm * rdm_qcm_base);
+void zhpe_stop_owned_xdm_queues(struct file_data *fdata);
 void zhpe_release_owned_xdm_queues(struct file_data *fdata);
 void zhpe_release_owned_rdm_queues(struct file_data *fdata);
 int zhpe_rdm_queue_to_irq(int queue, struct slice *sl);

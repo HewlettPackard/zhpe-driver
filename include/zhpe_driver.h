@@ -48,6 +48,7 @@
 extern uint zhpe_debug_flags;
 extern const char zhpe_driver_name[];
 extern uint no_iommu;
+extern uint signal_mr_overlap;
 extern struct zhpe_global_shared_data *global_shared_data;
 extern bool zhpe_mcommit;
 
@@ -363,6 +364,7 @@ struct slice {
     unsigned int        id;          /* zero based, unique slice id */
     unsigned int        phys_id;     /* zero based, unique physical slice id */
     struct pci_dev	*pdev;
+    struct iommu_domain	*dom;
     /* Revisit: add s_link boolean */
     spinlock_t           xdm_slice_lock; /* locks alloc_count, alloced_bitmap */
     int                  xdm_alloc_count;
@@ -544,9 +546,11 @@ struct io_entry {
 };
 
 enum {
-    STATE_CLOSED        = 0x1,
-    STATE_READY         = 0x2,
-    STATE_INIT          = 0x4,
+    STATE_CLOSED                = 0x01,
+    STATE_READY                 = 0x02,
+    STATE_INIT                  = 0x04,
+    STATE_MR_OVERLAP_CHECKING   = 0x08,
+    STATE_MR_LOCKED_DOWN        = 0x10,
 };
 
 /* Globals */

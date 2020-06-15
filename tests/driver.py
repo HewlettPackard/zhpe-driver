@@ -97,6 +97,8 @@ def parse_args():
                         help='make/accept network connections')
     parser.add_argument('-n', '--nodes', type=str, default=None,
                         help='list of remote node IPs')
+    parser.add_argument('-O', '--overlap', action='store_true',
+                        help='enable MR overlap checking')
     parser.add_argument('-p', '--port', type=int, default=42042,
                         help='network port')
     parser.add_argument('-P', '--post_mortem', action='store_true',
@@ -163,6 +165,11 @@ def main():
         else:
             runtime_err('fail: no error on 2nd INIT')
 
+        if args.overlap:
+            feat = conn.do_FEATURE(zhpe.FEATURES.FEATURE_MR_OVERLAP_CHECKING)
+            if args.verbosity:
+                print('do_FEATURE: features={:#x}'.format(feat.features))
+
         if args.loopback and modp.genz_loopback == 0:
             runtime_err(
                 'Configuration error - loopback test requested but ' +
@@ -183,7 +190,7 @@ def main():
             mm = mmap.mmap(-1, sz4K)
             v, l = zhpe.mmap_vaddr_len(mm)
             rsp = conn.do_MR_REG(v, l, MR.GPI)  # req: GET/PUT, 4K
-            # register the same thing memory twice to force EEXIST
+            # register the same memory twice to force EEXIST
             exc = False
             try:
                 bad = conn.do_MR_REG(v, l, MR.GPI)  # req: GET/PUT, 4K
