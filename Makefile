@@ -32,7 +32,8 @@ clean:
 version: $(zhpe_objs:.o=.c) Makefile
 	@V="0:0";							\
 	if S=$$(git status --porcelain 2>/dev/null); then		\
-	    V+=:$$(git describe --all --long | cut -d - -f 3);		\
+	    V+=:$$(git describe --all --long |				\
+		   awk -F "-" '{ print $$NF; }');			\
 	    V+=:$$(git config --get remote.origin.url);			\
 	    [[ -z "$$S" ]] || V+=:dirty;				\
 	fi;								\
