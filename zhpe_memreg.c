@@ -1290,6 +1290,7 @@ static void zhpe_mmun_invalidate_range_start(struct mmu_notifier *mn,
     if (umem) {
         zhpe_stop_owned_xdm_queues(fdata);
         zhpe_mmun_signal(fdata, umem, start, end);
+        umem_remove(umem);
     }
 }
 
