@@ -79,6 +79,9 @@ struct zhpe_umem {
     struct sg_table       sg_head;
     int                   nmap;
     int                   npages;
+    struct page           *active_page;
+    int64_t               *active_kptr;
+    int64_t               *active_uptr;
 };
 
 struct zhpe_rmr {
@@ -103,6 +106,7 @@ void zhpe_rmr_remove_unode(struct file_data *fdata, struct uuid_node *unode);
 void zhpe_rmr_free_all(struct file_data *fdata);
 void zhpe_umem_free_all(struct file_data *fdata);
 int zhpe_user_req_MR_REG(struct io_entry *entry);
+int zhpe_user_req_MR_REG_EXT(struct io_entry *entry);
 int zhpe_user_req_MR_FREE(struct io_entry *entry);
 int zhpe_user_req_RMR_IMPORT(struct io_entry *entry);
 int zhpe_user_req_RMR_FREE(struct io_entry *entry);

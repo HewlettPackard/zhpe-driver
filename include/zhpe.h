@@ -86,6 +86,7 @@ enum {
     ZHPE_OP_RQFREE,
     ZHPE_OP_RQALLOC_SPECIFIC,
     ZHPE_OP_FEATURE,
+    ZHPE_OP_MR_REG_EXT,
     ZHPE_OP_RESPONSE = 0x80,
     ZHPE_OP_VERSION = 1,
 };
@@ -106,10 +107,6 @@ enum {
     DEBUG_RKEYS         = 0x00001000,
     DEBUG_MSG           = 0x00002000,
     DEBUG_INTR          = 0x00004000,
-};
-
-enum {
-    FEATURE_MR_OVERLAP_CHECKING = 0x01ull,
 };
 
 /* ZHPE_MAGIC == 'ZHPE' */
@@ -162,12 +159,22 @@ struct zhpe_rsp_MR_REG {
     uint64_t               physaddr;  /* Revisit: remove when IOMMU works */
 };
 
-struct zhpe_req_MR_FREE {
+struct zhpe_req_MR_REG_EXT {
     struct zhpe_common_hdr hdr;
     uint64_t               vaddr;
     uint64_t               len;
     uint64_t               access;
-    uint64_t               rsp_zaddr;
+    int64_t                *active_uptr;
+};
+
+/* No struct zhpe_req_MR_REG_EXT, uses struct zhpe_rsp_MR_REG. */
+
+struct zhpe_req_MR_FREE {
+     struct zhpe_common_hdr hdr;
+     uint64_t               vaddr;
+     uint64_t               len;
+     uint64_t               access;
+     uint64_t               rsp_zaddr;
 };
 
 struct zhpe_rsp_MR_FREE {
@@ -299,6 +306,7 @@ union zhpe_req {
     struct zhpe_common_hdr hdr;
     struct zhpe_req_INIT        init;
     struct zhpe_req_MR_REG      mr_reg;
+    struct zhpe_req_MR_REG_EXT  mr_reg_ext;
     struct zhpe_req_MR_FREE     mr_free;
     struct zhpe_req_RMR_IMPORT  rmr_import;
     struct zhpe_req_RMR_FREE    rmr_free;
@@ -317,6 +325,7 @@ union zhpe_rsp {
     struct zhpe_common_hdr hdr;
     struct zhpe_rsp_INIT        init;
     struct zhpe_rsp_MR_REG      mr_reg;
+    struct zhpe_rsp_MR_REG      mr_reg_ext;        /* Same as MR_REG */
     struct zhpe_rsp_MR_FREE     mr_free;
     struct zhpe_rsp_RMR_IMPORT  rmr_import;
     struct zhpe_rsp_RMR_FREE    rmr_free;

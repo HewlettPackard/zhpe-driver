@@ -44,6 +44,8 @@
 static void umem_kref_free(struct kref *ref);  /* forward reference */
 static void umem_free(struct zhpe_umem *umem);
 static void umem_free_zmmu(struct zhpe_umem *umem);
+static void zhpe_mmun_signal(struct file_data *fdata, struct zhpe_umem *umem,
+                             unsigned long start, unsigned long end);
 
 void zhpe_pte_info_dbg(uint debug_flag, const char *callf, uint line,
                        struct zhpe_pte_info *info)
@@ -102,67 +104,45 @@ static uint64_t umem_rsp_zaddr(struct zhpe_umem *umem)
     return ret;
 }
 
-static inline int umem_range_cmp(struct file_data *fdata,
-                                 uint64_t start, uint64_t end,
-                                 const struct zhpe_umem *u)
+static struct zhpe_umem *
+umem_range_search_and_unmap(struct file_data *fdata, uint64_t start,
+                            uint64_t end)
 {
-    int cmp;
-    const struct zhpe_pte_info *info = &u->pte_info;
-
-    if ((u != fdata->big_rsp_umem) &&
-        (start < (u->vaddr + info->length)) && (u->vaddr < end))
-        return 0;  /* range overlap */
-    cmp = arithcmp(start, u->vaddr);
-    if (cmp)
-        return cmp;
-    return arithcmp(end - start, info->length);
-}
-
-static struct zhpe_umem *__umem_range_search(struct file_data *fdata,
-                                             uint64_t start, uint64_t end)
-{
-    struct zhpe_umem *unode;
-    struct rb_node *rnode;
-    struct rb_root *root = &fdata->mr_tree;
-
-    /* caller must already hold fdata->mr_lock */
-    rnode = root->rb_node;
-
-    while (rnode) {
-        int result;
-
-        unode = container_of(rnode, struct zhpe_umem, node);
-        result = umem_range_cmp(fdata, start, end, unode);
-
-        if (result < 0) {
-            rnode = rnode->rb_left;
-        } else if (result > 0) {
-            rnode = rnode->rb_right;
-        } else {
-            goto out;
-        }
-    }
-
-    unode = NULL;
-
- out:
-    return unode;
-}
-
-struct zhpe_umem *umem_range_search_and_unmap(struct file_data *fdata,
-                                              uint64_t start, uint64_t end)
-{
-    struct zhpe_umem *umem, *u, *next;
+    struct zhpe_umem    *ret = NULL;
+    bool                clean_up = false;
+    struct zhpe_umem    *u;
+    struct zhpe_umem    *next;
+    uint64_t            old;
 
     spin_lock(&fdata->mr_lock);
-    umem = __umem_range_search(fdata, start, end);
-    spin_unlock(&fdata->mr_lock);
-    if (umem) {  /* just to be safe, wipe out all rsp ZMMU PTEs */
+    rbtree_postorder_for_each_entry_safe(u, next, &fdata->mr_tree, node) {
+        if (start < (u->vaddr + u->pte_info.length) && u->vaddr < end) {
+            if (unlikely(u == fdata->big_rsp_umem))
+                continue;
+            /* active_kptr valid? */
+            if (unlikely(!u->active_kptr)) {
+                /* No, nothing to do, but clean up. */
+                clean_up = true;
+                break;
+            }
+            /* Yes, bit 0 is the shoot down flag, set it; clean up if active. */
+            old = __sync_fetch_and_or(u->active_kptr, 1);
+            if (likely(!(old & 1)) && unlikely(old)) {
+                clean_up = true;
+                break;
+            }
+        }
+    }
+    if (unlikely(clean_up)) {
+        ret = u;
+        kref_get(&ret->refcount);
         rbtree_postorder_for_each_entry_safe(u, next, &fdata->mr_tree, node)
             umem_free_zmmu(u);
         zhpe_zmmu_rsp_take_snapshot(fdata->bridge);
     }
-    return umem;
+    spin_unlock(&fdata->mr_lock);
+
+    return ret;
 }
 
 static struct zhpe_umem *umem_search(struct file_data *fdata,
@@ -391,7 +371,8 @@ get_user_pages_compat(unsigned long start, unsigned long nr_pages,
  */
 static noinline // Revisit: debug
 struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
-                                size_t size, uint64_t access, bool dmasync)
+                                size_t size, uint64_t access, bool dmasync,
+                                int64_t *active_uptr)
 {
     struct zhpe_umem *umem;
     struct zhpe_pte_info *info;
@@ -440,6 +421,9 @@ struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
     /* We assume the memory is from hugetlb until proven otherwise */
     umem->hugetlb    = 1;
     kref_init(&umem->refcount);
+    umem->active_page = NULL;
+    umem->active_kptr = NULL;
+    umem->active_uptr = NULL;
 
     debug(DEBUG_MEMREG, "vaddr = 0x%016llx, size = 0x%zx, access = 0x%llx\n",
           vaddr, size, access);
@@ -466,7 +450,7 @@ struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
 
     down_write(&current->mm->mmap_sem);
 
-    locked     = npages + current->mm->pinned_vm;
+    locked     = npages + current->mm->pinned_vm + 1;
     lock_limit = rlimit(RLIMIT_MEMLOCK) >> PAGE_SHIFT;
 
     if ((locked > lock_limit) && !capable(CAP_IPC_LOCK)) {
@@ -474,6 +458,21 @@ struct zhpe_umem *zhpe_umem_get(struct file_data *fdata, uint64_t vaddr,
         debug(DEBUG_MEMREG, "locked (%lu) > lock_limit (%lu)\n",
               locked, lock_limit);
         goto out;
+    }
+
+    if (active_uptr) {
+        umem->active_uptr = active_uptr;
+        cur_base = (uintptr_t)active_uptr & PAGE_MASK;
+        ret = get_user_pages_compat(cur_base, 1, true, false,
+                                    &umem->active_page, vma_list);
+        if (ret < 0) {
+            debug(DEBUG_MEMREG, "get_user_pages(0x%lx, %lu) failed\n",
+                  cur_base, (ulong)1);
+            umem->active_page = NULL;
+            goto out;
+        }
+        umem->active_kptr = (page_address(umem->active_page) +
+                             ((uintptr_t)active_uptr & ~PAGE_MASK));
     }
 
     cur_base = vaddr & PAGE_MASK;
@@ -580,6 +579,8 @@ static void umem_free(struct zhpe_umem *umem)
     _zhpe_umem_release(umem);
     put_pid(umem->pid);
     put_file_data(umem->fdata);
+    if (umem->active_page)
+        put_page(umem->active_page);
     do_kfree(umem);
 }
 
@@ -881,13 +882,11 @@ static struct zmap *rmr_zmap_alloc(struct file_data *fdata,
 
 /* Revisit: add a "uuid_free_rmr" function */
 
-int zhpe_user_req_MR_REG(struct io_entry *entry)
+static int do_mr_reg(struct file_data *fdata, uint64_t vaddr, uint64_t len,
+                     uint64_t access, int64_t *active_uptr,
+                     struct zhpe_rsp_MR_REG *rsp_mr_reg)
 {
-    union zhpe_req          *req = &entry->op.req;
-    union zhpe_rsp          *rsp = &entry->op.rsp;
-    struct file_data        *fdata = entry->fdata;
     int                     status = 0;
-    uint64_t                vaddr, len, access;
     uint64_t                rsp_zaddr = BASE_ADDR_ERROR;
     uint64_t                physaddr = BASE_ADDR_ERROR;
     uint32_t                pg_ps = 0;
@@ -896,10 +895,7 @@ int zhpe_user_req_MR_REG(struct io_entry *entry)
     bool                    zmmu_valid = false;
     bool                    zmmu_only;
 
-    CHECK_INIT_STATE(entry, status, out);
-    vaddr = req->mr_reg.vaddr;
-    len = req->mr_reg.len;
-    access = req->mr_reg.access & ZHPE_MR_USER_MASK;
+    access &= ZHPE_MR_USER_MASK;
     local = !!(access & (ZHPE_MR_GET|ZHPE_MR_PUT));
     remote = !!(access & (ZHPE_MR_GET_REMOTE|ZHPE_MR_PUT_REMOTE));
     cpu_visible = !!(access & ZHPE_MR_REQ_CPU);
@@ -924,7 +920,7 @@ int zhpe_user_req_MR_REG(struct io_entry *entry)
         goto out;
     }
     /* pin memory range and create IOMMU entries */
-    umem = zhpe_umem_get(entry->fdata, vaddr, len, access, dmasync);
+    umem = zhpe_umem_get(fdata, vaddr, len, access, dmasync, active_uptr);
     if (IS_ERR(umem)) {
         status = PTR_ERR(umem);
         umem = NULL;
@@ -971,9 +967,9 @@ int zhpe_user_req_MR_REG(struct io_entry *entry)
         goto out;
     }
 
-    rsp->mr_reg.rsp_zaddr = rsp_zaddr;
-    rsp->mr_reg.pg_ps = pg_ps;
-    rsp->mr_reg.physaddr = physaddr;
+    rsp_mr_reg->rsp_zaddr = rsp_zaddr;
+    rsp_mr_reg->pg_ps = pg_ps;
+    rsp_mr_reg->physaddr = physaddr;
 
  out:
     if (status < 0 && umem) {
@@ -987,7 +983,36 @@ int zhpe_user_req_MR_REG(struct io_entry *entry)
     debug(DEBUG_MEMREG, "ret = %d rsp_zaddr = 0x%016llx, "
           "pg_ps=%u, physaddr = 0x%016llx\n",
           status, rsp_zaddr, pg_ps, physaddr);
+    return status;
+}
+
+int zhpe_user_req_MR_REG(struct io_entry *entry)
+{
+    union zhpe_req          *req = &entry->op.req;
+    union zhpe_rsp          *rsp = &entry->op.rsp;
+    int                     status = 0;
+
+    CHECK_INIT_STATE(entry, status, out);
+    status = do_mr_reg(entry->fdata, req->mr_reg.vaddr, req->mr_reg.len,
+                       req->mr_reg.access, NULL, &rsp->mr_reg);
+
+ out:
     return queue_io_rsp(entry, sizeof(rsp->mr_reg), status);
+}
+
+int zhpe_user_req_MR_REG_EXT(struct io_entry *entry)
+{
+    union zhpe_req          *req = &entry->op.req;
+    union zhpe_rsp          *rsp = &entry->op.rsp;
+    int                     status = 0;
+
+    CHECK_INIT_STATE(entry, status, out);
+    status = do_mr_reg(entry->fdata, req->mr_reg_ext.vaddr, req->mr_reg_ext.len,
+                       req->mr_reg_ext.access, req->mr_reg_ext.active_uptr,
+                       &rsp->mr_reg_ext);
+
+ out:
+    return queue_io_rsp(entry, sizeof(rsp->mr_reg_ext), status);
 }
 
 int zhpe_user_req_MR_FREE(struct io_entry *entry)
@@ -1214,26 +1239,34 @@ static void zhpe_mmun_signal(struct file_data *fdata, struct zhpe_umem *umem,
 {
     struct task_struct  *t;
     struct siginfo      info;
-    int                 ret;
+    uint64_t            active;
 
     spin_lock(&fdata->io_lock);
     fdata->state &= ~STATE_INIT;
     fdata->state |= STATE_MR_LOCKED_DOWN;
     spin_unlock(&fdata->io_lock);
     t = get_pid_task(umem->pid, PIDTYPE_PID);
-    pr_warning("%s: MR overlap: %s%s(%ld), pasid=%u, start=0x%016lx, end=0x%016lx, umem->vaddr=0x%016llx, umem->len=0x%lx\n",
-               zhpe_driver_name, (signal_mr_overlap) ? "signalling " : "",
+    if (umem->active_kptr)
+        active = __sync_fetch_and_or(umem->active_kptr, 0);
+    else
+        active = 0;
+    pr_warning("%s: MR overlap: %s%s(%ld), pasid=%u, start=0x%016lx,"
+               " end=0x%016lx, umem->vaddr=0x%016llx, umem->len=0x%lx"
+               " umem->active_uptr=%px/%lld\n",
+               zhpe_driver_name, (signal_mr_overlap ? "signalling " : ""),
                t->comm, (long)pid_vnr(umem->pid),
                fdata->pasid, start, end,
-               umem->vaddr, umem->pte_info.length);
+               umem->vaddr, umem->pte_info.length, umem->active_uptr, active);
     if (signal_mr_overlap) {
-        info.si_signo = SIGBUS;
-        info.si_errno = 0;
+        dump_stack();
+        memset(&info, 0, sizeof(info));
+        info.si_signo = signal_mr_overlap;
         info.si_addr = (void *)start;
         /* Revisit: si_trapno, si_addr_lsb */
-        ret = send_sig_info(SIGBUS, &info, t);
+        (void)send_sig_info(signal_mr_overlap, &info, t);
         /* Revisit: check ret */
     }
+    put_task_struct(t);
 }
 
 static void zhpe_mmun_invalidate_range_start(struct mmu_notifier *mn,

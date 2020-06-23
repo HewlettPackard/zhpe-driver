@@ -233,9 +233,9 @@ uint no_iommu = 0;
 module_param(no_iommu, uint, S_IRUGO);
 MODULE_PARM_DESC(no_iommu, "System does not have an IOMMU (default=0)");
 
-uint signal_mr_overlap = 0;
+uint signal_mr_overlap = SIGBUS;
 module_param(signal_mr_overlap, uint, S_IRUGO);
-MODULE_PARM_DESC(signal_mr_overlap, "Signal MR overlap (default=0)");
+MODULE_PARM_DESC(signal_mr_overlap, "Signal MR overlap (default=SIGBUS)");
 
 #define TRACKER_MAX     (256)
 
@@ -1141,11 +1141,15 @@ static int zhpe_user_req_FEATURE(struct io_entry *entry)
 
     req_features = req->feature.features;
     CHECK_INIT_STATE(entry, status, out);
-    if (req_features & FEATURE_MR_OVERLAP_CHECKING) {
+    if (req_features & ~ZHPE_FEATURE_VALID_MASK) {
+        status = -EINVAL;
+        goto out;
+    }
+    if (req_features & ZHPE_FEATURE_MR_OVERLAP_CHECKING) {
         spin_lock(&fdata->io_lock);
         fdata->state |= STATE_MR_OVERLAP_CHECKING;
         spin_unlock(&fdata->io_lock);
-        rsp_features |= FEATURE_MR_OVERLAP_CHECKING;
+        rsp_features |= ZHPE_FEATURE_MR_OVERLAP_CHECKING;
     }
 
  out:
@@ -1344,6 +1348,7 @@ static ssize_t zhpe_write(struct file *file, const char __user *buf,
 
     USER_REQ_HANDLER(INIT);
     USER_REQ_HANDLER(MR_REG);
+    USER_REQ_HANDLER(MR_REG_EXT);
     USER_REQ_HANDLER(MR_FREE);
     USER_REQ_HANDLER(RMR_IMPORT);
     USER_REQ_HANDLER(RMR_FREE);

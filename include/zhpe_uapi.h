@@ -384,6 +384,11 @@ struct zhpe_rqinfo {
     uint32_t            irq_vector; /* interrupt vector that maps to poll dev */
 };
 
+enum {
+    ZHPE_FEATURE_MR_OVERLAP_CHECKING    = 0x01ull,
+    ZHPE_FEATURE_VALID_MASK             = 0x01ull,
+};
+
 _EXTERN_C_END
 
 #endif /* _ZHPE_UAPI_H_ */
