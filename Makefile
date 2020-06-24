@@ -12,22 +12,26 @@ ccflags-y += $(RHEL)
 
 VERSION=zhpe_version.h
 
-all:
+.PHONY: driver driver2 tests version
+
+all: driver tests
+
+driver:
 	@if [[ -n "$(RHEL)" ]]; then					\
-	    env - scl enable devtoolset-7 -- make all2;			\
+	    env - scl enable devtoolset-7 -- make driver2;		\
 	else								\
-	    make all2;							\
+	    make driver2;						\
 	fi
 
-all2: version
+driver2: version
 	$(MAKE) -C /lib/modules/$(KVERSION)/build M=$(PWD) modules
+
+tests:
 	$(MAKE) -C tests
 
 clean:
 	$(MAKE) -C /lib/modules/$(KVERSION)/build M=$(PWD) clean
 	rm -f $(VERSION)*
-
-.PHONY: version
 
 version: $(zhpe_objs:.o=.c) Makefile
 	@V="0:0";							\
