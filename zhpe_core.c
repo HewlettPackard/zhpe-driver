@@ -93,8 +93,11 @@ MODULE_PARM_DESC(wr_pusher_dvsec_28, "Write-pusher DVSEC offset 0x28");
  * [2:2] xdm_write_ack_type, value 0
  * [3:3] xdm_sync_ack_type, value 1
  *
- * XDM_REQUEST_CFG : disable queue stop on command-level error
+ *
+ * XDM_REQUEST_CFG : disable queue stop on command-level error.
  * [11:11] dis_sqoce, value 1
+ *
+ * xdm_priority_cfg_enable : enable priority configuration changes.
  *
  * XDM_SIZE_CFG0: limit local/fabric move engine to two commands at a time.
  * [28:24] fab_recirc, value 1
@@ -107,6 +110,13 @@ MODULE_PARM_DESC(wr_pusher_dvsec_28, "Write-pusher DVSEC offset 0x28");
  * [44:40] lcl_recirc_cap, value 0
  * [52:48] fab_recirc_cap, value 0
  */
+
+static bool xdm_priority_cfg_enable         = 0;
+
+module_param(xdm_priority_cfg_enable, bool, 0444);
+MODULE_PARM_DESC(xdm_priority_cfg_enable,
+                 "1/Y/y => enable XDM priority configuration changes"
+                 " (Default:0)");
 
 static ulong skw_shim_inb_cfg_mask      = ~0x000000000000000FUL;
 static ulong skw_shim_inb_cfg_bits      =  0x0000000000000009UL;
@@ -2141,19 +2151,22 @@ static int csr_set_xdm(struct slice *sl, uint32_t chip_id)
             goto out;
 
         /* Queue priority settings. */
-        ret = csr_access_rdwr(sl, &xdm_size_cfg0, chip_id, blk,
-                              xdm_size_cfg0_mask, xdm_size_cfg0_bits);
-        if (ret < 0)
-            goto out;
-        ret = csr_access_rdwr(sl, &xdm_priority_cfg0, chip_id, blk,
-                              xdm_priority_cfg0_mask, xdm_priority_cfg0_bits);
-        if (ret < 0)
-            goto out;
-        ret = csr_access_rdwr(sl, &xdm_priority_cfg1, chip_id, blk,
-                              xdm_priority_cfg1_mask, xdm_priority_cfg1_bits);
-        if (ret < 0)
-            goto out;
-
+        if (xdm_priority_cfg_enable) {
+            ret = csr_access_rdwr(sl, &xdm_size_cfg0, chip_id, blk,
+                                  xdm_size_cfg0_mask, xdm_size_cfg0_bits);
+            if (ret < 0)
+                goto out;
+            ret = csr_access_rdwr(sl, &xdm_priority_cfg0, chip_id, blk,
+                                  xdm_priority_cfg0_mask,
+                                  xdm_priority_cfg0_bits);
+            if (ret < 0)
+                goto out;
+            ret = csr_access_rdwr(sl, &xdm_priority_cfg1, chip_id, blk,
+                                  xdm_priority_cfg1_mask,
+                                  xdm_priority_cfg1_bits);
+            if (ret < 0)
+                goto out;
+        }
         /* Reset logs */
         ret = csr_access_rdwr(sl, &xdm_err_hwa_all_status, chip_id, blk,
                               0, 0x1);
@@ -2548,9 +2561,12 @@ static int zhpe_probe(struct pci_dev *pdev,
             dev_info(&pdev->dev, "%s:using genz_gcid = 0x%07x\n",
                      __func__, genz_gcid);
             br->gcid = genz_gcid;
-        } else
+        } else {
             dev_info(&pdev->dev, "%s:gcid = 0x%07x\n",
                      __func__, br->gcid);
+            /* Make the gcid visible in the parameters. */
+            genz_gcid = br->gcid;
+        }
     }
 
     pci_set_master(pdev);
