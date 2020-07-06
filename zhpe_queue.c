@@ -1528,10 +1528,11 @@ int zhpe_req_RQALLOC(uint32_t cmplq_ent, uint8_t slice_mask, uint32_t qspecific,
     union zpages        *qcm_zpage, *cmplq_zpage;
     struct zmap         *qcm_zmap, *cmplq_zmap;
 
-    slice_mask &= ~SLICE_Q0;  /* disallow q0 from userspace */
-    debug(DEBUG_RQUEUE, "rqalloc req cmplq_ent %d, slice_mask 0x%x\n",
-          cmplq_ent, slice_mask);
+    debug(DEBUG_RQUEUE,
+          "rqalloc req cmplq_ent %d, slice_mask 0x%x qspecific 0x%x\n",
+          cmplq_ent, slice_mask, qspecific);
 
+    slice_mask &= ~SLICE_Q0;  /* disallow q0 from userspace */
     ret = rdm_queue_sizes(&cmplq_ent, &cmplq_size, &qcm_size);
     if (ret)
         goto done;
