@@ -469,13 +469,13 @@ void zhpe_free_remote_uuids(struct file_data *fdata)
 
 void zhpe_notify_remote_uuids(struct file_data *fdata)
 {
+    struct rb_root          rb_root;
     struct rb_node          *rb;
     struct uuid_node        *node;
     struct uuid_tracker     *uu;
     struct zhpe_msg_state   *state;
     int                     status;
     struct list_head        free_msg_list, teardown_msg_list;
-    ktime_t                 start;
     uint32_t                prev_gcid, gcid;
     char                    str[UUID_STRING_LEN+1];
 
@@ -483,16 +483,24 @@ void zhpe_notify_remote_uuids(struct file_data *fdata)
     INIT_LIST_HEAD(&free_msg_list);
     INIT_LIST_HEAD(&teardown_msg_list);
 
-    start = ktime_get();
-    if (zhpe_uu_remote_uuid_empty(fdata)) {
-        debug(DEBUG_UUID, "no remote UUIDs to TEARDOWN\n");
-        goto teardown_done;
-    }
+    /*
+     * A very quick and very dirty locking fix. The trees cannot
+     * have entries added to them, but can have remote ops come in against
+     * them which we really don't care about, since we'll clean up later.
+     * So, let's just steal the trees for the duration of the
+     * messaging so we can drop the fdata->uuid_lock and then put them back
+     * and let the rest of the cleanup code run as it does.
+     */
+    if (!fdata->local_uuid)
+        goto uuid_free;
+    spin_lock(&fdata->uuid_lock);
+    /* This works because rb_root is really just a pointer. */
+    rb_root = fdata->local_uuid->local->uu_remote_uuid_tree;
+    fdata->local_uuid->local->uu_remote_uuid_tree = RB_ROOT;
+    spin_unlock(&fdata->uuid_lock);
 
-    spin_lock(&fdata->uuid_lock);  /* nothing in this loop sleeps */
     prev_gcid = -1u;
-    for (rb = rb_first(&fdata->local_uuid->local->uu_remote_uuid_tree); rb;
-         rb = rb_next(rb)) {
+    for (rb = rb_first(&rb_root); rb; rb = rb_next(rb)) {
         node = container_of(rb, struct uuid_node, node);
         uu = node->tracker;
         gcid = zhpe_gcid_from_uuid(&uu->uuid);
@@ -512,14 +520,22 @@ void zhpe_notify_remote_uuids(struct file_data *fdata)
         }
         list_add_tail(&state->msg_list, &teardown_msg_list);
     }
+    spin_lock(&fdata->uuid_lock);
+    WARN_ON(!RB_EMPTY_ROOT(&fdata->local_uuid->local->uu_remote_uuid_tree));
+    fdata->local_uuid->local->uu_remote_uuid_tree = rb_root;
     spin_unlock(&fdata->uuid_lock);
 
- teardown_done:
     /* wait for replies to all TEARDOWN messages - can sleep */
-    zhpe_msg_list_wait(&teardown_msg_list, start);
+    zhpe_msg_list_wait(&teardown_msg_list, ktime_get());
 
-    spin_lock(&fdata->uuid_lock);  /* nothing in this loop sleeps */
-    for (rb = rb_first(&fdata->fd_remote_uuid_tree); rb; rb = rb_next(rb)) {
+ uuid_free:
+    spin_lock(&fdata->uuid_lock);
+    /* This works because rb_root is really just a pointer. */
+    rb_root = fdata->fd_remote_uuid_tree;
+    fdata->fd_remote_uuid_tree = RB_ROOT;
+    spin_unlock(&fdata->uuid_lock);
+
+    for (rb = rb_first(&rb_root); rb; rb = rb_next(rb)) {
         node = container_of(rb, struct uuid_node, node);
         uu = node->tracker;
         if (uu->remote->uu_flags & UUID_IS_FAM) { /* skip send if this is FAM */
@@ -540,10 +556,13 @@ void zhpe_notify_remote_uuids(struct file_data *fdata)
         }
         list_add_tail(&state->msg_list, &free_msg_list);
     }
+    spin_lock(&fdata->uuid_lock);
+    WARN_ON(!RB_EMPTY_ROOT(&fdata->fd_remote_uuid_tree));
+    fdata->fd_remote_uuid_tree = rb_root;
     spin_unlock(&fdata->uuid_lock);
 
     /* wait for replies to all the FREE messages - can sleep */
-    zhpe_msg_list_wait(&free_msg_list, start);
+    zhpe_msg_list_wait(&free_msg_list, ktime_get());
 }
 
 int zhpe_teardown_remote_uuid(uuid_t *src_uuid)
