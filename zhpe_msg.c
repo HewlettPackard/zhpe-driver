@@ -209,9 +209,11 @@ static int msg_xdm_queue_cmd(struct xdm_info *xdmi,
                 break;
             }
             /* Revisit: examine status */
-            if (cq_entry.status)
-                debug(DEBUG_MSG, "idx 0x%x status 0x%0x\n",
-                      cq_entry.index, cq_entry.status);
+            if (cq_entry.status) {
+                dev_warn(&xdmi->br->slice[xdmi->slice].pdev->dev,
+                         "%s:XDM error idx 0x%x status 0x%0x\n",
+                         __func__, cq_entry.index, cq_entry.status);
+            }
             more = cmpl_ret;
         } while (more);
     }
