@@ -769,7 +769,7 @@ static int zhpe_xqueue_free(
     int              queue = free_req->info.queue;
     int              ret;
 
-    spin_lock(&fdata->xdm_queue_lock);
+    mutex_lock(&fdata->xdm_queue_mutex);
     if (test_bit((slice*zhpe_xdm_queues_per_slice) + queue,
                  fdata->xdm_queues) == 0 ) {
         debug(DEBUG_XQUEUE,
@@ -784,7 +784,7 @@ static int zhpe_xqueue_free(
     ret = _xqueue_free(fdata->bridge, slice, queue);
 
  unlock:
-    spin_unlock(&fdata->xdm_queue_lock);
+    mutex_unlock(&fdata->xdm_queue_mutex);
     return ret;
 }
 
@@ -912,7 +912,7 @@ void zhpe_stop_owned_xdm_queues(struct file_data *fdata)
     int bits = SLICES * zhpe_xdm_queues_per_slice;
     int slice, queue, bit;
 
-    spin_lock(&fdata->xdm_queue_lock);
+    mutex_lock(&fdata->xdm_queue_mutex);
     bit = find_first_bit(fdata->xdm_queues, bits);
     while (1) {
         if (bit >= bits)
@@ -927,7 +927,7 @@ void zhpe_stop_owned_xdm_queues(struct file_data *fdata)
         }
         bit = find_next_bit(fdata->xdm_queues, bits, bit + 1);
     }
-    spin_unlock(&fdata->xdm_queue_lock);
+    mutex_unlock(&fdata->xdm_queue_mutex);
 }
 
 void zhpe_release_owned_xdm_queues(struct file_data *fdata)
@@ -936,7 +936,7 @@ void zhpe_release_owned_xdm_queues(struct file_data *fdata)
     int bits = SLICES * zhpe_xdm_queues_per_slice;
     int slice, queue, bit;
 
-    spin_lock(&fdata->xdm_queue_lock);
+    mutex_lock(&fdata->xdm_queue_mutex);
     bit = find_first_bit(fdata->xdm_queues, bits);
     while (1) {
         if (bit >= bits)
@@ -952,7 +952,7 @@ void zhpe_release_owned_xdm_queues(struct file_data *fdata)
         clear_bit(bit, fdata->xdm_queues);
         bit = find_next_bit(fdata->xdm_queues, bits, bit);
     }
-    spin_unlock(&fdata->xdm_queue_lock);
+    mutex_unlock(&fdata->xdm_queue_mutex);
 }
 
 void zhpe_release_owned_rdm_queues(struct file_data *fdata)
@@ -1180,9 +1180,9 @@ int zhpe_req_XQALLOC(
           "xqalloc rsp slice %d queue %d\n",
           slice, queue);
     /* set bit in this file_data as owner */
-    spin_lock(&fdata->xdm_queue_lock);
+    mutex_lock(&fdata->xdm_queue_mutex);
     set_bit((slice*zhpe_xdm_queues_per_slice)+queue, fdata->xdm_queues);
-    spin_unlock(&fdata->xdm_queue_lock);
+    mutex_unlock(&fdata->xdm_queue_mutex);
     rsp->info.slice = slice;
     rsp->info.queue = queue;
 
@@ -1257,9 +1257,9 @@ int zhpe_req_XQALLOC(
     zpages_free(qcm_zpage);
  release_queue:
     xdm_release_slice_queue(fdata->bridge, slice, queue);
-    spin_lock(&fdata->xdm_queue_lock);
+    mutex_lock(&fdata->xdm_queue_mutex);
     clear_bit((slice*zhpe_xdm_queues_per_slice)+queue, fdata->xdm_queues);
-    spin_unlock(&fdata->xdm_queue_lock);
+    mutex_unlock(&fdata->xdm_queue_mutex);
  done:
     return ret;
 }
