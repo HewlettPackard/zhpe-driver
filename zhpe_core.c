@@ -1782,7 +1782,7 @@ static int zhpe_open(struct inode *inode, struct file *file)
     fdata->fd_rmr_tree = RB_ROOT;
     INIT_LIST_HEAD(&fdata->zmap_list);
     spin_lock_init(&fdata->zmap_lock);
-    spin_lock_init(&fdata->xdm_queue_lock);
+    mutex_init(&fdata->xdm_queue_mutex);
     /* xdm_queues tracks what queues are owned by this file_data */
     /* Revisit Perf: what is the tradeoff of size of bitmap vs. rbtree? */
     bitmap_zero(fdata->xdm_queues, zhpe_xdm_queues_per_slice*SLICES);

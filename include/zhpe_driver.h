@@ -518,7 +518,7 @@ struct file_data {
     union zpages        *local_shared_zpage;
     struct zmap         *local_shared_zmap;
     struct zmap         *global_shared_zmap;
-    spinlock_t          xdm_queue_lock;
+    struct mutex        xdm_queue_mutex;
     DECLARE_BITMAP(xdm_queues, MAX_XDM_QUEUES_PER_SLICE*SLICES);
     spinlock_t          rdm_queue_lock;
     DECLARE_BITMAP(rdm_queues, MAX_RDM_QUEUES_PER_SLICE*SLICES);
