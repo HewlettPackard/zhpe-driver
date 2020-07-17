@@ -186,6 +186,21 @@ int msg_xdm_get_cmpl(struct xdm_info *xdmi, struct zhpe_cq_entry *entry)
     return ret;
 }
 
+static inline void msg_dump_cmd(struct device *dev, union zhpe_hw_wq_entry *cmd)
+{
+    char               str[GCID_STRING_LEN+1];
+
+    if (cmd->hdr.opcode == ZHPE_HW_OPCODE_ENQA) {
+        dev_warn(dev, "%s:XDM enqa cmp_index=0x%x, dgcid=%s, rspctxid=%u\n",
+                 __func__, cmd->hdr.cmp_index,
+                 zhpe_gcid_str(cmd->enqa.dgcid, str, sizeof(str)),
+                 cmd->enqa.rspctxid);
+    } else {
+        dev_warn(dev, "%s:XDM unknown cmd opcode=%hu, cmp_index=0x%x\n",
+                 __func__, cmd->hdr.opcode, cmd->hdr.cmp_index);
+    }
+}
+
 static int msg_xdm_queue_cmd(struct xdm_info *xdmi,
                              union zhpe_hw_wq_entry *cmd)
 {
@@ -197,6 +212,7 @@ static int msg_xdm_queue_cmd(struct xdm_info *xdmi,
     bool more = 0;
 
     spin_lock(&xdmi->xdm_info_lock);
+    cpu_addr = xdmi->cmdq_zpage->dma.cpu_addr;
     /* Revisit: add support for cmd buffers */
     tail = xdmi->cmdq_tail_shadow;
     /* do mod-add to compute next tail value */
@@ -210,9 +226,11 @@ static int msg_xdm_queue_cmd(struct xdm_info *xdmi,
             }
             /* Revisit: examine status */
             if (cq_entry.status) {
+                xdm_entry = &(((union zhpe_hw_wq_entry *)cpu_addr)[cq_entry.index]);
                 dev_warn(&xdmi->br->slice[xdmi->slice].pdev->dev,
                          "%s:XDM error idx 0x%x status 0x%0x\n",
                          __func__, cq_entry.index, cq_entry.status);
+                msg_dump_cmd(&xdmi->br->slice[xdmi->slice].pdev->dev, xdm_entry);
             }
             more = cmpl_ret;
         } while (more);
@@ -221,8 +239,7 @@ static int msg_xdm_queue_cmd(struct xdm_info *xdmi,
         /* Revisit: add to workqueue for later processing */
         goto out;
     }
-    cmd->hdr.cmp_index = xdmi->cmp_index++;
-    cpu_addr = xdmi->cmdq_zpage->dma.cpu_addr;
+    cmd->hdr.cmp_index = tail;
     xdm_entry = &(((union zhpe_hw_wq_entry *)cpu_addr)[tail]);
     *xdm_entry = *cmd;
     xdmi->active_cmds++;
