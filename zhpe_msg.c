@@ -186,18 +186,23 @@ int msg_xdm_get_cmpl(struct xdm_info *xdmi, struct zhpe_cq_entry *entry)
     return ret;
 }
 
-static inline void msg_dump_cmd(struct device *dev, union zhpe_hw_wq_entry *cmd)
+static inline void xdm_cmd_error(struct device *dev, uint8_t status,
+                                 union zhpe_hw_wq_entry *cmd)
 {
     char               str[GCID_STRING_LEN+1];
 
     if (cmd->hdr.opcode == ZHPE_HW_OPCODE_ENQA) {
-        dev_warn(dev, "%s:XDM enqa cmp_index=0x%x, dgcid=%s, rspctxid=%u\n",
-                 __func__, cmd->hdr.cmp_index,
-                 zhpe_gcid_str(cmd->enqa.dgcid, str, sizeof(str)),
-                 cmd->enqa.rspctxid);
+
+        if (status != ZHPE_HW_CQ_STATUS_GENZ_UNSUPPORTED_SVC ||
+            cmd->enqa.rspctxid >= ZHPE_MAX_SLICES)
+            dev_warn(dev,"%s:XDM enqa, cmp_index=0x%x, status=0x%x, "
+                     "dgcid=%s, rspctxid=%u\n",
+                     __func__, cmd->hdr.cmp_index, status,
+                     zhpe_gcid_str(cmd->enqa.dgcid, str, sizeof(str)),
+                     cmd->enqa.rspctxid);
     } else {
-        dev_warn(dev, "%s:XDM unknown cmd opcode=%hu, cmp_index=0x%x\n",
-                 __func__, cmd->hdr.opcode, cmd->hdr.cmp_index);
+        dev_warn(dev, "%s:XDM opcode=0x%x, cmp_index=0x%x, status=0x%x\n",
+                 __func__, cmd->hdr.opcode, cmd->hdr.cmp_index, status);
     }
 }
 
@@ -226,11 +231,10 @@ static int msg_xdm_queue_cmd(struct xdm_info *xdmi,
             }
             /* Revisit: examine status */
             if (cq_entry.status) {
-                xdm_entry = &(((union zhpe_hw_wq_entry *)cpu_addr)[cq_entry.index]);
-                dev_warn(&xdmi->br->slice[xdmi->slice].pdev->dev,
-                         "%s:XDM error idx 0x%x status 0x%0x\n",
-                         __func__, cq_entry.index, cq_entry.status);
-                msg_dump_cmd(&xdmi->br->slice[xdmi->slice].pdev->dev, xdm_entry);
+                xdm_entry = cpu_addr;
+                xdm_entry += cq_entry.index;
+                xdm_cmd_error(&xdmi->br->slice[xdmi->slice].pdev->dev,
+                              cq_entry.status, xdm_entry);
             }
             more = cmpl_ret;
         } while (more);
