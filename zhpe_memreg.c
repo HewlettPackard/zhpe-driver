@@ -589,7 +589,9 @@ static void umem_kref_free(struct kref *ref)
     struct zhpe_umem *umem = container_of(ref, struct zhpe_umem, refcount);
 
     umem_free_zmmu(umem);
+#if 0
     zhpe_zmmu_rsp_take_snapshot(umem->fdata->bridge);
+#endif
     umem_free(umem);
 }
 
@@ -975,7 +977,9 @@ static int do_mr_reg(struct file_data *fdata, uint64_t vaddr, uint64_t len,
     if (status < 0 && umem) {
         if (zmmu_valid) {
             umem_free_zmmu(umem);
+#if 0
             zhpe_zmmu_rsp_take_snapshot(umem->fdata->bridge);
+#endif
         }
         umem_free(umem);
     }
