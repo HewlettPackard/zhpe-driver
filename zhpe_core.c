@@ -1186,18 +1186,48 @@ static int zhpe_bind_iommu(struct file_data *fdata)
     int s, ret = 0;
     struct pci_dev *pdev;
 
+    /*
+     * amd_iommu_bind_pasid() has a bug in it, to this day,
+     * in that it doesn't check for an error return from
+     * mmu_notifier_register() which occurs if there is a pending
+     * signal on the process and then bad things can happen when
+     * amd_iommu_unbind_pasid() is called and it calls
+     * mmu_notifier_unregister() and can operation on a freed
+     * mm_struct.
+     *
+     * Without fixing the kernel, there is no solid way to
+     * fix this I'm aware of. So, I'm going to paper over it.
+     */
     if (!no_iommu) {
         for (s=0; s<SLICES; s++) {
             if (!SLICE_VALID(&(fdata->bridge->slice[s])))
                 continue;
             pdev = fdata->bridge->slice[s].pdev;
+            if (signal_pending(current)) {
+                ret = -EINTR;
+                break;
+            }
             ret = amd_iommu_bind_pasid(pdev, fdata->pasid, current);
+            /* Do a mmgrab() to prevent failure case; memory leak. */
+            if (signal_pending(current))
+                mmgrab(current->mm);
             if (ret < 0) {
                 debug(DEBUG_IO,
                       "amd_iommu_bind_pasid failed for slice %d with"
                       " return %d\n", s, ret);
+                break;
             }
             amd_iommu_set_invalid_ppr_cb(pdev, iommu_invalid_ppr_cb);
+        }
+        if (ret < 0) {
+            while (s > 0) {
+                s--;
+                if (!SLICE_VALID(&(fdata->bridge->slice[s])))
+                    continue;
+                pdev = fdata->bridge->slice[s].pdev;
+                amd_iommu_unbind_pasid(pdev, fdata->pasid);
+                amd_iommu_set_invalid_ppr_cb(pdev, NULL);
+            }
         }
     }
     return (ret);
