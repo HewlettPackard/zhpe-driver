@@ -373,6 +373,8 @@ struct slice {
     int                  rdm_alloc_count;
     DECLARE_BITMAP(rdm_alloced_bitmap, MAX_RDM_QUEUES_PER_SLICE);
     uint16_t             irq_vectors_count; /* number of interrupt vectors */
+    uint16_t             stuck_xdm_queues;
+    uint16_t             stuck_rdm_queues;
     /* per vector list of queues sharing a vector */
     struct rdm_vector_list_head irq_vectors[VECTORS_PER_SLICE];
 };

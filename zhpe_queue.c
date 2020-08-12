@@ -131,7 +131,7 @@ void zhpe_debug_xdm_qcm(const char *callf, uint line, const void *cqcm)
         cmpl_vaddr = (uintptr_t)phys_to_virt(cmpl_addr);
     }
 
-    zprintk_caller(KERN_DEBUG, callf, line, 
+    zprintk_caller(KERN_DEBUG, callf, line,
                    "xqcm %px cmd 0x%llx/0x%llx cmpl 0x%llx/0x%llx\n",
                    qcm, cmd_vaddr, cmd_paddr, cmpl_vaddr, cmpl_paddr);
     for (off = XDM_DUMP_08_START; off <= XDM_DUMP_08_END; off += 0x08)
@@ -253,7 +253,7 @@ static int xdm_wait_for_active_clear(struct xdm_qcm *qcm)
     }
 }
 
-static int stop_xdm(struct xdm_qcm *qcm)
+static int stop_xdm(struct slice *sl, struct xdm_qcm *qcm)
 {
     uint64_t junk;
 
@@ -264,18 +264,19 @@ static int stop_xdm(struct xdm_qcm *qcm)
     junk = xdm_qcm_read(qcm, ZHPE_XDM_QCM_MASTER_STOP_OFFSET);
 
     if (xdm_wait_for_active_clear(qcm)) {
+        sl->stuck_xdm_queues++;
         return -1;
     }
     return 0;
 }
 
-static int clear_xdm_qcm(struct xdm_qcm *qcm)
+static int clear_xdm_qcm(struct slice *sl, struct xdm_qcm *qcm)
 {
     int h;
     int hsr_count;
 
     /* Stop the queue */
-    if (stop_xdm(qcm)) {
+    if (stop_xdm(sl, qcm)) {
         return -1;
     }
 
@@ -295,8 +296,10 @@ static void clear_xdm_qcm_cmd(struct xdm_qcm *qcm)
         xdm_qcm_write_val(0, qcm, ZHPE_XDM_QCM_CMD_BUF_OFFSET + off);
 }
 
-int zhpe_clear_xdm_qcm(struct xdm_qcm *qcm)
+int zhpe_clear_xdm_qcm(struct bridge *br, struct slice *sl)
 {
+    int ret = 0;
+    struct xdm_qcm *qcm = sl->bar->xdm;
     int      q;
     uint64_t junk;
 
@@ -309,21 +312,22 @@ int zhpe_clear_xdm_qcm(struct xdm_qcm *qcm)
      * after a reset. Any errors are to be ignored.
      */
     for (q = 0; q < zhpe_xdm_queues_per_slice*2; q = q+2) {
-        if (clear_xdm_qcm(&qcm[q]) != 0) {
-            debug(DEBUG_XQUEUE,
-                  "zhpe_clear_xdm_qcm: queue %d failed to clear\n", q);
-            return -1;
+        if (clear_xdm_qcm(sl, &qcm[q]) != 0) {
+            dev_warn(&sl->pdev->dev, "%s:slice %d, queue %d:failed to clear\n",
+                     __func__, sl->phys_id, q / 2);
+            ret = -EIO;
+            continue;
         }
         clear_xdm_qcm_cmd(qcm);
     }
-
     /* Read back one value to ensure synchronization. */
-    junk = xdm_qcm_read(&qcm[0], ZHPE_XDM_QCM_MASTER_STOP_OFFSET);
+    if (!ret)
+        junk = xdm_qcm_read(&qcm[0], ZHPE_XDM_QCM_MASTER_STOP_OFFSET);
 
-    return 0;
+    return ret;
 }
 
-static int clear_rdm_qcm(struct rdm_qcm *qcm)
+static int clear_rdm_qcm(struct slice *sl, struct rdm_qcm *qcm)
 {
     int h;
     int bail_out = 0;
@@ -340,6 +344,7 @@ static int clear_rdm_qcm(struct rdm_qcm *qcm)
     while (rdm_get_A_bit(qcm) == 1) {
         if (bail_out++ > 200) { /* prevent an infinite loop */
             debug(DEBUG_RQUEUE, "clear_rdm_qcm: queue did not go idle.\n");
+            sl->stuck_rdm_queues++;
             return -1;
         }
     }
@@ -354,8 +359,10 @@ static int clear_rdm_qcm(struct rdm_qcm *qcm)
     return 0;
 }
 
-int zhpe_clear_rdm_qcm(struct rdm_qcm *qcm)
+int zhpe_clear_rdm_qcm(struct bridge *br, struct slice *sl)
 {
+    int ret = 0;
+    struct rdm_qcm *qcm = sl->bar->rdm;
     int      q;
     uint64_t junk;
 
@@ -368,17 +375,17 @@ int zhpe_clear_rdm_qcm(struct rdm_qcm *qcm)
      * after a reset. Any errors are to be ignored.
      */
     for (q = 0; q < zhpe_rdm_queues_per_slice*2; q = q+2) {
-        if (clear_rdm_qcm(&qcm[q]) != 0) {
-            debug(DEBUG_RQUEUE,
-                  "zhpe_clear_rdm_qcm: queue %d failed to clear\n", q);
-            return -1;
+        if (clear_rdm_qcm(sl, &qcm[q]) != 0) {
+            dev_warn(&sl->pdev->dev, "%s:slice %d, queue %d:failed to clear\n",
+                     __func__, sl->phys_id, q / 2);
+            ret = -EIO;
         }
     }
-
     /* Read back one value to ensure synchronization. */
-    junk = rdm_qcm_read(&qcm[0], ZHPE_RDM_QCM_MASTER_STOP_OFFSET);
+    if (!ret)
+        junk = rdm_qcm_read(&qcm[0], ZHPE_RDM_QCM_MASTER_STOP_OFFSET);
 
-    return 0;
+    return ret;
 }
 
 static int distribute_irq(unsigned long *alloced_bitmap,
@@ -729,15 +736,15 @@ static int _xqueue_free(
     slices = br->slice;
 
     if (slice < 0 || slice >= SLICES)
-        return -1;
+        return -EINVAL;
     if (queue < 0 || queue >= zhpe_xdm_queues_per_slice)
-        return -1;
+        return -EINVAL;
     sl = &(slices[slice]);
     if (test_bit(queue, sl->xdm_alloced_bitmap) == 0) {
         debug(DEBUG_XQUEUE,
               "Tried to free unallocated queue %d on slice %d\n",
               queue, slice);
-        return -1;
+        return -EINVAL;
     }
 
     /*
@@ -745,9 +752,10 @@ static int _xqueue_free(
      * the queue.
      */
     hw_qcm_addr = &(sl->bar->xdm[(queue*2)]);
-    if (clear_xdm_qcm(hw_qcm_addr) != 0) {
-        debug(DEBUG_XQUEUE, "queue %d failed to clear\n", queue);
-        return -1;
+    if (clear_xdm_qcm(sl, hw_qcm_addr)) {
+        dev_warn(&sl->pdev->dev, "%s:slice %d, queue %d:failed to clear\n",
+                 __func__, sl->phys_id, queue);
+        return -EIO;
     }
 
     /* Return queue to the bridge's free pool */
@@ -775,7 +783,7 @@ static int zhpe_xqueue_free(
         debug(DEBUG_XQUEUE,
               "Cannot free un-owned queue %d on slice %d\n",
               queue, slice);
-        ret = -1;
+        ret = -EINVAL;
         goto unlock;
     }
     /* Release ownership of the queue from this file_data */
@@ -797,12 +805,12 @@ static int _rqueue_free(
     struct rdm_qcm   *hw_qcm_addr;
 
     if (slice < 0 || slice >= SLICES)
-        return -1;
+        return -EINVAL;
     if (queue < 0 || queue >= zhpe_rdm_queues_per_slice)
-        return -1;
+        return -EINVAL;
     sl = &br->slice[slice];
     if (!SLICE_VALID(sl))
-        return -1;
+        return -EINVAL;
 
     zhpe_unregister_rdm_interrupt(sl, queue);
     if (queue == 0)
@@ -812,7 +820,7 @@ static int _rqueue_free(
         debug(DEBUG_RQUEUE,
               "Tried to free unallocated queue %d on slice %d\n",
               queue, slice);
-        return -1;
+        return -EINVAL;
     }
 
     /*
@@ -820,9 +828,10 @@ static int _rqueue_free(
      * the queue.
      */
     hw_qcm_addr = &(sl->bar->rdm[(queue*2)]);
-    if (clear_rdm_qcm(hw_qcm_addr) != 0) {
-        debug(DEBUG_RQUEUE, "rqueue_free: queue %d failed to clear\n", queue);
-        return -1;
+    if (clear_rdm_qcm(sl, hw_qcm_addr) != 0) {
+        dev_warn(&sl->pdev->dev, "%s:slice %d, queue %d:failed to clear\n",
+                 __func__, sl->phys_id, queue);
+        return -EIO;
     }
 
     /* Return queue to the bridge's free pool */
@@ -845,9 +854,9 @@ static int zhpe_rqueue_free(
     int              ret;
 
     if (slice < 0 || slice >= SLICES)
-        return -1;
+        return -EINVAL;
     if (queue < 0 || queue >= zhpe_rdm_queues_per_slice)
-        return -1;
+        return -EINVAL;
 
     spin_lock(&fdata->rdm_queue_lock);
     if (test_bit((slice*zhpe_rdm_queues_per_slice) + queue,
@@ -855,7 +864,7 @@ static int zhpe_rqueue_free(
         debug(DEBUG_RQUEUE,
               "Cannot free un-owned queue %d on slice %d\n",
               queue, slice);
-        ret = -1;
+        ret = -EINVAL;
         goto unlock;
     }
     /* Release ownership of the queue from this file_data */
@@ -880,15 +889,15 @@ static int _xqueue_stop(
     slices = br->slice;
 
     if (slice < 0 || slice >= SLICES)
-        return -1;
+        return -EINVAL;
     if (queue < 0 || queue >= zhpe_xdm_queues_per_slice)
-        return -1;
+        return -EINVAL;
     sl = &(slices[slice]);
     if (test_bit(queue, sl->xdm_alloced_bitmap) == 0) {
         debug(DEBUG_XQUEUE,
               "Tried to stop unallocated queue %d on slice %d\n",
               queue, slice);
-        return -1;
+        return -EINVAL;
     }
 
     /*
@@ -896,9 +905,10 @@ static int _xqueue_stop(
      * the queue.
      */
     hw_qcm_addr = &(sl->bar->xdm[(queue*2)]);
-    if (stop_xdm(hw_qcm_addr) != 0) {
-        debug(DEBUG_XQUEUE, "queue %d failed to stop\n", queue);
-        return -1;
+    if (stop_xdm(sl, hw_qcm_addr) != 0) {
+        dev_warn(&sl->pdev->dev, "%s:slice %d, queue %d:failed to stop\n",
+                 __func__, sl->phys_id, queue);
+        return -EIO;
     }
 
     debug(DEBUG_XQUEUE, "stopped queue %d on slice %d qcm=0x%px\n",
@@ -920,7 +930,7 @@ void zhpe_stop_owned_xdm_queues(struct file_data *fdata)
         slice = bit / zhpe_xdm_queues_per_slice;
         queue = bit % zhpe_xdm_queues_per_slice;
         ret = _xqueue_stop(fdata->bridge, slice, queue);
-        if (ret) {
+        if (ret < 0) {
             debug(DEBUG_XQUEUE,
                   "failed to stop queue %d on slice %d\n",
                   queue, slice);
@@ -932,7 +942,6 @@ void zhpe_stop_owned_xdm_queues(struct file_data *fdata)
 
 void zhpe_release_owned_xdm_queues(struct file_data *fdata)
 {
-    int ret = 0;
     int bits = SLICES * zhpe_xdm_queues_per_slice;
     int slice, queue, bit;
 
@@ -943,12 +952,7 @@ void zhpe_release_owned_xdm_queues(struct file_data *fdata)
             break;
         slice = bit / zhpe_xdm_queues_per_slice;
         queue = bit % zhpe_xdm_queues_per_slice;
-        ret = _xqueue_free(fdata->bridge, slice, queue);
-        if (ret) {
-            debug(DEBUG_XQUEUE,
-                  "failed to free queue %d on slice %d\n",
-                  queue, slice);
-        }
+        (void)_xqueue_free(fdata->bridge, slice, queue);
         clear_bit(bit, fdata->xdm_queues);
         bit = find_next_bit(fdata->xdm_queues, bits, bit);
     }
@@ -1362,11 +1366,10 @@ int zhpe_req_XQFREE(union zhpe_req *req,
           req->xqfree.info.slice, req->xqfree.info.queue,
           req->xqfree.info.qcm.off, req->xqfree.info.cmdq.off,
           req->xqfree.info.cmplq.off);
-    if (zhpe_xqueue_free(fdata, &req->xqfree)) {
-        /* zphe_xqueue_free can fail if the queue doesn't drain. */
-        ret = -EBUSY;
+    ret = zhpe_xqueue_free(fdata, &req->xqfree);
+    if (ret < 0)
+        /* zhpe_xqueue_free can fail if the queue doesn't drain. */
         goto done;
-    }
 
     spin_lock(&fdata->zmap_lock);
     list_for_each_entry_safe(zmap, next, &fdata->zmap_list, list) {
@@ -1395,13 +1398,12 @@ int zhpe_req_XQFREE(union zhpe_req *req,
 
 int zhpe_kernel_XQFREE(struct xdm_info *xdmi)
 {
-    int ret = 0;
+    int ret;
 
-    if (_xqueue_free(xdmi->br, xdmi->slice, xdmi->queue)) {
+    ret =_xqueue_free(xdmi->br, xdmi->slice, xdmi->queue);
+    if (ret < 0)
         /* _xqueue_free can fail if the queue doesn't drain */
-        ret = -EBUSY;
         goto done;
-    }
 
     zpages_free(xdmi->cmdq_zpage);
     zpages_free(xdmi->cmplq_zpage);
@@ -1711,11 +1713,10 @@ int zhpe_req_RQFREE(struct zhpe_req_RQFREE *req,
           "rqfree req slice %d queue %d qcm.off 0x%llx cmpl.off 0x%llx\n",
           req->info.slice, req->info.queue,
           req->info.qcm.off, req->info.cmplq.off);
-    if (zhpe_rqueue_free(fdata, req)) {
-        /* zphe_rqueue_free can fail if the queue doesn't drain. */
-        ret = -EBUSY;
+    ret = zhpe_rqueue_free(fdata, req);
+    if (ret < 0)
+        /* zhpe_rqueue_free can fail if the queue doesn't drain. */
         goto done;
-    }
 
     spin_lock(&fdata->zmap_lock);
     list_for_each_entry_safe(zmap, next, &fdata->zmap_list, list) {
@@ -1742,13 +1743,12 @@ int zhpe_req_RQFREE(struct zhpe_req_RQFREE *req,
 
 int zhpe_kernel_RQFREE(struct rdm_info *rdmi)
 {
-    int ret = 0;
+    int ret;
 
-    if (_rqueue_free(rdmi->br, rdmi->slice, rdmi->queue)) {
+    ret = _rqueue_free(rdmi->br, rdmi->slice, rdmi->queue);
+    if (ret < 0)
         /* _rqueue_free can fail if the queue doesn't drain */
-        ret = -EBUSY;
         goto done;
-    }
 
     zpages_free(rdmi->cmplq_zpage);
 

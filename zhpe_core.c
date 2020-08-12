@@ -2535,18 +2535,14 @@ static int zhpe_probe(struct pci_dev *pdev,
     zhpe_zmmu_clear_slice(sl);
 
     zhpe_xqueue_init(sl);
-    if (zhpe_clear_xdm_qcm(sl->bar->xdm)) {
-        debug(DEBUG_PCI, "zhpe_clear_xdm_qcm failed\n");
-        ret = -EIO;
+    ret = zhpe_clear_xdm_qcm(br, sl);
+    if (ret < 0)
         goto err_pci_iounmap;
-    }
 
     zhpe_rqueue_init(sl);
-    if (zhpe_clear_rdm_qcm(sl->bar->rdm)) {
-        debug(DEBUG_PCI, "zhpe_clear_rdm_qcm failed\n");
-        ret = -EIO;
+    ret = zhpe_clear_rdm_qcm(br, sl);
+    if (ret < 0)
         goto err_pci_iounmap;
-    }
 
     pci_set_drvdata(pdev, sl);
 
