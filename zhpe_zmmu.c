@@ -36,6 +36,7 @@
 
 #include <linux/kernel.h>
 #include <linux/bitops.h>
+#include <linux/delay.h>
 
 #include <zhpe.h>
 #include <zhpe_driver.h>
@@ -1067,9 +1068,12 @@ static inline uint snap_delta(uint first_snap, uint second_snap)
 
 void zhpe_zmmu_rsp_take_snapshot(struct bridge *br)
 {
-    uint                sl, tries;
+    uint                sl;
     struct rsp_zmmu     *rspz;
     int                 slice_mask = ALL_SLICES;
+    ktime_t             timeout = ktime_set(2, 0);
+    ktime_t             start;
+    ktime_t             now;
     int                 cur_mask;
     uint                first_snap[SLICES];
     uint                cur_snap;
@@ -1095,7 +1099,6 @@ void zhpe_zmmu_rsp_take_snapshot(struct bridge *br)
     if (br->snap_failed) {
         /* We're broken. */
         spin_unlock(&br->snap_lock);
-        zprintk(KERN_WARNING, "snap failed\n");
         return;
     }
     /* We're done. */
@@ -1119,7 +1122,9 @@ void zhpe_zmmu_rsp_take_snapshot(struct bridge *br)
                           RSP_TAKE_SNAPSHOT_MASK);
     }
 
-    for (tries = 0; slice_mask && tries < snap_tries; tries++) {
+    for (start = now = ktime_get();
+         ktime_compare(timeout, ktime_sub(now, start)) > 0;
+         now = ktime_get()) {
         cur_mask = slice_mask;
         for (sl = ffs(cur_mask); sl; sl = ffs(cur_mask)) {
             sl--;
@@ -1130,10 +1135,13 @@ void zhpe_zmmu_rsp_take_snapshot(struct bridge *br)
             if (delta >= 2)
                 slice_mask &= ~(1 << sl);
         }
+        if (!slice_mask)
+            break;
+        udelay(1);
     }
     if (slice_mask) {
-        zprintk(KERN_WARNING, "Group %u, queue %u, snapshot failed: %u tries\n",
-                group, wait_idx, tries);
+        zprintk(KERN_WARNING, "Group %u, queue %u, snapshot failed\n",
+                group, wait_idx);
         if (snap_dbg_obs) {  /* optionally disable HW dbg_obs */
             zhpe_disable_dbg_obs(br);
             zprintk(KERN_WARNING, "disabled HW dbg_obs and driver\n");

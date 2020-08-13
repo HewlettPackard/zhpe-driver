@@ -209,10 +209,6 @@ uint zhpe_no_rkeys = 1;
 module_param_named(no_rkeys, zhpe_no_rkeys, uint, S_IRUGO);
 MODULE_PARM_DESC(no_rkeys, "Disable Gen-Z R-keys");
 
-uint snap_tries = RSP_TAKE_SNAPSHOT_TRIES;
-module_param(snap_tries, uint, S_IRUGO);
-MODULE_PARM_DESC(snap_tries,
-                 "Number of tries before aborting TAKE_SNAPSHOT loop");
 uint snap_dbg_obs = 1;
 module_param(snap_dbg_obs, uint, S_IRUGO);
 MODULE_PARM_DESC(snap_dbg_obs,

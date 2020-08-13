@@ -311,7 +311,6 @@ struct req_zmmu {
 #define RSP_RV2_SZ       (0x600000 - (0x400000 + PAGE_GRID_SZ))
 #define RSP_RV3_SZ       (0x2000000 - 0x600008)
 #define RSP_TAKE_SNAPSHOT_MASK (0x3FF)
-#define RSP_TAKE_SNAPSHOT_TRIES 100
 
 struct rsp_zmmu {
     struct rsp_pte                pte[MAX_RSP_ZMMU_ENTRIES];

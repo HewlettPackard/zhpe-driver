@@ -38,7 +38,6 @@
 #define _ZHPE_ZMMU_H_
 
 extern uint zhpe_no_avx;
-extern uint snap_tries;
 extern uint snap_dbg_obs;
 
 #define ROUND_DOWN_PAGE(_addr, _sz) ((_addr) & -(_sz))

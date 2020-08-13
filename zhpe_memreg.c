@@ -108,8 +108,7 @@ static struct zhpe_umem *
 umem_range_search_and_unmap(struct file_data *fdata, uint64_t start,
                             uint64_t end)
 {
-    struct zhpe_umem    *ret = NULL;
-    bool                clean_up = false;
+    struct zhpe_umem    *ret;
     struct zhpe_umem    *u;
     struct zhpe_umem    *next;
     uint64_t            old;
@@ -120,27 +119,27 @@ umem_range_search_and_unmap(struct file_data *fdata, uint64_t start,
             if (unlikely(u == fdata->big_rsp_umem))
                 continue;
             /* active_kptr valid? */
-            if (unlikely(!u->active_kptr)) {
+            if (unlikely(!u->active_kptr))
                 /* No, nothing to do, but clean up. */
-                clean_up = true;
-                break;
-            }
+                goto cleanup;
             /* Yes, bit 0 is the shoot down flag, set it; clean up if active. */
             old = __sync_fetch_and_or(u->active_kptr, 1);
-            if (likely(!(old & 1)) && unlikely(old)) {
-                clean_up = true;
-                break;
-            }
+            if (likely(!(old & 1)) && unlikely(old))
+                goto cleanup;
         }
     }
-    if (unlikely(clean_up)) {
-        ret = u;
-        kref_get(&ret->refcount);
-        rbtree_postorder_for_each_entry_safe(u, next, &fdata->mr_tree, node)
-            umem_free_zmmu(u);
-        zhpe_zmmu_rsp_take_snapshot(fdata->bridge);
-    }
+
     spin_unlock(&fdata->mr_lock);
+
+    return NULL;
+
+ cleanup:
+    ret = u;
+    kref_get(&ret->refcount);
+    rbtree_postorder_for_each_entry_safe(u, next, &fdata->mr_tree, node)
+        umem_free_zmmu(u);
+    spin_unlock(&fdata->mr_lock);
+    zhpe_zmmu_rsp_take_snapshot(fdata->bridge);
 
     return ret;
 }
@@ -621,15 +620,17 @@ void zhpe_umem_free_all(struct file_data *fdata)
     fdata->mr_tree = RB_ROOT;
     spin_unlock(&fdata->mr_lock);
 
-    /* First pass to free all the ZMMU entries. */
-    rbtree_postorder_for_each_entry_safe(umem, next, &root, node)
-        umem_free_zmmu(umem);
-    /* Do snapshot to ensure all memory transactions are complete. */
-    zhpe_zmmu_rsp_take_snapshot(fdata->bridge);
-    /* Second pass to free all the user mappings and data structures. */
-    rbtree_postorder_for_each_entry_safe(umem, next, &root, node) {
-        WARN_ON(kref_read(&umem->refcount) != 1);
-        umem_free(umem);
+    if (!RB_EMPTY_ROOT(&root)) {
+        /* First pass to free all the ZMMU entries. */
+        rbtree_postorder_for_each_entry_safe(umem, next, &root, node)
+            umem_free_zmmu(umem);
+        /* Do snapshot to ensure all memory transactions are complete. */
+        zhpe_zmmu_rsp_take_snapshot(fdata->bridge);
+        /* Second pass to free all the user mappings and data structures. */
+        rbtree_postorder_for_each_entry_safe(umem, next, &root, node) {
+            WARN_ON(kref_read(&umem->refcount) != 1);
+            umem_free(umem);
+        }
     }
 }
 
@@ -1280,13 +1281,11 @@ static void zhpe_mmun_invalidate_range_start(struct mmu_notifier *mn,
 {
     struct file_data    *fdata = container_of(mn, struct file_data, mmun);
     struct zhpe_umem    *umem;
-    bool                check = false;
+    bool                check;
 
     spin_lock(&fdata->io_lock);
-    if (fdata->state & STATE_MR_OVERLAP_CHECKING)
-        check = true;
-    if (fdata->state & STATE_MR_LOCKED_DOWN)
-        check = false;
+    check = (STATE_MR_OVERLAP_CHECKING ==
+             (fdata->state & (STATE_MR_OVERLAP_CHECKING|STATE_MR_LOCKED_DOWN)));
     spin_unlock(&fdata->io_lock);
     if (!check)
         return;
@@ -1309,25 +1308,8 @@ static void zhpe_mmun_invalidate_page(struct mmu_notifier *mn,
                                       struct mm_struct *mm,
                                       unsigned long address)
 {
-    struct file_data    *fdata = container_of(mn, struct file_data, mmun);
-    struct zhpe_umem    *umem;
-    unsigned long       start = address;
-    unsigned long       end   = address + PAGE_SIZE;
-    bool                check = false;
-
-    spin_lock(&fdata->io_lock);
-    if (fdata->state & STATE_MR_OVERLAP_CHECKING)
-        check = true;
-    if (fdata->state & STATE_MR_LOCKED_DOWN)
-        check = false;
-    spin_unlock(&fdata->io_lock);
-    if (!check)
-        return;
-    umem = umem_range_search_and_unmap(fdata, start, end);
-    if (umem) {
-        zhpe_stop_owned_xdm_queues(fdata);
-        zhpe_mmun_signal(fdata, umem, start, end);
-    }
+    return zhpe_mmun_invalidate_range_start(mn, mm, address,
+                                            address + PAGE_SIZE);
 }
 
 static const struct mmu_notifier_ops zhpe_mmun_ops = {
