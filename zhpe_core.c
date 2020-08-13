@@ -1161,6 +1161,10 @@ static int zhpe_user_req_FEATURE(struct io_entry *entry)
         spin_unlock(&fdata->io_lock);
         rsp_features |= ZHPE_FEATURE_MR_OVERLAP_CHECKING;
     }
+    if (req_features & ZHPE_FEATURE_DUMP_Q0) {
+        status = zhpe_dump_q0(fdata);
+        rsp_features |= ZHPE_FEATURE_DUMP_Q0;
+    }
 
  out:
     rsp->feature.features = rsp_features;

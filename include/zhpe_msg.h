@@ -42,6 +42,7 @@ enum {
     ZHPE_MSG_UUID_IMPORT,
     ZHPE_MSG_UUID_FREE,
     ZHPE_MSG_UUID_TEARDOWN,
+    ZHPE_NR_MSG_CMDS,  /* do not reorder */
     ZHPE_MSG_RESPONSE = 0x80,
     ZHPE_MSG_VERSION = 1,
 };
@@ -169,5 +170,6 @@ struct zhpe_msg_state *zhpe_msg_send_UUID_TEARDOWN(struct bridge *br,
 int zhpe_msg_qalloc(struct bridge *br);
 int zhpe_msg_qfree(struct slice *sl);
 void zhpe_msg_worker(struct work_struct *work);
+void msg_state_dump(struct xdm_info *xdmi);
 
 #endif /* _ZHPE_MSG_H_ */

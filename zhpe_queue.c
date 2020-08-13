@@ -1322,7 +1322,6 @@ int zhpe_kernel_XQALLOC(struct xdm_info *xdmi)
                   xdmi->cmdq_ent, xdmi->cmplq_ent,
                   xdmi->traffic_class, xdmi->priority, xdmi->cur_valid,
                   NO_PASID, NO_PASID);
-    xdmi->cmp_index = 0;
     xdmi->cmdq_tail_shadow = 0;
     xdmi->cmplq_head = 0;
     xdmi->cmplq_tail_shadow = 0;
@@ -1753,5 +1752,23 @@ int zhpe_kernel_RQFREE(struct rdm_info *rdmi)
     zpages_free(rdmi->cmplq_zpage);
 
  done:
+    return ret;
+}
+
+int zhpe_dump_q0(struct file_data *fdata)
+{
+    struct bridge   *br = fdata->bridge;
+    struct xdm_info *xdmi = &br->msg_xdm;
+    struct xdm_qcm  *qcm = xdmi->hw_qcm_addr;
+    int             ret = 0;
+    int             a;
+    uint16_t        acc;
+
+    /* Get HW active command count */
+    a = xdm_get_A_bit(qcm, &acc);
+    pr_warning("%s:%s: hw_a_bit=%d, hw_active_count=%hu, active_cmds=%u, cmdq_tail_shadow=%u\n",
+               zhpe_driver_name, __func__, a, acc, xdmi->active_cmds,
+               xdmi->cmdq_tail_shadow);
+    msg_state_dump(xdmi);
     return ret;
 }
