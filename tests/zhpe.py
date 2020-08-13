@@ -173,6 +173,7 @@ class ATOMIC_SIZE(IntEnum):
 
 class FEATURES(IntEnum):
     FEATURE_MR_OVERLAP_CHECKING    = 0x1
+    FEATURE_DUMP_Q0                = 0x2
 
 class hdr(Structure):
     _fields_ = [('version',        c_u8),

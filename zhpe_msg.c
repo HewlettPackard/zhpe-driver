@@ -139,6 +139,68 @@ static void msg_state_free(struct zhpe_msg_state *ms)
     do_kfree(ms);
 }
 
+char *msg_names[] = {"zero", "NOP", "UUID_IMPORT",
+                     "UUID_FREE", "UUID_TEARDOWN"};
+
+static inline char *msg_name(uint cmd)
+{
+    cmd &= ~ZHPE_MSG_RESPONSE;
+    if (cmd < ZHPE_NR_MSG_CMDS)
+        return msg_names[cmd];
+    else
+        return "unknown";
+}
+
+static void msg_q0_dump(struct xdm_info *xdmi)
+{
+    union zhpe_hw_wq_entry *xdm_entry;
+    union zhpe_hw_wq_entry cmd;
+    struct zhpe_hw_wq_enqa *enqa = &cmd.enqa;
+    struct zhpe_msg_hdr    *hdr = (struct zhpe_msg_hdr *)&enqa->payload;
+    char                   gcstr[GCID_STRING_LEN+1];
+    void                   *cpu_addr;
+    char                   *cmd_name;
+    bool                   rsp;
+    int                    i;
+
+    cpu_addr = xdmi->cmdq_zpage->dma.cpu_addr;
+
+    for (i = 0; i < xdmi->cmdq_ent; i++) {
+        xdm_entry = &(((union zhpe_hw_wq_entry *)cpu_addr)[i]);
+        cmd = *xdm_entry;
+        rsp = (hdr->opcode & ZHPE_MSG_RESPONSE) != 0;
+        cmd_name = msg_name(hdr->opcode);
+        pr_warning("%s:%s: cmd%d=%s%s, msgid=%hu, cmp_index=%hu, rspctxid=%u, dgcid=%s\n",
+                   zhpe_driver_name, __func__, i, cmd_name,
+                   rsp ? "_RSP" : "", hdr->msgid, enqa->hdr.cmp_index,
+                   enqa->rspctxid,
+                   zhpe_gcid_str(enqa->dgcid, gcstr, sizeof(gcstr)));
+    }
+}
+
+void msg_state_dump(struct xdm_info *xdmi)
+{
+    struct zhpe_msg_state *ms, *tmp;
+    char                  gcstr[GCID_STRING_LEN+1];
+    char                  *cmd_name;
+    bool                  rsp;
+
+    msg_q0_dump(xdmi);
+    spin_lock(&zhpe_msg_rbtree_lock);
+
+    rbtree_postorder_for_each_entry_safe(ms, tmp, &msg_rbtree, node) {
+        rsp = (ms->req_msg.hdr.opcode & ZHPE_MSG_RESPONSE) != 0;
+        cmd_name = msg_name(ms->req_msg.hdr.opcode);
+        pr_warning("%s:%s: cmd=%s%s, msgid=%u, rspctxid=%u, dgcid=%s\n",
+                   zhpe_driver_name, __func__,
+                   cmd_name, rsp ? "_RSP" : "",
+                   ms->req_msg.hdr.msgid, ms->rspctxid,
+                   zhpe_gcid_str(ms->dgcid, gcstr, sizeof(gcstr)));
+    }
+
+    spin_unlock(&zhpe_msg_rbtree_lock);
+}
+
 static int _msg_xdm_get_cmpl(struct xdm_info *xdmi, struct zhpe_cq_entry *entry)
 {
     int ret = 0;

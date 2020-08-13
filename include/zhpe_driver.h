@@ -394,7 +394,6 @@ struct xdm_info {
     union zpages   *cmdq_zpage, *cmplq_zpage;
     int            slice, queue;
     uint32_t       reqctxid;
-    uint           cmp_index;
     uint           cmdq_tail_shadow;                   /* shadow of HW reg */
     uint           cmplq_tail_shadow;                  /* shadow of HW reg */
     uint           cmplq_head;                         /* SW-only */

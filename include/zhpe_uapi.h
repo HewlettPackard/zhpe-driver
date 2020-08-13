@@ -386,7 +386,8 @@ struct zhpe_rqinfo {
 
 enum {
     ZHPE_FEATURE_MR_OVERLAP_CHECKING    = 0x01ull,
-    ZHPE_FEATURE_VALID_MASK             = 0x01ull,
+    ZHPE_FEATURE_DUMP_Q0                = 0x02ull,
+    ZHPE_FEATURE_VALID_MASK             = 0x03ull,
 };
 
 _EXTERN_C_END
