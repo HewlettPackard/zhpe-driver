@@ -124,14 +124,33 @@ static ulong skw_shim_inb_cfg_bits      =  0x0000000000000009UL;
 static ulong xdm_request_cfg_mask       = ~0x0000000000000800UL;
 static ulong xdm_request_cfg_bits       =  0x0000000000000800UL;
 
-static ulong xdm_size_cfg0_mask         = ~0x1F0000001F000000UL;
-static ulong xdm_size_cfg0_bits         =  0x0100000001000000UL;
 
-static ulong xdm_priority_cfg0_mask     = ~0x001F1FFF00000000UL;
-static ulong xdm_priority_cfg0_bits     =  0x000000C700000000UL;
+struct xdm_priority {
+    ulong       xdm_size_cfg0_mask;
+    ulong       xdm_size_cfg0_bits;
+    ulong       xdm_priority_cfg0_mask;
+    ulong       xdm_priority_cfg0_bits;
+    ulong       xdm_priority_cfg1_mask;
+    ulong       xdm_priority_cfg1_bits;
+};
 
-static ulong xdm_priority_cfg1_mask     = ~0x001F1FFF00000000UL;
-static ulong xdm_priority_cfg1_bits     =  0x000000C700000000UL;
+static struct xdm_priority xdm_pri_off = {
+    .xdm_size_cfg0_mask                 = ~0xFFFFFFFFFFFFFFFFUL,
+    .xdm_size_cfg0_bits                 =  0x1F07F0FF1F3FF3FFUL,
+    .xdm_priority_cfg0_mask             = ~0xFFFFFFFFFFFFFFFFUL,
+    .xdm_priority_cfg0_bits             =  0x001F1FFF003F3F80UL,
+    .xdm_priority_cfg1_mask             = ~0xFFFFFFFFFFFFFFFFUL,
+    .xdm_priority_cfg1_bits             =  0x001F1FFF003F3F80UL,
+};
+
+static struct xdm_priority xdm_pri_on = {
+    .xdm_size_cfg0_mask                 = ~0x1F0000001F000000UL,
+    .xdm_size_cfg0_bits                 =  0x0100000001000000UL,
+    .xdm_priority_cfg0_mask             = ~0x001F1FFF00000000UL,
+    .xdm_priority_cfg0_bits             =  0x000000C700000000UL,
+    .xdm_priority_cfg1_mask             = ~0x001F1FFF00000000UL,
+    .xdm_priority_cfg1_bits             =  0x000000C700000000UL,
+};
 
 module_param(skw_shim_inb_cfg_mask, ulong, 0444);
 MODULE_PARM_DESC(skw_shim_inb_cfg_mask,
@@ -147,22 +166,27 @@ module_param(xdm_request_cfg_bits, ulong, 0444);
 MODULE_PARM_DESC(xdm_request_cfg_bits,
                  "new = (current & mask) | (bits & ~mask)");
 
-module_param(xdm_size_cfg0_mask, ulong, 0444);
+module_param_named(xdm_size_cfg0_mask, xdm_pri_on.xdm_size_cfg0_mask,
+                   ulong, 0444);
 MODULE_PARM_DESC(xdm_size_cfg0_mask, "new = (current & mask) | (bits & ~mask)");
-module_param(xdm_size_cfg0_bits, ulong, 0444);
+module_param_named(xdm_size_cfg0, xdm_pri_on.xdm_size_cfg0_bits, ulong, 0444);
 MODULE_PARM_DESC(xdm_size_cfg0_bits, "new = (current & mask) | (bits & ~mask)");
 
-module_param(xdm_priority_cfg0_mask, ulong, 0444);
+module_param_named(xdm_priority_cfg0_mask,
+                   xdm_pri_on.xdm_priority_cfg0_mask, ulong, 0444);
 MODULE_PARM_DESC(xdm_priority_cfg0_mask,
                  "new = (current & mask) | (bits & ~mask)");
-module_param(xdm_priority_cfg0_bits, ulong, 0444);
+module_param_named(xdm_priority_cfg0_bits,
+                   xdm_pri_on.xdm_priority_cfg0_bits, ulong, 0444);
 MODULE_PARM_DESC(xdm_priority_cfg0_bits,
                  "new = (current & mask) | (bits & ~mask)");
 
-module_param(xdm_priority_cfg1_mask, ulong, 0444);
+module_param_named(xdm_priority_cfg1_mask,
+                   xdm_pri_on.xdm_priority_cfg1_mask, ulong, 0444);
 MODULE_PARM_DESC(xdm_priority_cfg1_mask,
                  "new = (current & mask) | (bits & ~mask)");
-module_param(xdm_priority_cfg1_bits, ulong, 0444);
+module_param_named(xdm_priority_cfg1_bits,
+                   xdm_pri_on.xdm_priority_cfg1_bits, ulong, 0444);
 MODULE_PARM_DESC(xdm_priority_cfg1_bits,
                  "new = (current & mask) | (bits & ~mask)");
 
@@ -2170,6 +2194,7 @@ static int csr_set_xdm(struct slice *sl, uint32_t chip_id)
 {
     int                 ret;
     uint32_t            pidx = zhpe_platform - ZHPE_PFSLICE;
+    struct xdm_priority *xdm_pri;
     uint32_t            blk;
     uint64_t            val;
 
@@ -2181,22 +2206,23 @@ static int csr_set_xdm(struct slice *sl, uint32_t chip_id)
             goto out;
 
         /* Queue priority settings. */
-        if (xdm_priority_cfg_enable) {
-            ret = csr_access_rdwr(sl, &xdm_size_cfg0, chip_id, blk,
-                                  xdm_size_cfg0_mask, xdm_size_cfg0_bits);
-            if (ret < 0)
-                goto out;
-            ret = csr_access_rdwr(sl, &xdm_priority_cfg0, chip_id, blk,
-                                  xdm_priority_cfg0_mask,
-                                  xdm_priority_cfg0_bits);
-            if (ret < 0)
-                goto out;
-            ret = csr_access_rdwr(sl, &xdm_priority_cfg1, chip_id, blk,
-                                  xdm_priority_cfg1_mask,
-                                  xdm_priority_cfg1_bits);
-            if (ret < 0)
-                goto out;
-        }
+        xdm_pri = (xdm_priority_cfg_enable ? &xdm_pri_on : &xdm_pri_off);
+        ret = csr_access_rdwr(sl, &xdm_size_cfg0, chip_id, blk,
+                              xdm_pri->xdm_size_cfg0_mask,
+                              xdm_pri->xdm_size_cfg0_bits);
+        if (ret < 0)
+            goto out;
+        ret = csr_access_rdwr(sl, &xdm_priority_cfg0, chip_id, blk,
+                              xdm_pri->xdm_priority_cfg0_mask,
+                              xdm_pri->xdm_priority_cfg0_bits);
+        if (ret < 0)
+            goto out;
+        ret = csr_access_rdwr(sl, &xdm_priority_cfg1, chip_id, blk,
+                              xdm_pri->xdm_priority_cfg1_mask,
+                              xdm_pri->xdm_priority_cfg1_bits);
+        if (ret < 0)
+            goto out;
+
         /* Reset logs */
         ret = csr_access_rdwr(sl, &xdm_err_hwa_all_status, chip_id, blk,
                               0, 0x1);
