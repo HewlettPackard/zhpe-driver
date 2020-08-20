@@ -237,7 +237,7 @@ static bool msg_xdm_get_cmpl(struct xdm_info *xdmi)
     head = xdmi->cmplq_head & qmask;
     cmplq_entry = &hw_entries[head].entry;
 
-    if (!zhpe_cqe_valid(cmplq_entry, head, qmask))
+    if (!zhpe_cqe_valid(cmplq_entry, xdmi->cmplq_head, qmask))
         return false;
 
     /* Revisit: retry handling. */
