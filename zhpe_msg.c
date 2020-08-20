@@ -44,9 +44,12 @@ static struct rb_root msg_rbtree = RB_ROOT;
 DEFINE_SPINLOCK(zhpe_msg_rbtree_lock);
 static atomic_t msgid = ATOMIC_INIT(0);
 
+static bool msg_xdm_get_cmpl(struct xdm_info *xdmi);
+static void print_cmd(union zhpe_hw_wq_entry *cmd, uint status);
+
 static inline ktime_t get_timeout(void)
 {
-    return ktime_set((zhpe_kmsg_timeout > 0 ? zhpe_kmsg_timeout : 2), 0);
+    return ktime_set((zhpe_kmsg_timeout > 0 ? zhpe_kmsg_timeout : 10), 0);
 }
 
 static inline uint16_t msg_alloc_msgid(void)
@@ -151,211 +154,164 @@ static inline char *msg_name(uint cmd)
         return "unknown";
 }
 
-static void msg_q0_dump(struct xdm_info *xdmi)
+static void print_cmd(union zhpe_hw_wq_entry *cmd, uint status)
 {
-    union zhpe_hw_wq_entry *xdm_entry;
-    union zhpe_hw_wq_entry cmd;
-    struct zhpe_hw_wq_enqa *enqa = &cmd.enqa;
-    struct zhpe_msg_hdr    *hdr = (struct zhpe_msg_hdr *)&enqa->payload;
-    char                   gcstr[GCID_STRING_LEN+1];
-    void                   *cpu_addr;
-    char                   *cmd_name;
-    bool                   rsp;
-    int                    i;
+    struct zhpe_hw_wq_enqa *enqa;
+    struct zhpe_msg_hdr *hdr;
+    char                gcstr[GCID_STRING_LEN+1];
+    char                *cmd_name;
+    bool                rsp;
 
-    cpu_addr = xdmi->cmdq_zpage->dma.cpu_addr;
-
-    for (i = 0; i < xdmi->cmdq_ent; i++) {
-        xdm_entry = &(((union zhpe_hw_wq_entry *)cpu_addr)[i]);
-        cmd = *xdm_entry;
+    if (cmd->hdr.opcode == ZHPE_HW_OPCODE_ENQA) {
+        enqa = &cmd->enqa;
+        hdr = (struct zhpe_msg_hdr *)&enqa->payload;
         rsp = (hdr->opcode & ZHPE_MSG_RESPONSE) != 0;
         cmd_name = msg_name(hdr->opcode);
-        pr_warning("%s:%s: cmd%d=%s%s, msgid=%hu, cmp_index=%hu, rspctxid=%u, dgcid=%s\n",
-                   zhpe_driver_name, __func__, i, cmd_name,
-                   rsp ? "_RSP" : "", hdr->msgid, enqa->hdr.cmp_index,
-                   enqa->rspctxid,
-                   zhpe_gcid_str(enqa->dgcid, gcstr, sizeof(gcstr)));
-    }
+        zprintk(KERN_WARNING, "cmd=%s%s, cmp_index=%hu,"
+                " status=0x%02hx, msgid=%hu, rspctxid=0x%x, dgcid=%s\n",
+                cmd_name, rsp ? "_RSP" : "", cmd->hdr.cmp_index, status,
+                hdr->msgid, enqa->rspctxid,
+                zhpe_gcid_str(enqa->dgcid, gcstr, sizeof(gcstr)));
+    } else
+        zprintk(KERN_ERR, "XDM opcode=0x%04hx, cmp_index=%hu, status=0x%02hx\n",
+                cmd->hdr.opcode, cmd->hdr.cmp_index, status);
+}
+
+static void msg_q0_dump(struct xdm_info *xdmi)
+{
+    uint32_t            qmask = xdmi->cmdq_ent - 1;
+    uint                slot;
+
+    spin_lock(&xdmi->xdm_info_lock);
+    while (msg_xdm_get_cmpl(xdmi));
+    for (slot = find_first_bit(xdmi->cmdq_free_bitmap, qmask);
+         slot != qmask;
+         slot = find_next_bit(xdmi->cmdq_free_bitmap, qmask, slot + 1))
+        print_cmd(&xdmi->cmdq_shadow[slot], 0);
+    spin_unlock(&xdmi->xdm_info_lock);
 }
 
 void msg_state_dump(struct xdm_info *xdmi)
 {
-    struct zhpe_msg_state *ms, *tmp;
-    char                  gcstr[GCID_STRING_LEN+1];
-    char                  *cmd_name;
-    bool                  rsp;
+    struct zhpe_msg_state *ms;
+    struct zhpe_msg_state *tmp;
+    char                gcstr[GCID_STRING_LEN+1];
+    char                *cmd_name;
+    bool                rsp;
 
     msg_q0_dump(xdmi);
-    spin_lock(&zhpe_msg_rbtree_lock);
 
+    spin_lock(&zhpe_msg_rbtree_lock);
     rbtree_postorder_for_each_entry_safe(ms, tmp, &msg_rbtree, node) {
         rsp = (ms->req_msg.hdr.opcode & ZHPE_MSG_RESPONSE) != 0;
         cmd_name = msg_name(ms->req_msg.hdr.opcode);
-        pr_warning("%s:%s: cmd=%s%s, msgid=%u, rspctxid=%u, dgcid=%s\n",
-                   zhpe_driver_name, __func__,
-                   cmd_name, rsp ? "_RSP" : "",
-                   ms->req_msg.hdr.msgid, ms->rspctxid,
-                   zhpe_gcid_str(ms->dgcid, gcstr, sizeof(gcstr)));
+        zprintk(KERN_WARNING, "cmd=%s%s, msgid=%hu, rspctxid=%u, dgcid=%s\n",
+                cmd_name, rsp ? "_RSP" : "",
+                ms->req_msg.hdr.msgid, ms->rspctxid,
+                zhpe_gcid_str(ms->dgcid, gcstr, sizeof(gcstr)));
     }
-
     spin_unlock(&zhpe_msg_rbtree_lock);
 }
 
-static int _msg_xdm_get_cmpl(struct xdm_info *xdmi, struct zhpe_cq_entry *entry)
+static void xdm_cmd_error(struct xdm_info *xdmi, uint slot, uint status)
 {
-    int ret = 0;
-    uint head, next_head, cmdq_ent;
-    struct zhpe_cq_entry *xdm_entry, *next_entry;
-    void *cpu_addr;
+    union zhpe_hw_wq_entry *cmd;
 
-    /* caller must hold xdm_info_lock */
+    cmd = &xdmi->cmdq_shadow[slot];
+    if (cmd->hdr.opcode != ZHPE_HW_OPCODE_ENQA ||
+        status != ZHPE_HW_CQ_STATUS_GENZ_UNSUPPORTED_SVC ||
+        cmd->enqa.rspctxid >= ZHPE_MAX_SLICES)
+        print_cmd(cmd, status);
+}
 
-    cmdq_ent = xdmi->cmdq_ent;
-    head = xdmi->cmplq_head;
-    cpu_addr = xdmi->cmplq_zpage->dma.cpu_addr;
-    xdm_entry = &(((struct zhpe_cq_entry *)cpu_addr)[head]);
+static bool msg_xdm_get_cmpl(struct xdm_info *xdmi)
+{
+    uint32_t            qmask = xdmi->cmplq_ent - 1;
+    union zhpe_hw_cq_entry *hw_entries = xdmi->cmplq_zpage->dma.cpu_addr;
+    struct zhpe_cq_entry *cmplq_entry;
+    uint32_t            head;
+    uint                status;
+    uint                slot;
 
-    /* check valid bit */
-    if (xdm_entry->valid != xdmi->cur_valid) {
-        ret = -EBUSY;
-        goto out;
-    }
+    /* Caller must hold xdm_info_lock */
+    head = xdmi->cmplq_head & qmask;
+    cmplq_entry = &hw_entries[head].entry;
+
+    if (!zhpe_cqe_valid(cmplq_entry, head, qmask))
+        return false;
+
+    /* Revisit: retry handling. */
+    slot = cmplq_entry->hdr.index;
+    status = cmplq_entry->hdr.status;
+    if (unlikely(test_bit(slot, xdmi->cmdq_free_bitmap))) {
+        zprintk(KERN_ERR, "slot %u already free\n", slot);
+        /* Set status to a reserved value if no error. */
+        if (likely(!status))
+            status = 0xFF;
+    } else
+        __clear_bit(slot, xdmi->cmdq_free_bitmap);
+    xdmi->cmplq_head++;
     xdmi->active_cmds--;
-    /* copy XDM completion entry to caller */
-    *entry = *xdm_entry;
-    /* do mod-add to compute next head value */
-    next_head = (head + 1) % xdmi->cmplq_ent;
-    /* toggle cur_valid on wrap */
-    if (next_head < head)
-        xdmi->cur_valid = !xdmi->cur_valid;
-    /* update cmplq_head - SW-only */
-    xdmi->cmplq_head = next_head;
-    /* peek at next entry to determine if it is valid */
-    next_entry = &(((struct zhpe_cq_entry *)cpu_addr)[next_head]);
-    ret = (next_entry->valid == xdmi->cur_valid);
+    if (unlikely(status))
+        xdm_cmd_error(xdmi, slot, status);
 
- out:
-    return ret;
+    return true;
 }
 
-int msg_xdm_get_cmpl(struct xdm_info *xdmi, struct zhpe_cq_entry *entry)
+static bool msg_rdm_get_cmpl(struct rdm_info *rdmi, struct zhpe_rdm_hdr *hdr,
+                             union zhpe_msg *msg)
 {
-    int ret;
-
-    spin_lock(&xdmi->xdm_info_lock);
-    ret = _msg_xdm_get_cmpl(xdmi, entry);
-    spin_unlock(&xdmi->xdm_info_lock);
-    return ret;
-}
-
-static inline void xdm_cmd_error(struct device *dev, uint8_t status,
-                                 union zhpe_hw_wq_entry *cmd)
-{
-    char               str[GCID_STRING_LEN+1];
-
-    if (cmd->hdr.opcode == ZHPE_HW_OPCODE_ENQA) {
-
-        if (status != ZHPE_HW_CQ_STATUS_GENZ_UNSUPPORTED_SVC ||
-            cmd->enqa.rspctxid >= ZHPE_MAX_SLICES)
-            dev_warn(dev,"%s:XDM enqa, cmp_index=0x%x, status=0x%x, "
-                     "dgcid=%s, rspctxid=%u\n",
-                     __func__, cmd->hdr.cmp_index, status,
-                     zhpe_gcid_str(cmd->enqa.dgcid, str, sizeof(str)),
-                     cmd->enqa.rspctxid);
-    } else {
-        dev_warn(dev, "%s:XDM opcode=0x%x, cmp_index=0x%x, status=0x%x\n",
-                 __func__, cmd->hdr.opcode, cmd->hdr.cmp_index, status);
-    }
-}
-
-static int msg_xdm_queue_cmd(struct xdm_info *xdmi,
-                             union zhpe_hw_wq_entry *cmd)
-{
-    int ret = 0, cmpl_ret;
-    uint tail, next_tail;
-    union zhpe_hw_wq_entry *xdm_entry;
-    struct zhpe_cq_entry cq_entry;
-    void *cpu_addr;
-    bool more = 0;
-
-    spin_lock(&xdmi->xdm_info_lock);
-    cpu_addr = xdmi->cmdq_zpage->dma.cpu_addr;
-    /* Revisit: add support for cmd buffers */
-    tail = xdmi->cmdq_tail_shadow;
-    /* do mod-add to compute next tail value */
-    next_tail = (tail + 1) % xdmi->cmdq_ent;
-    if (xdmi->active_cmds + 1 >= xdmi->cmplq_ent) {
-        do {  /* process completions */
-            cmpl_ret = _msg_xdm_get_cmpl(xdmi, &cq_entry);
-            if (cmpl_ret == -EBUSY && more == 0) {
-                ret = -EBUSY;
-                break;
-            }
-            /* Revisit: examine status */
-            if (cq_entry.status) {
-                xdm_entry = cpu_addr;
-                xdm_entry += cq_entry.index;
-                xdm_cmd_error(&xdmi->br->slice[xdmi->slice].pdev->dev,
-                              cq_entry.status, xdm_entry);
-            }
-            more = cmpl_ret;
-        } while (more);
-    }
-    if (ret == -EBUSY) {
-        /* Revisit: add to workqueue for later processing */
-        goto out;
-    }
-    cmd->hdr.cmp_index = tail;
-    xdm_entry = &(((union zhpe_hw_wq_entry *)cpu_addr)[tail]);
-    *xdm_entry = *cmd;
-    xdmi->active_cmds++;
-    /* update cmdq_tail_shadow & write to HW */
-    xdmi->cmdq_tail_shadow = next_tail;
-    xdm_qcm_write_val(next_tail, xdmi->hw_qcm_addr,
-                      ZHPE_XDM_QCM_CMD_QUEUE_TAIL_OFFSET);
-    ret = tail;
-
- out:
-    spin_unlock(&xdmi->xdm_info_lock);
-    return ret;
-}
-
-static int msg_rdm_get_cmpl(struct rdm_info *rdmi, struct zhpe_rdm_hdr *hdr,
-                            union zhpe_msg *msg)
-{
-    int ret = 0;
-    uint head, next_head;
-    struct zhpe_rdm_entry *rdm_entry, *next_entry;
-    void *cpu_addr;
+    int                 ret = false;
+    uint32_t            qmask = rdmi->cmplq_ent - 1;
+    union zhpe_hw_rdm_entry *hw_entries = rdmi->cmplq_zpage->dma.cpu_addr;
+    uint32_t            head;
+    uint32_t            tail;
+    struct zhpe_rdm_entry *rdm_entry;
 
     spin_lock(&rdmi->rdm_info_lock);
-    head = rdmi->cmplq_head_shadow;
-    cpu_addr = rdmi->cmplq_zpage->dma.cpu_addr;
-    rdm_entry = &(((struct zhpe_rdm_entry *)cpu_addr)[head]);
 
-    /* check valid bit */
-    if (rdm_entry->hdr.valid != rdmi->cur_valid) {
-        ret = -EBUSY;
-        goto out;
+    /* Get the pointer to the current entry. */
+    head = rdmi->cmplq_head_shadow & qmask;
+    rdm_entry = &hw_entries[head].entry;
+
+    /* Check valid bit and exit if nothing available. */
+    for (;;) {
+        if (likely(zhpe_rqe_valid(rdm_entry, rdmi->cmplq_head_shadow, qmask)))
+            break;
+        /* Commit the head, if needed, to enable interrupts. */
+        if (unlikely(rdmi->cmplq_head_shadow == rdmi->cmplq_head_commit))
+            goto out;
+        rdmi->cmplq_head_commit = rdmi->cmplq_head_shadow;
+        rdm_qcm_write_val(head, rdmi->hw_qcm_addr,
+                          ZHPE_RDM_QCM_RCV_QUEUE_HEAD_OFFSET);
+        /* An interrupt race exists when writing the head, so check the tail. */
+        tail = rdm_qcm_read(rdmi->hw_qcm_addr,
+                            ZHPE_RDM_QCM_RCV_QUEUE_TAIL_TOGGLE_OFFSET) & qmask;
+        if (likely((head == tail)))
+            goto out;
+        rmb();
     }
-    /* copy RDM completion entry to caller */
+
+    /* Copy RDM completion entry to caller. */
+    ret = true;
     *hdr = rdm_entry->hdr;
     memcpy(msg, &rdm_entry->payload, sizeof(*msg));
-    /* do mod-add to compute next head value */
-    next_head = (head + 1) % rdmi->cmplq_ent;
-    /* toggle cur_valid on wrap */
-    if (next_head < head)
-        rdmi->cur_valid = !rdmi->cur_valid;
-    /* update cmplq_head_shadow & write to HW */
-    rdmi->cmplq_head_shadow = next_head;
-    rdm_qcm_write_val(next_head, rdmi->hw_qcm_addr,
+
+    /* Update cmplq_head_shadow & write head, if necessary. */
+    rdmi->cmplq_head_shadow++;
+    if  (likely(rdmi->cmplq_head_shadow - rdmi->cmplq_head_commit <
+                (qmask + 1) / 4))
+         goto out;
+
+    /* Keep head one back to prevent extra interrupts. */
+    rdmi->cmplq_head_commit = rdmi->cmplq_head_shadow - 1;
+    head = rdmi->cmplq_head_commit & qmask;
+    rdm_qcm_write_val(head, rdmi->hw_qcm_addr,
                       ZHPE_RDM_QCM_RCV_QUEUE_HEAD_OFFSET);
-    /* peek at next entry to determine if it is valid */
-    next_entry = &(((struct zhpe_rdm_entry *)cpu_addr)[next_head]);
-    ret = (next_entry->hdr.valid == rdmi->cur_valid);
 
  out:
     spin_unlock(&rdmi->rdm_info_lock);
+
     return ret;
 }
 
@@ -384,28 +340,62 @@ static inline int msg_send_cmd(struct xdm_info *xdmi,
                                union zhpe_msg *msg,
                                uint32_t dgcid, uint32_t rspctxid)
 {
-    union zhpe_hw_wq_entry cmd = { 0 };
-    size_t size;
+    int                 ret;
+    uint32_t            qmask = xdmi->cmdq_ent - 1;
+    union zhpe_hw_wq_entry *hw_entries = xdmi->cmdq_zpage->dma.cpu_addr;
+    union zhpe_hw_wq_entry *cmdq_shadow;
+    union zhpe_hw_wq_entry *cmdq_entry;
+    uint                slot;
+    uint32_t            tail;
+    size_t              size;
+    int                 i;
 
     if (!xdmi->sl)
         return -ENXIO;
+
+    spin_lock(&xdmi->xdm_info_lock);
+    /* Try to process two completions, a bias towards completions. */
+    for (i = 0; i < 2 && msg_xdm_get_cmpl(xdmi); i++);
+    /* Find a free slot. */
+    slot = find_first_zero_bit(xdmi->cmdq_free_bitmap, qmask);
+    if (slot == qmask) {
+        ret = -EBUSY;
+        goto out;
+    }
+    __set_bit(slot, xdmi->cmdq_free_bitmap);
+    xdmi->active_cmds++;
+    tail = xdmi->cmdq_tail_shadow++ & qmask;
+
     /* fill in cmd */
-    cmd.hdr.opcode = ZHPE_HW_OPCODE_ENQA;
-    cmd.enqa.dgcid = dgcid;
-    cmd.enqa.rspctxid = rspctxid;
-    size = min(sizeof(*msg), sizeof(cmd.enqa.payload));
-    memcpy(&cmd.enqa.payload, msg, size);
+    cmdq_shadow = &xdmi->cmdq_shadow[slot];
+    cmdq_shadow->hdr.opcode = ZHPE_HW_OPCODE_ENQA;
+    cmdq_shadow->hdr.cmp_index = slot;
+    cmdq_shadow->enqa.dgcid = dgcid;
+    cmdq_shadow->enqa.rspctxid = rspctxid;
+    size = min(sizeof(*msg), sizeof(cmdq_shadow->enqa.payload));
+    memcpy(&cmdq_shadow->enqa.payload, msg, size);
+
     /* send cmd */
-    return msg_xdm_queue_cmd(xdmi, &cmd);
+    cmdq_entry = &hw_entries[tail];
+    memcpy(cmdq_entry, cmdq_shadow, sizeof(*cmdq_entry));
+    dma_wmb();
+    xdm_qcm_write_val((tail + 1) & qmask, xdmi->hw_qcm_addr,
+                      ZHPE_XDM_QCM_CMD_QUEUE_TAIL_OFFSET);
+    ret = slot;
+
+ out:
+    spin_unlock(&xdmi->xdm_info_lock);
+
+    return ret;
 }
 
 static int msg_insert_send_cmd(struct xdm_info *xdmi,
                                struct zhpe_msg_state *state,
                                uint32_t dgcid, uint32_t rspctxid)
 {
-    int                     ret;
-    union zhpe_msg          *req_msg;
-    struct zhpe_msg_state   *found;
+    int                 ret;
+    union zhpe_msg      *req_msg;
+    struct zhpe_msg_state *found;
 
     state->dgcid = dgcid;
     state->rspctxid = rspctxid;
@@ -1029,56 +1019,34 @@ static void process_msg(struct rdm_info *rdmi, struct xdm_info *xdmi,
 
 void zhpe_msg_worker(struct work_struct *work)
 {
-    struct bridge *br = container_of(work, struct bridge, msg_work);
-    struct xdm_info *xdmi = &br->msg_xdm;
-    struct rdm_info *rdmi = &br->msg_rdm;
-    int ret;
-    bool more;
-    uint handled = 0, tail;
-    uint32_t rspctxid;
+    struct bridge       *br = container_of(work, struct bridge, msg_work);
+    struct xdm_info     *xdmi = &br->msg_xdm;
+    struct rdm_info     *rdmi = &br->msg_rdm;
+    uint                handled = 0;
+    uint32_t            rspctxid;
     struct zhpe_rdm_hdr msg_hdr;
-    union zhpe_msg msg;
-    char sgstr[GCID_STRING_LEN+1];
+    union zhpe_msg      msg;
+    char                sgstr[GCID_STRING_LEN+1];
 
-    do {
-        do {
-            ret = msg_rdm_get_cmpl(rdmi, &msg_hdr, &msg);
-            if (ret == -EBUSY) {  /* no cmpl - spurious interrupt */
-                debug(DEBUG_MSG, "spurious, ret=%d\n", ret);
-                goto out;
-            } else if (ret < 0) {
-                debug(DEBUG_MSG, "unknown error, ret=%d\n", ret);
-                goto out;
-            }
-            more = ret;
-            handled++;
-
-            rspctxid = msg.hdr.rspctxid;
-            debug(DEBUG_MSG, "sgcid=%s, reqctxid=%u, version=%u, msgid=%u,"
-                  " opcode=0x%x, status=%d, rspctxid=%u, handled=%u, more=%u\n",
-                  zhpe_gcid_str(msg_hdr.sgcid, sgstr, sizeof(sgstr)),
-                  msg_hdr.reqctxid, msg.hdr.version, msg.hdr.msgid,
-                  msg.hdr.opcode, msg.hdr.status, rspctxid, handled, more);
-            /* Revisit: verify that msg came from reqctxid 0? */
-            if (msg.hdr.version != ZHPE_MSG_VERSION) {
-                /* if we don't recognize the version, we can't know
-                 * anything else about the message (status, opcode,
-                 * rspctxid), so we can't do anything
-                 */
-                ret = -EINVAL;
-                debug(DEBUG_MSG, "UNKNOWN_VERSION, ret=%d\n", ret);
-                continue;
-            }
-            process_msg(rdmi, xdmi, &msg_hdr, &msg);
-        } while (more);
-        /* read tail to prevent race with HW writing new completions */
-        tail = (rdm_qcm_read(rdmi->hw_qcm_addr,
-                             ZHPE_RDM_QCM_RCV_QUEUE_TAIL_TOGGLE_OFFSET) &
-                ZHPE_MAX_RDM_QLEN);
-    } while (rdmi->cmplq_head_shadow != tail);
-
- out:
-    return;
+    while (likely(msg_rdm_get_cmpl(rdmi, &msg_hdr, &msg))) {
+        rspctxid = msg.hdr.rspctxid;
+        handled++;
+        debug(DEBUG_MSG, "sgcid=%s, reqctxid=%u, version=%u, msgid=%u,"
+              " opcode=0x%x, status=%d, rspctxid=%u, handled=%u\n",
+              zhpe_gcid_str(msg_hdr.sgcid, sgstr, sizeof(sgstr)),
+              msg_hdr.reqctxid, msg.hdr.version, msg.hdr.msgid,
+              msg.hdr.opcode, msg.hdr.status, rspctxid, handled);
+        /* Revisit: verify that msg came from reqctxid 0? */
+        if (msg.hdr.version != ZHPE_MSG_VERSION) {
+            /* if we don't recognize the version, we can't know
+             * anything else about the message (status, opcode,
+             * rspctxid), so we can't do anything
+             */
+            debug(DEBUG_MSG, "UNKNOWN_VERSION %d\n", msg.hdr.version);
+            continue;
+        }
+        process_msg(rdmi, xdmi, &msg_hdr, &msg);
+    }
 }
 
 struct zhpe_msg_state *zhpe_msg_send_NOP(struct bridge *br, uint32_t dgcid,
@@ -1300,7 +1268,6 @@ int zhpe_msg_qalloc(struct bridge *br)
     xdmi->traffic_class = ZHPE_TC_0;
     xdmi->priority = 0;
     xdmi->slice_mask = ALL_SLICES;
-    xdmi->cur_valid = 1;
     ret = zhpe_kernel_XQALLOC(xdmi);
     if (ret)
         goto done;
@@ -1309,7 +1276,6 @@ int zhpe_msg_qalloc(struct bridge *br)
     rdmi->br = br;
     rdmi->cmplq_ent = msg_qsize;
     rdmi->slice_mask = SLICE_Q0|0x1;  /* require q0; slice 0 if possible */
-    rdmi->cur_valid = 1;
     ret = zhpe_kernel_RQALLOC(rdmi);
     if (ret)
         goto xqfree;

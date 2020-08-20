@@ -66,7 +66,8 @@ MODULE_PARM_DESC(debug, "debug output bitmask");
 #endif /* !NDEBUG */
 
 module_param_named(kmsg_timeout, zhpe_kmsg_timeout, uint, 0444);
-MODULE_PARM_DESC(kmsg_timeout, "kernel-to-kernel message timeout in seconds");
+MODULE_PARM_DESC(kmsg_timeout,
+                 "kernel-to-kernel message timeout in seconds (default: 10)");
 
 /*
  * Write pusher default settings:
@@ -238,10 +239,11 @@ module_param(snap_dbg_obs, uint, S_IRUGO);
 MODULE_PARM_DESC(snap_dbg_obs,
                  "Disable HW dbg_obs on TAKE_SNAPSHOT failure");
 
-uint msg_qsize = 256;
+uint msg_qsize = 8192;
 module_param(msg_qsize, uint, S_IRUGO);
 MODULE_PARM_DESC(msg_qsize,
-                 "Number of entries in driver-to-driver msg queues");
+                 "Number of entries in driver-to-driver msg queues"
+                 " (default: 8192");
 
 static int __init zhpe_init(void);
 static void zhpe_exit(void);

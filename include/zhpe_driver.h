@@ -386,17 +386,20 @@ struct xdm_info {
     struct bridge  *br;
     uint32_t       cmdq_ent, cmplq_ent;
     uint8_t        slice_mask, traffic_class, priority;
-    bool           cur_valid;
     size_t         cmdq_size, cmplq_size, qcm_size;
     struct slice   *sl;
     struct xdm_qcm *hw_qcm_addr;
     union zpages   *cmdq_zpage, *cmplq_zpage;
+    union zhpe_hw_wq_entry *cmdq_shadow;
+    ulong          *cmdq_free_bitmap;
+    ulong          *cmdq_retry_bitmap;
     int            slice, queue;
     uint32_t       reqctxid;
     uint           cmdq_tail_shadow;                   /* shadow of HW reg */
-    uint           cmplq_tail_shadow;                  /* shadow of HW reg */
     uint           cmplq_head;                         /* SW-only */
     uint           active_cmds;                        /* SW-only */
+    uint           retry_cmds;                         /* SW-only */
+    uint           retry_last;                         /* SW-only */
     spinlock_t     xdm_info_lock;
 };
 
@@ -404,14 +407,14 @@ struct rdm_info {
     struct bridge  *br;
     uint32_t       cmplq_ent;
     uint8_t        slice_mask;
-    bool           cur_valid;
     size_t         cmplq_size, qcm_size;
     struct slice   *sl;
     struct rdm_qcm *hw_qcm_addr;
     union zpages   *cmplq_zpage;
     int            slice, queue, vector;
     uint32_t       rspctxid;
-    uint           cmplq_tail_shadow, cmplq_head_shadow; /* shadow of HW reg */
+    uint           cmplq_head_shadow;                  /* shadow of HW reg */
+    uint32_t       cmplq_head_commit;
     spinlock_t     rdm_info_lock;
 };
 

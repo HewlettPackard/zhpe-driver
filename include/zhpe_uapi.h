@@ -37,12 +37,21 @@
 #ifndef _ZHPE_UAPI_H_
 #define _ZHPE_UAPI_H_
 
-#ifndef __KERNEL__
+#ifdef __KERNEL__
+
+#include <linux/bitops.h>
+
+#else
 
 #include <errno.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+
+/* For zhpe_?qe_valid() functions. */
+#define READ_ONCE(_v)   atomic_load_explicit(&(_v), memory_order_relaxed)
+#define fls(_v)         fls32(_v)
 
 #endif
 
@@ -197,19 +206,31 @@ union zhpe_result {
  * Both XDM and RDM completion queues have their valid bit in bit 0 of the
  * first byte; the meaning of the bit flips with each traversal of the ring.
  */
-#define ZHPE_CMP_ENT_VALID_MASK (1U)
 
-struct zhpe_cq_entry {
+struct zhpe_cq_hdr {
     uint8_t             valid : 1;
     uint8_t             rv1   : 4;
     uint8_t             qd    : 3;      /* EnqA only */
     uint8_t             status;
     uint16_t            index;
+};
+
+struct zhpe_cq_entry {
+    struct zhpe_cq_hdr  hdr;
     uint8_t             filler1[4];
     void                *context;       /* Borrowed by SW to return context. */
     uint8_t             filler2[16];
     union zhpe_result   result;
 };
+
+static inline bool zhpe_cqe_valid(struct zhpe_cq_entry *cqe,
+                                  uint32_t qindex, uint32_t qmask)
+{
+    struct zhpe_cq_hdr  cq_hdr = READ_ONCE(cqe->hdr);
+    uint                shift = fls(qmask);
+
+    return ((cq_hdr.valid ^ (qindex >> shift)) & 1);
+}
 
 #define ZHPE_HW_ENTRY_LEN       ((size_t)64)
 
@@ -319,6 +340,15 @@ struct zhpe_rdm_entry {
     uint8_t             filler1[4];
     struct zhpe_enqa_payload payload;
 };
+
+static inline bool zhpe_rqe_valid(struct zhpe_rdm_entry *rqe,
+                                  uint32_t qindex, uint32_t qmask)
+{
+    struct zhpe_rdm_hdr rdm_hdr = READ_ONCE(rqe->hdr);
+    uint                shift = fls(qmask);
+
+    return ((rdm_hdr.valid ^ (qindex >> shift)) & 1);
+}
 
 union zhpe_hw_rdm_entry {
     struct zhpe_rdm_entry entry;

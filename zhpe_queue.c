@@ -1286,7 +1286,8 @@ uint32_t zhpe_ctxid(int slice, int queue)
 
 int zhpe_kernel_XQALLOC(struct xdm_info *xdmi)
 {
-    int ret = 0;
+    int                 ret = 0;
+    size_t              req;
 
     debug(DEBUG_XQUEUE, "cmdq_ent=%u, cmplq_ent=%u\n",
 	  xdmi->cmdq_ent, xdmi->cmplq_ent);
@@ -1316,20 +1317,33 @@ int zhpe_kernel_XQALLOC(struct xdm_info *xdmi)
         debug(DEBUG_XQUEUE, "dma_zalloc_map failed for cmplq\n");
         goto free_cmdq_zpage;
     }
+    xdmi->cmdq_shadow = do_kmalloc(xdmi->cmdq_size, GFP_KERNEL, true);
+    req = BITS_TO_LONGS(xdmi->cmdq_ent) * sizeof(ulong);
+    xdmi->cmdq_free_bitmap = do_kmalloc(req, GFP_KERNEL, true);
+    xdmi->cmdq_retry_bitmap = do_kmalloc(req, GFP_KERNEL, true);
+    if (!xdmi->cmdq_shadow || !xdmi->cmdq_free_bitmap ||
+        !xdmi->cmdq_retry_bitmap)
+        goto free_all;
+
     xdm_qcm_setup(xdmi->hw_qcm_addr,
                   xdmi->cmdq_zpage->dma.dma_addr,
                   xdmi->cmplq_zpage->dma.dma_addr,
                   xdmi->cmdq_ent, xdmi->cmplq_ent,
-                  xdmi->traffic_class, xdmi->priority, xdmi->cur_valid,
+                  xdmi->traffic_class, xdmi->priority, 1,
                   NO_PASID, NO_PASID);
     xdmi->cmdq_tail_shadow = 0;
     xdmi->cmplq_head = 0;
-    xdmi->cmplq_tail_shadow = 0;
+    xdmi->active_cmds = 0;
+    xdmi->retry_cmds = 0;
     xdmi->reqctxid = zhpe_ctxid(xdmi->slice, xdmi->queue);
     ret = 0;
     debug(DEBUG_XQUEUE, "slice=%d, queue=%d\n", xdmi->slice, xdmi->queue);
     goto done;
 
+ free_all:
+    do_kfree(xdmi->cmdq_shadow);
+    do_kfree(xdmi->cmdq_free_bitmap);
+    do_kfree(xdmi->cmdq_retry_bitmap);
  free_cmdq_zpage:
     zpages_free(xdmi->cmdq_zpage);
  release_queue:
@@ -1397,7 +1411,7 @@ int zhpe_req_XQFREE(union zhpe_req *req,
 
 int zhpe_kernel_XQFREE(struct xdm_info *xdmi)
 {
-    int ret;
+    int                 ret;
 
     ret =_xqueue_free(xdmi->br, xdmi->slice, xdmi->queue);
     if (ret < 0)
@@ -1406,6 +1420,9 @@ int zhpe_kernel_XQFREE(struct xdm_info *xdmi)
 
     zpages_free(xdmi->cmdq_zpage);
     zpages_free(xdmi->cmplq_zpage);
+    do_kfree(xdmi->cmdq_shadow);
+    do_kfree(xdmi->cmdq_free_bitmap);
+    do_kfree(xdmi->cmdq_retry_bitmap);
 
  done:
     return ret;
@@ -1648,7 +1665,7 @@ int zhpe_req_RQALLOC(uint32_t cmplq_ent, uint8_t slice_mask, uint32_t qspecific,
 
 int zhpe_kernel_RQALLOC(struct rdm_info *rdmi)
 {
-    int ret = 0;
+    int                 ret = 0;
 
     debug(DEBUG_RQUEUE, "cmplq_ent=%u, slice_mask 0x%x\n",
 	  rdmi->cmplq_ent, rdmi->slice_mask);
@@ -1672,9 +1689,9 @@ int zhpe_kernel_RQALLOC(struct rdm_info *rdmi)
     }
     rdm_qcm_setup(rdmi->hw_qcm_addr,
                   rdmi->cmplq_zpage->dma.dma_addr,
-                  rdmi->cmplq_ent, rdmi->cur_valid, NO_PASID);
-    rdmi->cmplq_tail_shadow = 0;
+                  rdmi->cmplq_ent, 1, NO_PASID);
     rdmi->cmplq_head_shadow = 0;
+    rdmi->cmplq_head_commit = 0;
     ret = 0;
     debug(DEBUG_RQUEUE, "slice=%d, queue=%d, rspctxid=%u\n",
           rdmi->slice, rdmi->queue, rdmi->rspctxid);
@@ -1757,18 +1774,24 @@ int zhpe_kernel_RQFREE(struct rdm_info *rdmi)
 
 int zhpe_dump_q0(struct file_data *fdata)
 {
-    struct bridge   *br = fdata->bridge;
-    struct xdm_info *xdmi = &br->msg_xdm;
-    struct xdm_qcm  *qcm = xdmi->hw_qcm_addr;
-    int             ret = 0;
-    int             a;
-    uint16_t        acc;
+    int                 ret = 0;
+    struct bridge       *br = fdata->bridge;
+    struct xdm_info     *xdmi = &br->msg_xdm;
+    struct xdm_qcm      *qcm = xdmi->hw_qcm_addr;
+    struct slice        *sl = br->slice;
+    int                 a;
+    uint16_t            acc;
 
     /* Get HW active command count */
     a = xdm_get_A_bit(qcm, &acc);
-    pr_warning("%s:%s: hw_a_bit=%d, hw_active_count=%hu, active_cmds=%u, cmdq_tail_shadow=%u\n",
-               zhpe_driver_name, __func__, a, acc, xdmi->active_cmds,
-               xdmi->cmdq_tail_shadow);
+    zprintk(KERN_WARNING, "hw_a_bit=%d, hw_active_count=%hu, active_cmds=%hu,"
+            " cmdq_tail_shadow=%u xdm %u/%u/%u/%u rdm %u/%u/%u/%u\n",
+            a, acc, xdmi->active_cmds, xdmi->cmdq_tail_shadow,
+            sl[0].stuck_xdm_queues, sl[1].stuck_xdm_queues,
+            sl[2].stuck_xdm_queues, sl[3].stuck_xdm_queues,
+            sl[0].stuck_rdm_queues, sl[1].stuck_rdm_queues,
+            sl[2].stuck_rdm_queues, sl[3].stuck_rdm_queues);
     msg_state_dump(xdmi);
+
     return ret;
 }
