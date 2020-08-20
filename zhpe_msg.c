@@ -243,7 +243,7 @@ static bool msg_xdm_get_cmpl(struct xdm_info *xdmi)
     /* Revisit: retry handling. */
     slot = cmplq_entry->hdr.index;
     status = cmplq_entry->hdr.status;
-    if (unlikely(test_bit(slot, xdmi->cmdq_free_bitmap))) {
+    if (unlikely(!test_bit(slot, xdmi->cmdq_free_bitmap))) {
         zprintk(KERN_ERR, "slot %u already free\n", slot);
         /* Set status to a reserved value if no error. */
         if (likely(!status))
