@@ -50,8 +50,17 @@
 #include <stdlib.h>
 
 /* For zhpe_?qe_valid() functions. */
+
+static inline int fls(uint32_t v)
+{
+    int                 ret = -1;
+
+    asm("bsrl %1,%0" : "+r" (ret) : "rm" (v));
+
+    return ret + 1;
+}
+
 #define READ_ONCE(_v)   atomic_load_explicit(&(_v), memory_order_relaxed)
-#define fls(_v)         fls32(_v)
 
 #endif
 
