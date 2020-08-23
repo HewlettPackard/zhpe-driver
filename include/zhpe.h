@@ -107,6 +107,7 @@ enum {
     DEBUG_RKEYS         = 0x00001000,
     DEBUG_MSG           = 0x00002000,
     DEBUG_INTR          = 0x00004000,
+    DEBUG_MSGV          = 0x00008000,
 };
 
 /* ZHPE_MAGIC == 'ZHPE' */

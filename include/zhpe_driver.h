@@ -413,8 +413,9 @@ struct rdm_info {
     union zpages   *cmplq_zpage;
     int            slice, queue, vector;
     uint32_t       rspctxid;
-    uint           cmplq_head_shadow;                  /* shadow of HW reg */
+    uint32_t       cmplq_head_shadow;                  /* shadow of HW reg */
     uint32_t       cmplq_head_commit;
+    uint32_t       cmplq_head_polling;
     spinlock_t     rdm_info_lock;
 };
 
@@ -433,7 +434,7 @@ struct bridge {
     struct mutex          probe_mutex; /* one probe at a time; also CSRs */
     spinlock_t            fdata_lock;  /* protects fdata_list */
     struct list_head      fdata_list;
-    struct work_struct    msg_work;
+    struct delayed_work   msg_work;
     wait_queue_head_t     zhpe_poll_wq[MAX_IRQ_VECTORS];
     spinlock_t            snap_lock;
     wait_queue_head_t     snap_wqh[2];

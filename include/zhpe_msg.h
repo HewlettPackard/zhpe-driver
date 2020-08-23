@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2018-2020 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -57,6 +57,7 @@ enum {
     ZHPE_MSG_ERR_UUID_NOT_LOCAL      = -5,
     ZHPE_MSG_ERR_UUID_GCID_MISMATCH  = -6,
     ZHPE_MSG_ERR_UUID_ALREADY_THERE  = -7,
+    ZHPE_MSG_ERR_IO_ERROR            = -8,
 };
 
 struct zhpe_msg_hdr {  /* the first 8 bytes of the payload */
@@ -150,6 +151,8 @@ struct zhpe_msg_state {
     wait_queue_head_t      wq;
     struct rb_node         node;
     struct list_head       msg_list;
+    struct bridge          *br;
+    struct kref            refcount;
 };
 
 extern uint zhpe_kmsg_timeout;
@@ -171,5 +174,6 @@ int zhpe_msg_qalloc(struct bridge *br);
 int zhpe_msg_qfree(struct slice *sl);
 void zhpe_msg_worker(struct work_struct *work);
 void msg_state_dump(struct xdm_info *xdmi);
+int zhpe_dump_q0(struct file_data *fdata);
 
 #endif /* _ZHPE_MSG_H_ */

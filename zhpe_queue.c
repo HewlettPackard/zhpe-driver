@@ -172,7 +172,7 @@ void zhpe_debug_rdm_qcm(const char *callf, uint line, const void *cqcm)
                 off, rdm_qcm_read(qcm, off));
 }
 
-static int xdm_get_A_bit(struct xdm_qcm *qcm, uint16_t *acc)
+int zhpe_xdm_get_A_bit(struct xdm_qcm *qcm, uint16_t *acc)
 {
     uint64_t a;
 
@@ -203,7 +203,7 @@ static int xdm_wait(struct xdm_qcm *qcm, int wait_type, int wait_time)
     int bail_out = 0;
     uint16_t acc;
 
-    while(xdm_get_A_bit(qcm, &acc) == 1) {
+    while(zhpe_xdm_get_A_bit(qcm, &acc) == 1) {
         switch (wait_type) {
         case USLEEP_RANGE:
             usleep_range(wait_time/2, wait_time);
@@ -231,7 +231,7 @@ static int xdm_wait_for_active_clear(struct xdm_qcm *qcm)
     int wait_time;
 
     /* Get active command count to calculate an estimated delay */
-    a = xdm_get_A_bit(qcm, &acc);
+    a = zhpe_xdm_get_A_bit(qcm, &acc);
 
     /* Queue is not active */
     if (!a)
@@ -814,7 +814,7 @@ static int _rqueue_free(
 
     zhpe_unregister_rdm_interrupt(sl, queue);
     if (queue == 0)
-        cancel_work_sync(&zhpe_bridge.msg_work);
+        cancel_delayed_work_sync(&zhpe_bridge.msg_work);
 
     if (test_bit(queue, sl->rdm_alloced_bitmap) == 0) {
         debug(DEBUG_RQUEUE,
@@ -1769,29 +1769,5 @@ int zhpe_kernel_RQFREE(struct rdm_info *rdmi)
     zpages_free(rdmi->cmplq_zpage);
 
  done:
-    return ret;
-}
-
-int zhpe_dump_q0(struct file_data *fdata)
-{
-    int                 ret = 0;
-    struct bridge       *br = fdata->bridge;
-    struct xdm_info     *xdmi = &br->msg_xdm;
-    struct xdm_qcm      *qcm = xdmi->hw_qcm_addr;
-    struct slice        *sl = br->slice;
-    int                 a;
-    uint16_t            acc;
-
-    /* Get HW active command count */
-    a = xdm_get_A_bit(qcm, &acc);
-    zprintk(KERN_WARNING, "hw_a_bit=%d, hw_active_count=%hu, active_cmds=%hu,"
-            " cmdq_tail_shadow=%u xdm %u/%u/%u/%u rdm %u/%u/%u/%u\n",
-            a, acc, xdmi->active_cmds, xdmi->cmdq_tail_shadow,
-            sl[0].stuck_xdm_queues, sl[1].stuck_xdm_queues,
-            sl[2].stuck_xdm_queues, sl[3].stuck_xdm_queues,
-            sl[0].stuck_rdm_queues, sl[1].stuck_rdm_queues,
-            sl[2].stuck_rdm_queues, sl[3].stuck_rdm_queues);
-    msg_state_dump(xdmi);
-
     return ret;
 }

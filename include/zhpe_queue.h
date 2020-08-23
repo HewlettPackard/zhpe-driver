@@ -162,6 +162,6 @@ int zhpe_rdm_queue_to_vector(int queue, struct slice *sl);
 void zhpe_debug_xdm_qcm(const char *func, uint line, const void *cqcm);
 void zhpe_debug_rdm_qcm(const char *func, uint line, const void *cqcm);
 uint32_t zhpe_ctxid(int slice, int queue);
-int zhpe_dump_q0(struct file_data *fdata);
+int zhpe_xdm_get_A_bit(struct xdm_qcm *qcm, uint16_t *acc);
 
 #endif /* _ZHPE_DRIVER_H_ */

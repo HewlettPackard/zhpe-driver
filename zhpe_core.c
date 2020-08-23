@@ -2770,7 +2770,7 @@ static int __init zhpe_init(void)
     spin_lock_init(&zhpe_bridge.fdata_lock);
     INIT_LIST_HEAD(&zhpe_bridge.fdata_list);
     zhpe_bridge.gcid = INVALID_GCID;
-    INIT_WORK(&zhpe_bridge.msg_work, zhpe_msg_worker);
+    INIT_DELAYED_WORK(&zhpe_bridge.msg_work, zhpe_msg_worker);
     spin_lock_init(&zhpe_bridge.snap_lock);
     init_waitqueue_head(&zhpe_bridge.snap_wqh[0]);
     init_waitqueue_head(&zhpe_bridge.snap_wqh[1]);
