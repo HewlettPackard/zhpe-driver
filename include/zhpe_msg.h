@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2018-2020 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -42,6 +42,7 @@ enum {
     ZHPE_MSG_UUID_IMPORT,
     ZHPE_MSG_UUID_FREE,
     ZHPE_MSG_UUID_TEARDOWN,
+    ZHPE_NR_MSG_CMDS,  /* do not reorder */
     ZHPE_MSG_RESPONSE = 0x80,
     ZHPE_MSG_VERSION = 1,
 };
@@ -56,6 +57,7 @@ enum {
     ZHPE_MSG_ERR_UUID_NOT_LOCAL      = -5,
     ZHPE_MSG_ERR_UUID_GCID_MISMATCH  = -6,
     ZHPE_MSG_ERR_UUID_ALREADY_THERE  = -7,
+    ZHPE_MSG_ERR_IO_ERROR            = -8,
 };
 
 struct zhpe_msg_hdr {  /* the first 8 bytes of the payload */
@@ -134,6 +136,12 @@ union zhpe_msg {
     union zhpe_msg_rsp              rsp;
 };
 
+struct zhpe_msg_id {
+    uint32_t               dgcid;
+    uint32_t               rspctxid;
+    struct rb_node         node;
+};
+
 struct zhpe_msg_state {
     uint32_t               dgcid;
     uint32_t               rspctxid;
@@ -143,12 +151,17 @@ struct zhpe_msg_state {
     wait_queue_head_t      wq;
     struct rb_node         node;
     struct list_head       msg_list;
+    struct bridge          *br;
+    struct kref            refcount;
 };
 
 extern uint zhpe_kmsg_timeout;
+extern uint msg_qsize;
 
 /* Function Prototypes */
 void zhpe_msg_list_wait(struct list_head *msg_wait_list, ktime_t start);
+struct zhpe_msg_state *zhpe_msg_send_NOP(struct bridge *br, uint32_t dgcid,
+                                         uint32_t tgtctxid, uint64_t seq);
 int zhpe_msg_send_UUID_IMPORT(struct bridge *br,
                               uuid_t *src_uuid, uuid_t *tgt_uuid,
                               uint32_t *ro_rkey, uint32_t *rw_rkey);
@@ -158,6 +171,9 @@ struct zhpe_msg_state *zhpe_msg_send_UUID_FREE(struct bridge *br,
 struct zhpe_msg_state *zhpe_msg_send_UUID_TEARDOWN(struct bridge *br,
                                 uuid_t *src_uuid, uuid_t *tgt_uuid);
 int zhpe_msg_qalloc(struct bridge *br);
-int zhpe_msg_qfree(struct bridge *br);
+int zhpe_msg_qfree(struct slice *sl);
+void zhpe_msg_worker(struct work_struct *work);
+void msg_state_dump(struct xdm_info *xdmi);
+int zhpe_dump_q0(struct file_data *fdata);
 
 #endif /* _ZHPE_MSG_H_ */

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2018, 2020 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -59,11 +59,10 @@
 #endif
 
 #define XDM_CMD_ADDR_OFFSET     0x00
-#define XDM_CMPL_ADDR_OFFSET    0x10
+#define XDM_CMPL_ADDR_OFFSET    0x08
+#define XDM_SIZE_OFFSET         0x10
 #define XDM_PASID_OFFSET        0x18
 #define XDM_PASID_QVIRT_FLAG    (1ULL << 31)
-#define XDM_MASTER_STOP_OFFSET 	0x20
-#define XDM_STOP_OFFSET		0x40
 #define XDM_A_OFFSET 		0x28
 #define XDM_DUMP_08_START       0x10
 #define XDM_DUMP_08_END         0x28
@@ -73,8 +72,6 @@
 #define RDM_CMPL_ADDR_OFFSET    0x00
 #define RDM_SIZE_OFFSET         0x08
 #define RDM_SIZE_QVIRT_FLAG     (1ULL << 63)
-#define RDM_MASTER_STOP_OFFSET 	0x10
-#define RDM_STOP_OFFSET		0x40
 #define RDM_A_OFFSET		0x18
 #define RDM_DUMP_08_START       0x08
 #define RDM_DUMP_08_END         0x18
@@ -136,15 +133,15 @@ int zhpe_user_req_XQFREE(struct io_entry *entry);
 int zhpe_user_req_XQALLOC(struct io_entry *entry);
 int zhpe_user_req_RQFREE(struct io_entry *entry);
 int zhpe_user_req_RQALLOC(struct io_entry *entry);
+int zhpe_user_req_RQALLOC_SPECIFIC(struct io_entry *entry);
 int zhpe_req_XQALLOC(struct zhpe_req_XQALLOC *req,
-			struct zhpe_rsp_XQALLOC	*rsp,
-			struct file_data *fdata);
-int zhpe_req_XQFREE(union zhpe_req *req, 
-			union zhpe_rsp *rsp, struct file_data *fdata);
-int zhpe_req_RQALLOC(struct zhpe_req_RQALLOC *req,
-			struct zhpe_rsp_RQALLOC *rsp, struct file_data *fdata);
+                     struct zhpe_rsp_XQALLOC *rsp, struct file_data *fdata);
+int zhpe_req_XQFREE(union zhpe_req *req,
+                    union zhpe_rsp *rsp, struct file_data *fdata);
+int zhpe_req_RQALLOC(uint32_t cmpq_ent, uint8_t slice_mask, uint32_t qspecific,
+                     struct zhpe_rsp_RQALLOC *rsp, struct file_data *fdata);
 int zhpe_req_RQFREE(struct zhpe_req_RQFREE *req, struct zhpe_rsp_RQFREE *rsp,
-			struct file_data *fdata);
+                    struct file_data *fdata);
 int zhpe_kernel_XQALLOC(struct xdm_info *xdmi);
 int zhpe_kernel_RQALLOC(struct rdm_info *rdmi);
 int zhpe_kernel_XQFREE(struct xdm_info *xdmi);
@@ -155,13 +152,16 @@ int free_xqueue(
 	struct io_entry *entry,
 	struct zhpe_req_XQFREE * free_req,
 	struct zhpe_rsp_XQFREE * free_rsp);
-int zhpe_clear_xdm_qcm(struct xdm_qcm * xdm_qcm_base);
-int zhpe_clear_rdm_qcm(struct rdm_qcm * rdm_qcm_base);
+int zhpe_clear_xdm_qcm(struct bridge *bridge, struct slice *sl);
+int zhpe_clear_rdm_qcm(struct bridge *bridge, struct slice *sl);
+void zhpe_stop_owned_xdm_queues(struct file_data *fdata);
 void zhpe_release_owned_xdm_queues(struct file_data *fdata);
 void zhpe_release_owned_rdm_queues(struct file_data *fdata);
 int zhpe_rdm_queue_to_irq(int queue, struct slice *sl);
 int zhpe_rdm_queue_to_vector(int queue, struct slice *sl);
 void zhpe_debug_xdm_qcm(const char *func, uint line, const void *cqcm);
 void zhpe_debug_rdm_qcm(const char *func, uint line, const void *cqcm);
+uint32_t zhpe_ctxid(int slice, int queue);
+int zhpe_xdm_get_A_bit(struct xdm_qcm *qcm, uint16_t *acc);
 
 #endif /* _ZHPE_DRIVER_H_ */

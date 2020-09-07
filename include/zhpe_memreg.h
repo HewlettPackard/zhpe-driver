@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2018-2019 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -46,7 +46,8 @@ struct sw_page_grid;
 struct zhpe_uuid_tracker;
 
 struct zhpe_pte_info {
-    struct file_data      *fdata;
+    struct kref           refcount; /* only used when owned by a zhpe_rmr */
+    uint32_t              dgcid; /* only used when owned by a zhpe_rmr */
     uint64_t              addr;
     uint64_t              access;
     size_t                length;
@@ -61,6 +62,7 @@ struct zhpe_pte_info {
 
 struct zhpe_umem {
     struct zhpe_pte_info  pte_info;
+    struct file_data      *fdata;
     struct rb_node        node;  /* within fdata->mr_tree */
     struct kref           refcount;
     uint64_t              vaddr;
@@ -77,10 +79,14 @@ struct zhpe_umem {
     struct sg_table       sg_head;
     int                   nmap;
     int                   npages;
+    struct page           *active_page;
+    int64_t               *active_kptr;
+    int64_t               *active_uptr;
 };
 
 struct zhpe_rmr {
-    struct zhpe_pte_info  pte_info;
+    struct zhpe_pte_info  *pte_info;
+    struct file_data      *fdata;
     struct rb_node        fd_node;  /* within fdata->fd_rmr_tree */
     struct rb_node        un_node;  /* within fdata->fd_remote_uuid_tree->un_rmr_tree */
     struct kref           refcount;
@@ -89,7 +95,6 @@ struct zhpe_rmr {
     struct zmap           *zmap;
     uint64_t              rsp_zaddr;
     uint64_t              req_addr;
-    ulong                 mmap_pfn;
     uint32_t              dgcid;
     uint32_t              rkey;
     bool                  writable;
@@ -101,9 +106,12 @@ void zhpe_rmr_remove_unode(struct file_data *fdata, struct uuid_node *unode);
 void zhpe_rmr_free_all(struct file_data *fdata);
 void zhpe_umem_free_all(struct file_data *fdata);
 int zhpe_user_req_MR_REG(struct io_entry *entry);
+int zhpe_user_req_MR_REG_EXT(struct io_entry *entry);
 int zhpe_user_req_MR_FREE(struct io_entry *entry);
 int zhpe_user_req_RMR_IMPORT(struct io_entry *entry);
 int zhpe_user_req_RMR_FREE(struct io_entry *entry);
+void zhpe_pte_info_dbg(uint debug_flag, const char *callf, uint line,
+                       struct zhpe_pte_info *info);
 
 static inline bool zhpe_umem_empty(struct file_data *fdata)
 {

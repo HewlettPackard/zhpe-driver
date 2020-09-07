@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Hewlett Packard Enterprise Development LP.
+ * Copyright (C) 2018-2020 Hewlett Packard Enterprise Development LP.
  * All rights reserved.
  *
  * This software is available to you under a choice of one of two
@@ -43,31 +43,57 @@
 #include <linux/rbtree.h>
 #include <linux/interrupt.h>
 #include <linux/mmu_notifier.h>
+#include <linux/sched.h>
 
 extern uint zhpe_debug_flags;
 extern const char zhpe_driver_name[];
 extern uint no_iommu;
+extern uint signal_mr_overlap;
 extern struct zhpe_global_shared_data *global_shared_data;
+extern bool zhpe_mcommit;
+
+#define zprintk_caller(_lvl, _callf, _line, _fmt, ...)                  \
+    printk(_lvl "%s:%s,%u,%d: " _fmt,                                   \
+           zhpe_driver_name, _callf, _line, task_pid_nr(current),       \
+           ##__VA_ARGS__)
+#define zprintk(_lvl, _fmt, ...)                                        \
+    zprintk_caller(_lvl, __func__, __LINE__, _fmt, ##__VA_ARGS__)
 
 #if defined(NDEBUG)
-#define debug_cond(_mask, _cond, _fmt, ...) do {} while (0)
-#define debug(_mask, _fmt, ...) do {} while (0)
-#define debug_mem_add(_size)
-#define debug_mem_sub(_size)
+#define debug_printk(_lvl, _func, _line, _pid, _fmt, ...)               \
+   do {} while (0)
+#define debug_cond_action(_mask, _cond, _action)                        \
+   do {} while (0)
 #else
-#define  debug_cond(_mask,_cond,  _fmt, ...)            \
-do {                                                    \
-    if ((zhpe_debug_flags & (_mask)) && (_cond))             \
-        printk(KERN_DEBUG _fmt, ##__VA_ARGS__);         \
+#define debug_printk(_lvl, _func, _line, _pid, _fmt, ...)               \
+    printk(_lvl "%s:%s,%u,%d: " _fmt, zhpe_driver_name,                 \
+           _func, _line, _pid, ##__VA_ARGS__)
+#define debug_cond_action(_mask, _cond, _action)                        \
+do {                                                                    \
+    if ((zhpe_debug_flags & (_mask)) && (_cond)) {                      \
+        _action;                                                        \
+    }                                                                   \
 } while (0)
-#define debug(_mask, _fmt, ...) debug_cond(_mask, true, _fmt, ##__VA_ARGS__)
-
 #endif /* defined(NDEBUG) */
+
+#define debug_cond(_mask, _cond, _fmt, ...)                             \
+    debug_cond_action(_mask, _cond,                                     \
+                      zprintk(KERN_DEBUG, _fmt, ##__VA_ARGS__))
+#define debug(_mask, _fmt, ...)                                         \
+    debug_cond(_mask, true, _fmt, ##__VA_ARGS__)
+#define debug_caller(_mask, _callf, _line,  _fmt, ...)                  \
+    debug_cond_action(_mask, true,                                      \
+                      zprintk_caller(KERN_DEBUG, _callf, _line,         \
+                                     _fmt, ##__VA_ARGS__))
 
 #define DEBUG_TRACKER_SANE (0)
 
-/* platforms that the zhpe driver supports through the platform parameter */
+#define GB(_x)            ((_x)*BIT_ULL(30))
+#define TB(_x)            ((_x)*BIT_ULL(40))
+
+/* platforms that the zhpe driver supports */
 enum {
+    ZHPE_UNKNOWN         = 0x0,
     ZHPE_CARBON          = 0x1,
     ZHPE_PFSLICE         = 0x2,
     ZHPE_WILDCAT         = 0x3,
@@ -115,9 +141,15 @@ struct xdm_qcm_header {
     uint64_t rv18             : 32;
 };
 
+struct xdm_qcm_cmd_buf {
+    uint64_t                  bytes8[8];
+};
+
 struct xdm_qcm {
     struct xdm_qcm_header     hdr;
-    uint64_t rv19[8159];
+    uint64_t                  rv19[223];
+    struct xdm_qcm_cmd_buf    buf[16];
+    uint64_t                  rv20[7808];
 };
 
 struct rdm_qcm_header {
@@ -157,7 +189,7 @@ struct req_pte {
     uint64_t traffic_class :  4;
     uint64_t dc_grp        :  2;
     uint64_t rv0           :  6;
-    uint64_t dgcid         : 28;  /* in HW, dsid:16, dcid:12 */
+    uint64_t dgcid         : ZHPE_GCID_BITS;  /* in HW, dsid:16, dcid:12 */
     uint64_t ctn           :  2;  /* byte  8 */
     uint64_t rv8           : 10;
     uint64_t addr          : 52;
@@ -213,25 +245,35 @@ extern unsigned int zhpe_req_zmmu_entries;
 extern unsigned int zhpe_rsp_zmmu_entries;
 extern unsigned int zhpe_xdm_queues_per_slice;
 extern unsigned int zhpe_rdm_queues_per_slice;
-
+extern uint64_t zhpe_reqz_min_cpuvisible_addr;
+extern uint64_t zhpe_reqz_max_cpuvisible_addr;
+extern uint64_t zhpe_reqz_phy_cpuvisible_off;
 
 /* Carbon Simulator Platform */
 #define CARBON_REQ_ZMMU_ENTRIES             (128*1024)
 #define CARBON_RSP_ZMMU_ENTRIES             (64*1024)
 #define CARBON_XDM_QUEUES_PER_SLICE         (256)
 #define CARBON_RDM_QUEUES_PER_SLICE         (256)
+#define CARBON_REQZ_MIN_CPUVISIBLE_ADDR     (GB(4)+TB(1))
+#define CARBON_REQZ_MAX_CPUVISIBLE_ADDR     (GB(13312) - 1)
+#define CARBON_REQZ_PHY_CPUVISIBLE_OFF      (GB(0))
 
 /* PFslice FPGA Platform */
 #define PFSLICE_REQ_ZMMU_ENTRIES            (1024)
 #define PFSLICE_RSP_ZMMU_ENTRIES            (1024)
-#define PFSLICE_XDM_QUEUES_PER_SLICE        (256) 	/* Revisit: temporary */
-#define PFSLICE_RDM_QUEUES_PER_SLICE        (16) 	/* Revisit: temporary */
+#define PFSLICE_XDM_QUEUES_PER_SLICE        (256)
+#define PFSLICE_RDM_QUEUES_PER_SLICE        (256)
+#define PFSLICE_REQZ_MIN_CPUVISIBLE_ADDR    (GB(0))
+#define PFSLICE_REQZ_MAX_CPUVISIBLE_ADDR    (GB(13312) - 1)
 
 /* Wildcat Hardware Platform */
 #define WILDCAT_REQ_ZMMU_ENTRIES            (128*1024)
 #define WILDCAT_RSP_ZMMU_ENTRIES            (64*1024)
 #define WILDCAT_XDM_QUEUES_PER_SLICE        (256)
 #define WILDCAT_RDM_QUEUES_PER_SLICE        (256)
+#define WILDCAT_REQZ_MIN_CPUVISIBLE_ADDR    (GB(0))
+#define WILDCAT_REQZ_MAX_CPUVISIBLE_ADDR    (GB(13312) - 1)
+#define WILDCAT_SLINK_SLICE_MASK            (0xc)
 
 /* Platform values common to all platforms */
 #define ZHPE_MAX_XDM_QLEN                 (BIT(16)-1)
@@ -252,8 +294,8 @@ extern unsigned int zhpe_rdm_queues_per_slice;
 #define PAGE_GRID_MIN_PAGESIZE       12
 #define PAGE_GRID_MAX_PAGESIZE       48
 
-#define MAX_RDM_QUEUES_PER_SLICE	256
-#define MAX_XDM_QUEUES_PER_SLICE	256
+#define MAX_RDM_QUEUES_PER_SLICE        ZHPE_MAX_RDMQS_PER_SLICE
+#define MAX_XDM_QUEUES_PER_SLICE        ZHPE_MAX_XDMQS_PER_SLICE
 
 struct req_zmmu {
     struct req_pte                pte[MAX_REQ_ZMMU_ENTRIES];
@@ -268,7 +310,7 @@ struct req_zmmu {
 #define RSP_RV1_SZ       (0x400000 - 0x200000)
 #define RSP_RV2_SZ       (0x600000 - (0x400000 + PAGE_GRID_SZ))
 #define RSP_RV3_SZ       (0x2000000 - 0x600008)
-#define RSP_TAKE_SNAPSHOT_MASK (0x2FF)
+#define RSP_TAKE_SNAPSHOT_MASK (0x3FF)
 
 struct rsp_zmmu {
     struct rsp_pte                pte[MAX_RSP_ZMMU_ENTRIES];
@@ -287,11 +329,13 @@ struct sw_page_grid {
     bool             cpu_visible;    /* only for requester page_grids */
 };
 
+#define PAGE_GRID_PS_BITS      (64)
+
 struct page_grid_info {
     struct sw_page_grid pg[PAGE_GRID_ENTRIES];
     DECLARE_BITMAP(pg_bitmap, PAGE_GRID_ENTRIES);
-    DECLARE_BITMAP(pg_cpu_visible_ps_bitmap, 64); /* req page grids only */
-    DECLARE_BITMAP(pg_non_visible_ps_bitmap, 64);
+    DECLARE_BITMAP(pg_cpu_visible_ps_bitmap, PAGE_GRID_PS_BITS); /* req only */
+    DECLARE_BITMAP(pg_non_visible_ps_bitmap, PAGE_GRID_PS_BITS);
     struct radix_tree_root pg_pagesize_tree;
     uint                pte_entries;
     struct rb_root      base_pte_tree;
@@ -317,7 +361,9 @@ struct slice {
     spinlock_t          zmmu_lock;   /* per-slice zmmu lock */
     bool                valid;       /* slice is fully initialized */
     unsigned int        id;          /* zero based, unique slice id */
+    unsigned int        phys_id;     /* zero based, unique physical slice id */
     struct pci_dev	*pdev;
+    struct iommu_domain	*dom;
     /* Revisit: add s_link boolean */
     spinlock_t           xdm_slice_lock; /* locks alloc_count, alloced_bitmap */
     int                  xdm_alloc_count;
@@ -326,6 +372,8 @@ struct slice {
     int                  rdm_alloc_count;
     DECLARE_BITMAP(rdm_alloced_bitmap, MAX_RDM_QUEUES_PER_SLICE);
     uint16_t             irq_vectors_count; /* number of interrupt vectors */
+    uint16_t             stuck_xdm_queues;
+    uint16_t             stuck_rdm_queues;
     /* per vector list of queues sharing a vector */
     struct rdm_vector_list_head irq_vectors[VECTORS_PER_SLICE];
 };
@@ -338,16 +386,20 @@ struct xdm_info {
     struct bridge  *br;
     uint32_t       cmdq_ent, cmplq_ent;
     uint8_t        slice_mask, traffic_class, priority;
-    bool           cur_valid;
     size_t         cmdq_size, cmplq_size, qcm_size;
     struct slice   *sl;
     struct xdm_qcm *hw_qcm_addr;
     union zpages   *cmdq_zpage, *cmplq_zpage;
+    union zhpe_hw_wq_entry *cmdq_shadow;
+    ulong          *cmdq_free_bitmap;
+    ulong          *cmdq_retry_bitmap;
     int            slice, queue;
-    uint           cmdq_tail_shadow, cmdq_head_shadow; /* shadow of HW reg */
-    uint           cmplq_tail_shadow;                  /* shadow of HW reg */
+    uint32_t       reqctxid;
+    uint           cmdq_tail_shadow;                   /* shadow of HW reg */
     uint           cmplq_head;                         /* SW-only */
     uint           active_cmds;                        /* SW-only */
+    uint           retry_cmds;                         /* SW-only */
+    uint           retry_last;                         /* SW-only */
     spinlock_t     xdm_info_lock;
 };
 
@@ -355,35 +407,49 @@ struct rdm_info {
     struct bridge  *br;
     uint32_t       cmplq_ent;
     uint8_t        slice_mask;
-    bool           cur_valid;
     size_t         cmplq_size, qcm_size;
     struct slice   *sl;
     struct rdm_qcm *hw_qcm_addr;
     union zpages   *cmplq_zpage;
     int            slice, queue, vector;
     uint32_t       rspctxid;
-    uint           cmplq_tail_shadow, cmplq_head_shadow; /* shadow of HW reg */
+    uint32_t       cmplq_head_shadow;                  /* shadow of HW reg */
+    uint32_t       cmplq_head_commit;
+    uint32_t       cmplq_head_polling;
     spinlock_t     rdm_info_lock;
 };
 
 struct bridge {
+    int                   probe_error;
     uint32_t              gcid;
-    atomic_t              num_slices;
+    uint8_t               expected_slices;
+    uint8_t               num_slices;
+    uint8_t               slice_mask;
     struct slice          slice[SLICES];
     spinlock_t            zmmu_lock;  /* global bridge zmmu lock */
     struct page_grid_info req_zmmu_pg;
     struct page_grid_info rsp_zmmu_pg;
     struct xdm_info       msg_xdm;
     struct rdm_info       msg_rdm;
+    struct mutex          probe_mutex; /* one probe at a time; also CSRs */
     spinlock_t            fdata_lock;  /* protects fdata_list */
     struct list_head      fdata_list;
+    struct delayed_work   msg_work;
     wait_queue_head_t     zhpe_poll_wq[MAX_IRQ_VECTORS];
+    spinlock_t            snap_lock;
+    wait_queue_head_t     snap_wqh[2];
+    uint                  snap_group;
+    uint8_t               snap_wait_idx;
+    bool                  snap_active;
+    bool                  snap_failed;
+    spinlock_t            rspctxid_rbtree_lock; /* protects rspctxid_rbtree */
+    struct rb_root        rspctxid_rbtree;
 };
 
 struct queue_zpage {
 	int		page_type;
 	size_t		size;	/* in bytes */
-	void		*pages[0];
+	void		*pages[];
 };
 
 struct hsr_zpage {
@@ -436,6 +502,7 @@ struct file_data {
     atomic_t            count;
     uint8_t             state;
     unsigned int        pasid;
+    unsigned int        fabric_pasid;
     uint32_t            ro_rkey;
     uint32_t            rw_rkey;
     spinlock_t          io_lock;
@@ -455,11 +522,12 @@ struct file_data {
     union zpages        *local_shared_zpage;
     struct zmap         *local_shared_zmap;
     struct zmap         *global_shared_zmap;
-    spinlock_t          xdm_queue_lock;
+    struct mutex        xdm_queue_mutex;
     DECLARE_BITMAP(xdm_queues, MAX_XDM_QUEUES_PER_SLICE*SLICES);
     spinlock_t          rdm_queue_lock;
     DECLARE_BITMAP(rdm_queues, MAX_RDM_QUEUES_PER_SLICE*SLICES);
     pid_t               pid;        /* pid that allocated this file_data */
+    struct zhpe_umem    *big_rsp_umem;
     struct mm_struct    *mm;
     struct mmu_notifier mmun;
 };
@@ -482,14 +550,15 @@ struct io_entry {
 };
 
 enum {
-    STATE_CLOSED        = 0x1,
-    STATE_READY         = 0x2,
-    STATE_INIT          = 0x4,
+    STATE_CLOSED                = 0x01,
+    STATE_READY                 = 0x02,
+    STATE_INIT                  = 0x04,
+    STATE_MR_OVERLAP_CHECKING   = 0x08,
+    STATE_MR_LOCKED_DOWN        = 0x10,
 };
 
 /* Globals */
 extern struct bridge    zhpe_bridge;
-extern uint genz_gcid;
 extern uint genz_loopback;
 
 #define CHECK_INIT_STATE(_entry, _ret, _label)              \
@@ -511,16 +580,9 @@ struct func1_bar0 {
     struct rdm_qcm  rdm[512];
 };
 
-#define GB(_x)            ((_x)*BIT_ULL(30))
-#define TB(_x)            ((_x)*BIT_ULL(40))
-
-/* Revisit: replace with actual values when known */
-#define GENZ_MIN_CPUVISIBLE_ADDR     (GB(4)+TB(1))
-#define GENZ_MAX_CPUVISIBLE_ADDR     (GENZ_MIN_CPUVISIBLE_ADDR+TB(250)-1ull)
-#define GENZ_MIN_NONVISIBLE_ADDR     TB(256)
-#define GENZ_MAX_NONVISIBLE_ADDR     (-1ull)
-#define BASE_ADDR_ERROR              GENZ_MAX_NONVISIBLE_ADDR
-
+#define REQZ_MIN_NONVISIBLE_ADDR     TB(256)
+#define REQZ_MAX_NONVISIBLE_ADDR     (-1ull)
+#define BASE_ADDR_ERROR              REQZ_MAX_NONVISIBLE_ADDR
 
 #define do_kmalloc(...) \
     _do_kmalloc(__func__, __LINE__, __VA_ARGS__)
@@ -583,9 +645,10 @@ union zpages *_rmr_zpages_alloc(const char *callf, uint line,
 #define rmr_zpages_alloc(...) \
     _rmr_zpages_alloc(__func__, __LINE__, __VA_ARGS__)
 
-void _zmap_free(const char *callf, uint line, struct zmap *zmap);
-#define zmap_free(...) \
-    _zmap_free(__func__, __LINE__, __VA_ARGS__)
+void _zmap_fdata_free(const char *callf, uint line, struct file_data *fdata,
+                      struct zmap *zmap);
+#define zmap_fdata_free(...)                    \
+    _zmap_fdata_free(__func__, __LINE__, __VA_ARGS__)
 
 struct zmap *_zmap_alloc(
 	const char *callf,
@@ -595,9 +658,7 @@ struct zmap *_zmap_alloc(
 #define zmap_alloc(...) \
     _zmap_alloc(__func__, __LINE__, __VA_ARGS__)
 
-bool _free_zmap_list(const char *callf, uint line, struct file_data *fdata);
-#define free_zmap_list(...) \
-    _free_zmap_list(__func__, __LINE__, __VA_ARGS__)
+void zhpe_disable_dbg_obs(struct bridge *br);
 
 struct file_data *pid_to_fdata(struct bridge *br, pid_t pid);
 
@@ -641,6 +702,43 @@ static inline void radix_tree_iter_delete(struct radix_tree_root *root,
         iter->index = iter->next_index;
 }
 #endif
+
+static inline void _put_file_data(const char *callf, uint line,
+                                  struct file_data *fdata)
+{
+    int                 count;
+
+    if (fdata) {
+        count = atomic_dec_return(&fdata->count);
+        debug_caller(DEBUG_COUNT, callf, line, "%s:fdata 0x%px count %d\n",
+                     __func__, fdata, count);
+        if (!count && fdata->free)
+            fdata->free(callf, line, fdata);
+    }
+}
+
+#define put_file_data(...) \
+    _put_file_data(__func__, __LINE__, __VA_ARGS__)
+
+static inline struct file_data *_get_file_data(const char *callf, uint line,
+                                               struct file_data *fdata)
+{
+    int                 count;
+
+    if (!fdata)
+        return NULL;
+
+    count = atomic_inc_return(&fdata->count);
+    /* Override unused variable warning. */
+    (void)count;
+    debug_caller(DEBUG_COUNT, callf, line, "%s:fdata 0x%px count %d\n",
+                 __func__, fdata, count);
+
+    return fdata;
+}
+
+#define get_file_data(...) \
+    _get_file_data(__func__, __LINE__, __VA_ARGS__)
 
 #include <zhpe_uuid.h>
 #include <zhpe_zmmu.h>

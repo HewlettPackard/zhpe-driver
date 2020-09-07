@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# Copyright (C) 2018 Hewlett Packard Enterprise Development LP.
+# Copyright (C) 2018-2019 Hewlett Packard Enterprise Development LP.
 # All rights reserved.
 #
 # This software is available to you under a choice of one of two
@@ -38,9 +38,11 @@ import contextlib
 import mmap
 import argparse
 import os
+import errno
 import hashlib
 from ctypes import *
 from pdb import set_trace
+from pdb import post_mortem
 import time
 import zhpe
 from zhpe import MR, UU
@@ -62,42 +64,53 @@ class ModuleParams():
                     self.params[f] = val
         self.__dict__.update(self.params)
 
+def runtime_err(*arg):
+    raise RuntimeError(*arg)
+# Think about something like this, perhaps.
+#    if args.verbosity:
+#        raise RuntimeError(*arg)
+#    else:
+#        print(*arg)
+
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-d', '--devfile', default='/dev/zhpe',
-                        help='the zhpe character device file')
-    parser.add_argument('-b', '--bigfile', default='/dev/hugepages/test1',
-                        help='a hugepage test file')
     parser.add_argument('-B', '--bringup', action='store_true',
-                        help='bringup mode without driver to driver communication')
-    parser.add_argument('-H', '--hugefile', default='/dev/hugepages/test2',
-                        help='a huger hugepage test file')
-    parser.add_argument('--huge', action='store_true',
-                        help='enable huge PUT test')
+                        help=('bringup mode without driver to driver' +
+                              ' communication'))
     parser.add_argument('-D', '--datafile', default='./driver.py',
                         help='a data test file')
+    parser.add_argument('-d', '--devfile', default='/dev/zhpe',
+                        help='the zhpe character device file')
+    parser.add_argument('-F', '--fam_gcid', type=int, default=0x40,
+                        help='GCID for FAM (default to 0x40)')
+    parser.add_argument('-f', '--fam', action='store_true',
+                        help='test FAM')
+    parser.add_argument('--huge', action='store_true',
+                        help='enable huge PUT test')
+    parser.add_argument('-k', '--keyboard', action='store_true',
+                        help='invoke interactive keyboard')
+    parser.add_argument('-L', '--load_store', action='store_false',
+                        default=True, help='disable load/store tests')
+    parser.add_argument('-l', '--loopback', action='store_true',
+                        help='enable loopback mode')
     parser.add_argument('-N', '--net', action='store_true',
                         help='make/accept network connections')
     parser.add_argument('-n', '--nodes', type=str, default=None,
                         help='list of remote node IPs')
+    parser.add_argument('-O', '--overlap', action='store_true',
+                        help='enable MR overlap checking')
     parser.add_argument('-p', '--port', type=int, default=42042,
                         help='network port')
+    parser.add_argument('-P', '--post_mortem', action='store_true',
+                        help='enter debugger on uncaught exception')
     parser.add_argument('-q', '--requester', action='store_true',
                         help='enable requester')
+    parser.add_argument('-Q', '--queue_test', action='store_true',
+                        help='test queue error handling')
     parser.add_argument('-r', '--responder', action='store_true',
                         help='enable responder')
-    parser.add_argument('-l', '--loopback', action='store_true',
-                        help='enable loopback mode')
-    parser.add_argument('-k', '--keyboard', action='store_true',
-                        help='invoke interactive keyboard')
     parser.add_argument('-v', '--verbosity', action='count', default=0,
                         help='increase output verbosity')
-    parser.add_argument('-f', '--fam', action='store_true',
-                        help='test FAM')
-    parser.add_argument('-F', '--fam_gcid', type=int, default=0x40,
-                        help='GCID for FAM (default to 0x40)')
-    parser.add_argument('-L', '--load_store', action='store_false',
-                        default=True, help='disable load/store tests')
     return parser.parse_args()
 
 def main():
@@ -129,33 +142,38 @@ def main():
         print('pid={}'.format(os.getpid()))
     nodes = [item for item in args.nodes.split(',')] if args.nodes else []
     datasize = os.path.getsize(args.datafile)
-    bigsize = os.path.getsize(args.bigfile)
-    hugesize = os.path.getsize(args.hugefile)
-    if 3*datasize > bigsize:
-        print('3*datafile size (3*{}) > bigfile size ({})'.format(
-              datasize, bigsize))
-        sys.exit(1)
     modp = ModuleParams()
     with open(args.devfile, 'rb+', buffering=0) as f:
         conn = zhpe.Connection(f, args.verbosity)
         init = conn.do_INIT()
         gcid = init.uuid.gcid
         if args.verbosity:
-            print('do_INIT: uuid={}, gcid={}'.format(init.uuid, init.uuid.gcid_str))
+            print('do_INIT: uuid={}, gcid={}'.format(
+                init.uuid, init.uuid.gcid_str))
         # doing a 2nd INIT should fail
         exc = False
         try:
             bad = conn.do_INIT()
-        except OSError:
-            exc = True
+        except OSError as err:
+            if err.errno == errno.EBADRQC:
+                exc = True
+            else:
+                raise
         if exc:
             if args.verbosity:
                 print('do_INIT: got expected error on 2nd INIT')
         else:
-            print('fail: no error on 2nd INIT')
+            runtime_err('fail: no error on 2nd INIT')
+
+        if args.overlap:
+            feat = conn.do_FEATURE(zhpe.FEATURES.FEATURE_MR_OVERLAP_CHECKING)
+            if args.verbosity:
+                print('do_FEATURE: features={:#x}'.format(feat.features))
 
         if args.loopback and modp.genz_loopback == 0:
-            print('Configuration error - loopback test requested but driver has genz_loopback=0')
+            runtime_err(
+                'Configuration error - loopback test requested but ' +
+                'driver has genz_loopback=0')
 
         if args.loopback and modp.genz_loopback:
             zuu = zuuid(gcid=gcid)
@@ -172,16 +190,20 @@ def main():
             mm = mmap.mmap(-1, sz4K)
             v, l = zhpe.mmap_vaddr_len(mm)
             rsp = conn.do_MR_REG(v, l, MR.GPI)  # req: GET/PUT, 4K
-            # register the same thing memory twice to force EEXIST
+            # register the same memory twice to force EEXIST
+            exc = False
             try:
                 bad = conn.do_MR_REG(v, l, MR.GPI)  # req: GET/PUT, 4K
-            except OSError:
-                exc = True
+            except OSError as err:
+                if err.errno == errno.EEXIST:
+                    exc = True
+                else:
+                    raise
             if exc:
                 if args.verbosity:
                     print('do_MR_REG: got expected error on 2nd MR_REG')
             else:
-                print('fail: no error on 2nd MR_REG')
+                runtime_err('fail: no error on 2nd MR_REG')
 
         if args.responder or args.loopback:
             mm2 = mmap.mmap(-1, sz4K)
@@ -190,34 +212,31 @@ def main():
             rsp2 = conn.do_MR_REG(v2, l2, MR.GRPRI)  # rsp: GET_REM/PUT_REM, 4K
 
         data = open(args.datafile, 'rb')
-        mmdata = mmap.mmap(data.fileno(), 0, access=mmap.ACCESS_READ)
+        datasize = min(datasize, sz2M)
+        mmdata = mmap.mmap(data.fileno(), datasize, access=mmap.ACCESS_READ)
         datasha256 = hashlib.sha256(mmdata[0:datasize]).hexdigest()
         if args.verbosity:
             print('datafile sha256={}'.format(datasha256))
-        # Revisit: using a hugepage file to guarantee a physically contiguous
-        # region until the IOMMU works in the sim
-        f2M = open(args.bigfile, 'rb+')
-        mm2M = mmap.mmap(f2M.fileno(), 0, access=mmap.ACCESS_WRITE)
+        mm2M = mmap.mmap(-1, sz2M, access=mmap.ACCESS_WRITE)
         mm2M[0:datasize] = mmdata[0:datasize]
-        if args.huge:
-            print('opening hugefile "{}"'.format(args.hugefile))
-            f1G = open(args.hugefile, 'rb+')
-            print('mmapping hugefile')
-            mm1G = mmap.mmap(f1G.fileno(), 0, access=mmap.ACCESS_WRITE)
-            print('initializing hugefile with random data')
-            mm1G[0:hugesize//2] = os.urandom(hugesize//2)
-            v1G, l1G = zhpe.mmap_vaddr_len(mm1G)
+        v2M, l2M = zhpe.mmap_vaddr_len(mm2M)
         mmdata.close()
         data.close()
-        v2M, l2M = zhpe.mmap_vaddr_len(mm2M)
-        rsp2M = conn.do_MR_REG(v2M + 0x1242, l2M - 0x5000, MR.GRPRI) # GET_REM/PUT_REM, 2M-0x5000
+        if args.huge:
+            hugesize = sz1G
+            mm1G = mmap.mmap(-1, sz1G, access=mmap.ACCESS_WRITE)
+            mm1G[0:hugesize//2] = os.urandom(hugesize//2)
+            v1G, l1G = zhpe.mmap_vaddr_len(mm1G)
+        # GET_REM/PUT_REM, 2M-0x5000
+        rsp2M = conn.do_MR_REG(v2M + 0x1242, l2M - 0x5000, MR.GRPRI)
 
         rsp2M_l = conn.do_MR_REG(v2M, l2M, MR.GP)  # GET/PUT, 2M
         lmr = rsp2M_l
         lmm = mm2M
 
         if args.responder or args.loopback:
-            rsp2M_b = conn.do_MR_REG(v2M, l2M, MR.GRPRI) # rsp: GET_REM/PUT_REM, 2M
+            # rsp: GET_REM/PUT_REM, 2M
+            rsp2M_b = conn.do_MR_REG(v2M, l2M, MR.GRPRI)
 
         if args.loopback and modp.genz_loopback:
             rsp_rmr = conn.do_RMR_IMPORT(zuu, rsp2M_b.rsp_zaddr, sz4K,
@@ -253,8 +272,41 @@ def main():
                 rsp_rmr2M = conn.do_RMR_IMPORT(zuu, rsp2M_r.rsp_zaddr, sz2M,
                                                MR.GRPRI)
 
-        xdm = zhpe.XDM(conn, 256, 256, slice_mask=0x1)
-        rdm = zhpe.RDM(conn, 1024, slice_mask=0x2)
+        # If queue_test is set, allocate all the queues to check error handling
+        qlist = []
+        while True:
+            try:
+                qlist.append(zhpe.XDM(conn, 256, 256, slice_mask=0x1))
+            except OSError as err:
+                if err.errno != errno.ENOENT:
+                    raise
+                break
+            if not args.queue_test:
+                break
+        if args.verbosity:
+            print('{} XDM queues allocated\n'.format(len(qlist)))
+        if len(qlist) == 0:
+            runtime_err('No XDM queues allocated\n')
+        xdm = qlist.pop()
+        while qlist:
+            conn.do_XQUEUE_FREE(qlist.pop())
+
+        while True:
+            try:
+                qlist.append(zhpe.RDM(conn, 1024, slice_mask=0x2))
+            except OSError as err:
+                if err.errno != errno.ENOENT:
+                    raise
+                break
+            if not args.queue_test:
+                break
+        if args.verbosity:
+            print('{} RDM queues allocated\n'.format(len(qlist)))
+        if len(qlist) == 0:
+            runtime_err('No RDM queues allocated\n')
+        rdm = qlist.pop()
+        while qlist:
+            conn.do_RQUEUE_FREE(qlist.pop())
 
         nop = zhpe.xdm_cmd()
         nop.opcode = zhpe.XDM_CMD.NOP|zhpe.XDM_CMD.FENCE
@@ -299,19 +351,25 @@ def main():
             print('mm2 (initial)="{}"'.format(mm2[0:len1].decode()))
         if args.loopback and modp.genz_loopback:
             if args.load_store:
+                if args.keyboard:
+                    set_trace()
+                # invalidate rmm2 to read fresh data
+                zhpe.invalidate(v_rmm2, len1, True)
                 if args.verbosity:
-                    print('rmm2 (remote)="{}"'.format(rmm2[0:len1].decode()))
+                    print('rmm2 (remote)="{}"'.format(rmm2[0:len1]))
                 if mm2[0:len1] != rmm2[0:len1]:
-                    print('Error: mm2 "{}" != rmm2 "{}"'.format(
-                        mm2[0:len1].decode(), rmm2[0:len1].decode()))
+                    runtime_err('Error: mm2 "{}" != rmm2 "{}"'.format(
+                        mm2[0:len1], rmm2[0:len1]))
                 rmm2[len1:len1_2] = str2
-                # flush rmm2 writes, so mm2 reads will see new data
-                zhpe.pmem_flush(v_rmm2+len1, len2)
+                # commit rmm2 writes, so mm2 reads will see new data
+                zhpe.commit(v_rmm2+len1, len2, True)
+                # invalidate mm2 to read fresh data
+                zhpe.invalidate(v2, len1_2, False)
                 if args.verbosity:
                     print('mm2 after remote update="{}"'.format(
                         mm2[0:len1_2].decode()))
                 if mm2[0:len1_2] != rmm2[0:len1_2]:
-                    print('Error: mm2 "{}" != rmm2 "{}"'.format(
+                    runtime_err('Error: mm2 "{}" != rmm2 "{}"'.format(
                         mm2[0:len1_2].decode(), rmm2[0:len1_2].decode()))
             else:
                 # just write mm2 directly, so it has the right stuff
@@ -395,14 +453,20 @@ def main():
             if args.verbosity:
                 print('mm2M sha256 after PUT="{}"'.format(mm2Msha256p))
             if mm2Msha256p != datasha256:
-                print('PUT sha mismatch: {} != {}'.format(datasha256, mm2Msha256p))
+                for i in range(3):
+                    save = open('mismatch.{}'.format(i), 'wb')
+                    save.write(mm2M[i*datasize:(i+1)*datasize])
+                    save.close()
+                runtime_err('PUT sha mismatch: {} != {}'.format(
+                        datasha256, mm2Msha256p))
 
             if args.keyboard:
                 set_trace()
             # test GET+SYNC
             get_offset = 2 * datasize
             if modp.no_iommu:
-                local_addr = rsp2M_r.physaddr + get_offset # Revisit: physaddr temporary
+                # Revisit: physaddr temporary
+                local_addr = rsp2M_r.physaddr + get_offset
             else:
                 local_addr = v2M + get_offset
             rem_addr = rsp_rmr2M.req_addr + put_offset
@@ -431,7 +495,7 @@ def main():
             if args.verbosity:
                 print('mm2M sha256 after GET="{}"'.format(mm2Msha256g))
             if mm2Msha256g != datasha256:
-                print('GET sha mismatch: {} != {}'.format(
+                runtime_err('GET sha mismatch: {} != {}'.format(
                     datasha256, mm2Msha256g))
 
             # Do the atomic tests at the 1M point in the 2M region
@@ -458,7 +522,8 @@ def main():
             if args.keyboard:
                 set_trace()
 
-            # test the same atomic 32 bit SWAP to see if the prev val is now 0x12345678
+            # test the same atomic 32 bit SWAP to see if the prev val is now
+            # 0x12345678
             swap32 = zhpe.xdm_cmd()
             swap32.opcode = zhpe.XDM_CMD.ATM_SWAP
             swap32.atomic_one_op32.r = 1  # return a value
@@ -477,8 +542,9 @@ def main():
                 print('SWAP32 return value: {}'.format(
                       swap32_cmpl.atomic32))
             if swap32_cmpl.atomic32.retval != 0x12345678:
-                print('FAIL: SWAP32: retval is {:#x} and should be 0x12345678'.format(
-                      swap32_cmpl.atomic32.retval))
+                runtime_err(
+                    ('FAIL: SWAP32: retval is {:#x} and should be ' +
+                     '0x12345678').format(swap32_cmpl.atomic32.retval))
             if args.keyboard:
                 set_trace()
 
@@ -502,8 +568,9 @@ def main():
                 print('CAS32 return value: {}'.format(
                       cas32_cmpl.atomic32))
             if cas32_cmpl.atomic32.retval != 0xDEADBEEF:
-                print('FAIL: CAS32: retval is {:#x} and should be 0xDEADBEEF'.format(
-                      cas32_cmpl.atomic32.retval))
+                runtime_err(
+                    ('FAIL: CAS32: retval is {:#x} and should be ' +
+                     '0xDEADBEEF').format(cas32_cmpl.atomic32.retval))
             if args.keyboard:
                 set_trace()
 
@@ -526,8 +593,9 @@ def main():
                 print('ADD32 return value: {}'.format(
                       add32_cmpl.atomic32))
             if add32_cmpl.atomic32.retval != 0xBDA11FED:
-                print('FAIL: ADD32: retval is {:#x} and should be 0xBDA11FED'.format(
-                      add32_cmpl.atomic32.retval))
+                runtime_err(
+                    ('FAIL: ADD32: retval is {:#x} and should be ' +
+                     '0xBDA11FED').format(add32_cmpl.atomic32.retval))
             if args.keyboard:
                 set_trace()
 
@@ -545,11 +613,13 @@ def main():
                 print('SWAP32 cmpl error: {} {:#x} request_id {:#x}'.format(
                       e, e.status, e.request_id))
             if swap32_cmpl.atomic32.retval != 0xCFD57665:
-                print('FAIL: ADD32: retval is {:#x} and should be 0xCFD57665'.format(
-                      swap32_cmpl.atomic32.retval))
+                runtime_err(
+                    ('FAIL: ADD32: retval is {:#x} and should be ' +
+                     '0xCFD57665').format(swap32_cmpl.atomic32.retval))
             else:
                 if args.verbosity:
-                    print('ADD32: PASS: sum is {:#x}'.format(swap32_cmpl.atomic32.retval))
+                    print('ADD32: PASS: sum is {:#x}'.format(
+                        swap32_cmpl.atomic32.retval))
 
             # test atomic 64 bit SWAP 
             swap64 = zhpe.xdm_cmd()
@@ -590,8 +660,9 @@ def main():
                 print('SWAP64 return value: {}'.format(
                       swap64_cmpl.atomic64))
             if swap64_cmpl.atomic64.retval != 0xDEADBEEFEDA11AB:
-                print('FAIL: SWAP64: retval is {:#x} and should be 0xDEADBEEFEDA11AB'.format(
-                      swap64_cmpl.atomic64.retval))
+                runtime_err(
+                    ('FAIL: SWAP64: retval is {:#x} and should be ' +
+                     '0xDEADBEEFEDA11AB').format(swap64_cmpl.atomic64.retval))
             if args.keyboard:
                 set_trace()
                
@@ -615,8 +686,9 @@ def main():
                 print('CAS64 return value: {}'.format(
                       cas64_cmpl.atomic64))
             if cas64_cmpl.atomic64.retval != 0x123456789ABCDEF1:
-                print('FAIL: CAS64: retval is {:#x} and should be 0x123456789ABCDEF1'.format(
-                      cas64_cmpl.atomic64.retval))
+                runtime_err(
+                    ('FAIL: CAS64: retval is {:#x} and should be ' +
+                     '0x123456789ABCDEF1').format(cas64_cmpl.atomic64.retval))
             if args.keyboard:
                 set_trace()
 
@@ -639,8 +711,9 @@ def main():
                 print('ADD64 return value: {}'.format(
                       add64_cmpl.atomic64))
             if add64_cmpl.atomic64.retval != 0x123456789abcdef1:
-                print('FAIL: ADD64: retval is {:#x} and should be 0x0x123456789abcdef1'.format(
-                      add64_cmpl.atomic64.retval))
+                runtime_err(
+                    ('FAIL: ADD64: retval is {:#x} and should be ' +
+                     '0x0x123456789abcdef1').format(add64_cmpl.atomic64.retval))
             # use atomic 64 bit SWAP to get the sum from previous ADD
             swap64 = zhpe.xdm_cmd()
             swap64.opcode = zhpe.XDM_CMD.ATM_SWAP
@@ -655,11 +728,13 @@ def main():
                 print('SWAP64 cmpl error: {} {:#x} request_id {:#x}'.format(
                       e, e.status, e.request_id))
             if swap64_cmpl.atomic64.retval != 0x23456789ABCDF002:
-                print('FAIL: ADD64: retval is {:#x} and should be 0x23456789ABCDF002'.format(
-                      swap64_cmpl.atomic64.retval))
+                runtime_err(
+                    ('FAIL: ADD64: retval is {:#x} and should be ' +
+                     '0x23456789ABCDF002').format(swap64_cmpl.atomic64.retval))
             else:
                 if args.verbosity:
-                    print('ADD64: PASS: sum is {:#x}'.format(swap64_cmpl.atomic64.retval))
+                    print('ADD64: PASS: sum is {:#x}'.format(
+                        swap64_cmpl.atomic64.retval))
             if args.keyboard:
                 set_trace()
 
@@ -681,8 +756,9 @@ def main():
             if args.verbosity:
                 print('RDM cmpl: {}'.format(rdm_cmpl.enqa))
             if enqa.enqa.payload[0:52] != rdm_cmpl.enqa.payload[0:52]:
-                print('FAIL: RDM: payload is {} and should be {}'.format(
-                      rdm_cmpl.enqa.payload[0:52], enqa.enqa.payload[0:52]))
+                runtime_err(
+                    'FAIL: RDM: payload is {} and should be {}'.format(
+                    rdm_cmpl.enqa.payload[0:52], enqa.enqa.payload[0:52]))
             # Revisit: check other cmpl fields
             if args.keyboard:
                 set_trace()
@@ -704,12 +780,13 @@ def main():
             rdm_cmpls = rdm.get_poll(verbosity=args.verbosity)
             if args.verbosity:
                 for c in range(len(rdm_cmpls)):
-                    if c != None:
-                         print('RDM cmpl: {}'.format(rdm_cmpls[c].enqa))
+                    print('RDM cmpl: {}'.format(rdm_cmpls[c].enqa))
             for c in range(len(rdm_cmpls)):
                 if enqa.enqa.payload[0:52] != rdm_cmpls[c].enqa.payload[0:52]:
-                    print('FAIL: RDM: payload is {} and should be {}'.format(
-                      rdm_cmpls[c].enqa.payload[0:52], enqa.enqa.payload[0:52]))
+                    runtime_err(
+                        'FAIL: RDM: payload is {} and should be {}'.format(
+                        rdm_cmpls[c].enqa.payload[0:52],
+                        enqa.enqa.payload[0:52]))
             if args.keyboard:
                 set_trace()
 
@@ -732,12 +809,13 @@ def main():
             rdm_cmpls2 = rdm.get_poll(verbosity=args.verbosity)
             if args.verbosity:
                 for c in range(len(rdm_cmpls2)):
-                    if c != None:
-                         print('RDM cmpl: {}'.format(rdm_cmpls2[c].enqa))
+                    print('RDM cmpl: {}'.format(rdm_cmpls2[c].enqa))
             for c in range(len(rdm_cmpls2)):
                 if enqa2.enqa.payload[0:52] != rdm_cmpls2[c].enqa.payload[0:52]:
-                    print('FAIL: RDM: payload is {} and should be {}'.format(
-                      rdm_cmpls[c].enqa.payload[0:52], enqa.enqa.payload[0:52]))
+                    runtime_err(
+                        'FAIL: RDM: payload is {} and should be {}'.format(
+                        rdm_cmpls[c].enqa.payload[0:52],
+                        enqa.enqa.payload[0:52]))
             if args.keyboard:
                 set_trace()
             # test FAM
@@ -756,8 +834,8 @@ def main():
                     fam_v, fam_l = zhpe.mmap_vaddr_len(fam_rmm)
                     fam_rmm[0:len1] = str1
                     fam_rmm[len1:len1_2] = str2
-                    # flush writes, so reads will see new data
-                    zhpe.pmem_flush(fam_v, len1_2)
+                    # commit writes, so reads will see new data
+                    zhpe.commit(fam_v, len1_2, True)
                 else:
                     fam_rmr = conn.do_RMR_IMPORT(fam_zuu, 0, sz2M, MR.GRPRI)
                 # do an XDM command to get the data back and check it
@@ -781,8 +859,8 @@ def main():
                        else:
                            print('FAM comparision FAIL')
                 except XDMcompletionError as e:
-                    print('GET_IMM cmpl error: {} {:#x} request_id {:#x}'.format(
-                          e, e.status, e.request_id))
+                    print(('GET_IMM cmpl error: {} {:#x} request_id ' +
+                           '{:#x}').format(e, e.status, e.request_id))
                 # Revisit: check that we got str1+str2
                 if args.keyboard:
                     set_trace()
@@ -810,20 +888,21 @@ def main():
                     if args.verbosity:
                         print('huge PUT cmpl: {}'.format(put_cmpl))
                 except XDMcompletionError as e:
-                    print('huge PUT cmpl error: {} {:#x} request_id {:#x}'.format(
-                        e, e.status, e.request_id))
+                    print(('huge PUT cmpl error: {} {:#x} request_id ' +
+                           '{:#x}').format(e, e.status, e.request_id))
                 # Revisit: need fence/sync to ensure visibility
                 mm1Gsha256p = hashlib.sha256(
                     mm1G[put_offset:put_offset+hugesize//2]).hexdigest()
                 if args.verbosity:
                     print('mm1G sha256 after PUT="{}"'.format(mm1Gsha256p))
                 if mm1Gsha256p != mm1Gsha256h:
-                    print('huge PUT sha mismatch: {} != {}'.format(
+                    runtime_err('huge PUT sha mismatch: {} != {}'.format(
                         mm1Gsha256h, mm1Gsha256h))
                 secs = end - start
                 if args.verbosity:
-                    print('huge PUT of {} bytes in {} seconds = {} GiB/s'.format(
-                        put.getput.size, secs, put.getput.size / (secs * sz1G)))
+                    print(('huge PUT of {} bytes in {} seconds =' +
+                           ' {} GiB/s').format(put.getput.size, secs,
+                        put.getput.size / (secs * sz1G)))
             # end if huge
         # end if loopback
 
@@ -833,8 +912,8 @@ def main():
             net.reactor.run()
         if args.keyboard:
             set_trace()
-        conn.do_XQUEUE_FREE(xdm.rsp_xqa.info)
-        conn.do_RQUEUE_FREE(rdm.rsp_rqa.info)
+        conn.do_XQUEUE_FREE(xdm)
+        conn.do_RQUEUE_FREE(rdm)
         if args.requester:
             conn.do_MR_FREE(v, l, MR.GPI, rsp.rsp_zaddr)
         conn.do_MR_FREE(v2M, l2M, MR.GP, rsp2M_l.rsp_zaddr)
@@ -869,4 +948,11 @@ def main():
     # end with
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except Exception as post_err:
+        if args.post_mortem:
+            post_mortem()
+        else:
+            raise
+

@@ -42,7 +42,7 @@ from ctypes import *
 from enum import Enum, IntEnum
 from collections import defaultdict
 
-pmem = cdll.LoadLibrary('libpmem.so.1')
+mcommit = cdll.LoadLibrary('./libmcommit.so')
 
 c_u8  = c_ubyte
 c_u16 = c_ushort
@@ -92,18 +92,17 @@ class MR(IntEnum):
     '''MR_REG access flags'''
     GET         = 1 << 0
     PUT         = 1 << 1
-    SEND        = PUT
-    RECV        = GET
     GET_REMOTE  = 1 << 2
     PUT_REMOTE  = 1 << 3
-    KEY_ONESHOT = 1 << 7
+    SEND        = GET_REMOTE
+    RECV        = GET
+    INDIVIDUAL  = 1 << 7
     REQ_CPU     = 1 << 27
     REQ_CPU_WB  = 0 << 28
     REQ_CPU_WC  = 1 << 28
     REQ_CPU_WT  = 2 << 28
     REQ_CPU_UC  = 3 << 28
-    INDIVIDUAL  = 1 << 30
-    KEY_VALID   = 1 << 31
+    ZMMU_ONLY   = 1 << 31
     G           = GET
     P           = PUT
     GR          = GET_REMOTE
@@ -131,14 +130,14 @@ class OP(Enum):
     NOP         = 3
     RMR_IMPORT  = 4
     RMR_FREE    = 5
-    ZMMU_REG    = 6
-    ZMMU_FREE   = 7
-    UUID_IMPORT = 8
-    UUID_FREE   = 9
-    XQUEUE_ALLOC= 10
-    XQUEUE_FREE = 11
-    RQUEUE_ALLOC= 12
-    RQUEUE_FREE = 13
+    UUID_IMPORT = 6
+    UUID_FREE   = 7
+    XQUEUE_ALLOC= 8
+    XQUEUE_FREE = 9
+    RQUEUE_ALLOC= 10
+    RQUEUE_FREE = 11
+    RQUEUE_ALLOC_SPECIFIC = 12
+    FEATURE     = 13
     RESPONSE    = 0x80
     VERSION     = 1
     INDEX_MASK  = 0xffff
@@ -171,6 +170,10 @@ class XDM_CMD(IntEnum):
 class ATOMIC_SIZE(IntEnum):
     SIZE_32BIT    = 2
     SIZE_64BIT    = 3
+
+class FEATURES(IntEnum):
+    FEATURE_MR_OVERLAP_CHECKING    = 0x1
+    FEATURE_DUMP_Q0                = 0x2
 
 class hdr(Structure):
     _fields_ = [('version',        c_u8),
@@ -225,13 +228,13 @@ class rqinfo(Structure):
                 ('cmplq',      queue),
                 ('slice',      c_u8),
                 ('queue',      c_u8),
+                ('clump',      c_u16),
                 ('rspctxid',   c_u32),
                 ('irq_vector', c_u32)
                 ]
 
 class zhpe_attr(Structure):
-    _fields_ = [('backend',        c_u32),
-                ('max_tx_queues',  c_u32),
+    _fields_ = [('max_tx_queues',  c_u32),
                 ('max_rx_queues',  c_u32),
                 ('max_tx_qlen',    c_u32),
                 ('max_rx_qlen',    c_u32),
@@ -240,17 +243,11 @@ class zhpe_attr(Structure):
                ]
 
 class global_shared_data(Structure):
-    _fields_ = [('magic',             c_u32),
-                ('version',           c_u32),
-                ('debug_flags',       c_u32),
-                ('default_attr',      zhpe_attr),
-                ('triggered_counter', c_u32 * 128)
+    _fields_ = [('triggered_counter', c_u32 * 128)
                ]
 
 class local_shared_data(Structure):
-    _fields_ = [('magic',             c_u32),
-                ('version',           c_u32),
-                ('handled_counter',   c_u32 * 128)
+    _fields_ = [('handled_counter',   c_u32 * 128)
                ]
 
 class req_INIT(Structure):
@@ -259,6 +256,8 @@ class req_INIT(Structure):
 
 class rsp_INIT(uuidStructure):
     _fields_ = [('hdr',                  hdr),
+                ('magic',                c_u32),
+                ('attr',                 zhpe_attr),
                 ('uuid_bytes',           c_byte * 16),
                 ('global_shared_offset', c_u64),
                 ('global_shared_size',   c_u32),
@@ -410,6 +409,12 @@ class rsp_RQUEUE_ALLOC(Structure):
                 ('info',           rqinfo),
                 ]
 
+class req_RQUEUE_ALLOC_SPECIFIC(Structure):
+    _fields_ = [('hdr',                     hdr),
+                ('cmplq_ent',               c_u32),
+                ('qspecific',               c_u32),
+                ]
+
 class req_RQUEUE_FREE(Structure):
     _fields_ = [('hdr',            hdr),
                 ('info',           rqinfo),
@@ -417,6 +422,16 @@ class req_RQUEUE_FREE(Structure):
 
 class rsp_RQUEUE_FREE(Structure):
     _fields_ = [('hdr',            hdr),
+                ]
+
+class req_FEATURE(Structure):
+    _fields_ = [('hdr',                     hdr),
+                ('features',                c_u64),
+                ]
+
+class rsp_FEATURE(Structure):
+    _fields_ = [('hdr',                     hdr),
+                ('features',                c_u64),
                 ]
 
 class xdm_cmd_hdr(Structure):
@@ -518,6 +533,8 @@ class xdm_cmd(Union):
 
     cmd_to_name = {k.value : v for (k, v) in zip(XDM_CMD, cmd_names)}
 
+    name_to_cmd = {v : k.value  for (k, v) in zip(XDM_CMD, cmd_names)}
+
     @property
     def fence(self):
         return self.hdr.opcode & XDM_CMD.FENCE.value
@@ -528,14 +545,29 @@ class xdm_cmd(Union):
 
     @opcode.setter
     def opcode(self, cmd):
-        self.hdr.opcode = cmd.value if isinstance(cmd, XDM_CMD) else cmd
+        opcode = None
+        if isinstance(cmd, str):
+            opcode = xdm_cmd.name_to_cmd[cmd.upper()]
+        elif isinstance(cmd, int):
+            opcode = cmd
+        elif isinstance(cmd, XDM_CMD):
+            opcode = cmd.value
+        if opcode is None:
+            raise RuntimeError('Unexpected type: {} {}'.format(cmdtype, cmd))
+        self.hdr.opcode = opcode
 
     def __repr__(self):
         cmd_name = xdm_cmd.cmd_to_name[self.opcode]
         r = type(self).__name__ + '(' + cmd_name
         if self.fence:
             r += ':fence'
-        r += ', {:#x}'.format(self.hdr.request_id)
+        r += ', id={:#x}'.format(self.hdr.request_id)
+        if self.opcode == XDM_CMD.GET_IMM or self.opcode == XDM_CMD.PUT_IMM:
+            r += ', sz={:#x} rem={:#x}'.format(
+                self.getput_imm.size, self.getput_imm.rem_addr)
+        elif self.opcode == XDM_CMD.GET or self.opcode == XDM_CMD.PUT:
+            r += ', sz={:#x}, rd={:#x}, wr={:#x}'.format(
+                self.getput.size, self.getput.read_addr, self.getput.write_addr)
         r += ')'
         return r
 
@@ -558,7 +590,7 @@ class xdm_cmpl_enqa(Structure):
                 ]
 
     def __repr__(self):
-        r = type(self).__name__ + '({:#x}'.format(self.hdr.request_id)
+        r = type(self).__name__ + '(id={:#x}'.format(self.hdr.request_id)
         r += ', v={}'.format(self.hdr.v)
         r += ', status={:#x}'.format(self.hdr.status)
         r += ', qd={}'.format(self.hdr.qd)
@@ -572,7 +604,7 @@ class xdm_cmpl_getimm(Structure):
                 ]
 
     def __repr__(self):
-        r = type(self).__name__ + '({:#x}'.format(self.hdr.request_id)
+        r = type(self).__name__ + '(id={:#x}'.format(self.hdr.request_id)
         r += ', v={}'.format(self.hdr.v)
         r += ', status={:#x}'.format(self.hdr.status)
         r += ', payload="{}"'.format(bytearray(self.payload))
@@ -587,7 +619,7 @@ class xdm_cmpl_atomic32(Structure):
                 ]
 
     def __repr__(self):
-        r = type(self).__name__ + '({:#x}'.format(self.hdr.request_id)
+        r = type(self).__name__ + '(id={:#x}'.format(self.hdr.request_id)
         r += ', v={}'.format(self.hdr.v)
         r += ', status={:#x}'.format(self.hdr.status)
         r += ', retval={:#x}'.format(self.retval)
@@ -602,7 +634,7 @@ class xdm_cmpl_atomic64(Structure):
                 ]
 
     def __repr__(self):
-        r = type(self).__name__ + '({:#x}'.format(self.hdr.request_id)
+        r = type(self).__name__ + '(id={:#x}'.format(self.hdr.request_id)
         r += ', v={}'.format(self.hdr.v)
         r += ', status={:#x}'.format(self.hdr.status)
         r += ', retval={:#x}'.format(self.retval)
@@ -619,7 +651,7 @@ class xdm_cmpl(Union):
                 ]
 
     def __repr__(self):
-        r = type(self).__name__ + '({:#x}'.format(self.hdr.request_id)
+        r = type(self).__name__ + '(id={:#x}'.format(self.hdr.request_id)
         r += ', v={}'.format(self.hdr.v)
         r += ', status={:#x}'.format(self.hdr.status)
         r += ')'
@@ -744,6 +776,7 @@ class XDM():
         self.qcm.toggle_valid = self.cur_valid
         self.qcm._stop = 0  # Revisit: use stop, not _stop
         self.cmd_q_tail_shadow = self.qcm.cmd_q_tail_idx
+        self.cmd_q_ring_shadow = self.qcm.cmd_q_tail_idx
         self.cmd_q_head_shadow = self.qcm.cmd_q_head_idx
         self.cmpl_q_tail_shadow = self.qcm.cmpl_q_tail_idx
         self.cmd_buf_state = [0] * 16  # a list of 16 zeros
@@ -792,53 +825,53 @@ class XDM():
         else:
             print('buffer_cmd: ERROR: invalid opcode {}'.format(cmd.opcode))
 
+    def ring(self):
+        self.cmd_q_ring_shadow = self.cmd_q_tail_shadow
+        self.qcm.cmd_q_tail_idx = self.cmd_q_ring_shadow
 
-    def queue_cmd(self, cmd):
+    def ring2(self, entries=1):
+        self.cmd_q_ring_shadow = ((self.cmd_q_ring_shadow + entries) &
+                                  (self.rsp_xqa.info.cmdq.ent - 1))
+        self.qcm.cmd_q_tail_idx = self.cmd_q_ring_shadow
+
+    def queue_cmd(self, cmd, ring=True):
         # Revisit: check for cmdq full
         t = self.cmd_q_tail_shadow
         cmd.hdr.request_id = t
         self.cmd[t] = cmd
         self.cmd_q_tail_shadow = ((self.cmd_q_tail_shadow + 1) %
                                   self.rsp_xqa.info.cmdq.ent)
-        self.qcm.cmd_q_tail_idx = self.cmd_q_tail_shadow
+        if ring:
+            self.ring()
 
     def queue_cmds(self, cmds):
-        cnt = len(cmds)
         # Revisit: check for cmdq full
         for cmd in cmds:
-            t = self.cmd_q_tail_shadow
-            cmd.hdr.request_id = t
-            self.cmd[t] = cmd
-            self.cmd_q_tail_shadow = ((self.cmd_q_tail_shadow + 1) %
-                                      self.rsp_xqa.info.cmdq.ent)
-        self.qcm.cmd_q_tail_idx = self.cmd_q_tail_shadow
+            self.queue_cmd(cmd, False)
+        self.ring()
 
-    def get_cmpl(self, wait=True):
+    def get_cmpl(self, wait=True, raise_err=True):
         t = self.cmpl_q_tail_shadow
-        try:  # Revisit: debug
-            while True:  # Spin until cmpl[t] becomes valid if wait is True
-                if self.cmpl[t].hdr.v == self.cur_valid:
-                    break
-                elif wait == False:
-                    return None
-        except KeyboardInterrupt:
-            print('get_cmpl(t={}: KeyboardInterrupt'.format(t))
-            return None
+        while True:  # Spin until cmpl[t] becomes valid if wait is True
+            if self.cmpl[t].hdr.v == self.cur_valid:
+                break
+            elif wait == False:
+                return None
         self.cmpl_q_tail_shadow = ((self.cmpl_q_tail_shadow + 1) %
                                    self.rsp_xqa.info.cmplq.ent)
         if self.cmpl_q_tail_shadow < t:  # toggle expected valid on wrap
             self.cur_valid = self.cur_valid ^ 1
-        if self.cmpl[t].hdr.status != 0:
-            raise XDMcompletionError('bad status',
-                                     self.cmpl[t].hdr.request_id,
-                                     self.cmpl[t].hdr.status)
-
         # is this a buffer command?
         if self.cmpl[t].hdr.request_id >= self.rsp_xqa.info.cmdq.ent:
             b = self.cmpl[t].hdr.request_id - self.rsp_xqa.info.cmdq.ent
             if b < 16:
                 # mark this buffer free
                 self.cmd_buf_state[b] = 0
+
+        if self.cmpl[t].hdr.status != 0 and raise_err:
+            raise XDMcompletionError('bad status',
+                                     self.cmpl[t].hdr.request_id,
+                                     self.cmpl[t].hdr.status)
 
         return self.cmpl[t]
 
@@ -961,15 +994,11 @@ class RDM():
 
     def get_cmpl(self, wait=True):
         h = self.cmpl_q_head_shadow
-        try:  # Revisit: debug
-            while True:  # Spin until cmpl[h] becomes valid if wait is True
-                if self.cmpl[h].hdr.v == self.cur_valid:
-                    break
-                elif wait == False:
-                    return None
-        except KeyboardInterrupt:
-            print('get_cmpl(h={}: KeyboardInterrupt'.format(h))
-            return None
+        while True:  # Spin until cmpl[h] becomes valid if wait is True
+            if self.cmpl[h].hdr.v == self.cur_valid:
+                break
+            elif wait == False:
+                return None
         self.cmpl_q_head_shadow = ((self.cmpl_q_head_shadow + 1) %
                                    self.rsp_rqa.info.cmplq.ent)
         if self.cmpl_q_head_shadow < h:  # toggle expected valid on wrap
@@ -1003,9 +1032,11 @@ class RDM():
                               print('triggered is {}'.format(triggered))
                           # Loop through all RDM that have this irq_vector
                           for rdm in self.conn.rdm_per_irq_index[irq_vector]:
-                              cmpls.append(rdm.get_cmpl(wait=False))
-                              if verbosity:
-                                  print('poll RDM cmpl: {}'.format(cmpls))
+                              cmpl = rdm.get_cmpl(wait=False)
+                              if cmpl is not None:
+                                  cmpls.append(cmpl)
+                                  if verbosity:
+                                      print('poll RDM cmpl: {}'.format(cmpl))
                           handled = True
                   break
         finally:
@@ -1039,11 +1070,15 @@ class Connection():
         return self._file.fileno()
 
     def write(self, req):
+#       with memoryview(req) as view:
+#           print('req bytes = {}'.format(view.nbytes))
         self._index += 1  # Revisit: this isn't atomic
         req.hdr.index = self._index
         return self._file.write(req)
 
     def read(self, rsp):
+#       with memoryview(rsp) as view:
+#           print('rsp bytes = {}'.format(view.nbytes))
         self._file.readinto(rsp)
         err = rsp.hdr.status
         if rsp.hdr.status < 0:
@@ -1178,8 +1213,8 @@ class Connection():
             print('XQUEUE_ALLOC: qcm.size={}, qcm.off={:#x}, cmdq.ent={}, cmdq.size={}, cmdq.off={:#x}, cmplq.ent={}, cmplq.size={}, cmplq.off={:#x}, slice={}, queue={}'.format(rsp.info.qcm.size, rsp.info.qcm.off, rsp.info.cmdq.ent, rsp.info.cmdq.size, rsp.info.cmdq.off, rsp.info.cmplq.ent, rsp.info.cmplq.size, rsp.info.cmplq.off, rsp.info.slice, rsp.info.queue))
         return rsp
 
-    def do_XQUEUE_FREE(self, info):
-        req = req_XQUEUE_FREE(hdr(OP.XQUEUE_FREE), info)
+    def do_XQUEUE_FREE(self, xdm):
+        req = req_XQUEUE_FREE(hdr(OP.XQUEUE_FREE), xdm.rsp_xqa.info)
         self.write(req)
         rsp = rsp_XQUEUE_FREE(hdr(OP.XQUEUE_FREE,
                                   index=req.hdr.index, rsp=True))
@@ -1197,14 +1232,26 @@ class Connection():
             print('RQUEUE_ALLOC: qcm.size={}, qcm.off={:#x}, cmplq.ent={}, cmplq.size={}, cmplq.off={:#x}, slice={}, queue={}, rspctxid={} irq_vector={}'.format(rsp.info.qcm.size, rsp.info.qcm.off, rsp.info.cmplq.ent, rsp.info.cmplq.size, rsp.info.cmplq.off, rsp.info.slice, rsp.info.queue, rsp.info.rspctxid, rsp.info.irq_vector))
         return rsp
 
-    def do_RQUEUE_FREE(self, info):
-        req = req_RQUEUE_FREE(hdr(OP.RQUEUE_FREE), info)
+    def do_RQUEUE_FREE(self, rdm):
+        req = req_RQUEUE_FREE(hdr(OP.RQUEUE_FREE), rdm.rsp_rqa.info)
         self.write(req)
         rsp = rsp_RQUEUE_FREE(hdr(OP.RQUEUE_FREE,
                                   index=req.hdr.index, rsp=True))
         self.read(rsp)
+        self.rdm_per_irq_index[rdm.rsp_rqa.info.irq_vector].remove(rdm)
         if self.verbosity:
             print('RQUEUE_FREE: status={}'.format(rsp.hdr.status))
+
+    def do_FEATURE(self, features):
+        if self.verbosity:
+            print('FEATURE: features={:#x}'.format(features))
+        req = req_FEATURE(hdr(OP.FEATURE), features)
+        self.write(req)
+        rsp = rsp_FEATURE(hdr(OP.FEATURE, index=req.hdr.index, rsp=True))
+        self.read(rsp)
+        if self.verbosity:
+            print('FEATURE: rsp_features={:#x}'.format(rsp.features))
+        return rsp
 
     def poll_open(self, irq_index):
         if self.poll_file[irq_index] == None:
@@ -1242,5 +1289,11 @@ def mmap_vaddr_len(mm):
     pythonapi.PyObject_AsReadBuffer(obj, byref(vaddr), byref(length))
     return (vaddr.value, length.value)
 
-def pmem_flush(vaddr, length):
-    pmem.pmem_flush(c_void_p(vaddr), c_size_t(length))
+def invalidate(vaddr, length, fence):
+    mcommit.invalidate(c_void_p(vaddr), c_size_t(length), c_bool(fence))
+
+def flush(vaddr, length, fence):
+    mcommit.flush(c_void_p(vaddr), c_size_t(length), c_bool(fence))
+
+def commit(vaddr, length, fence):
+    mcommit.commit(c_void_p(vaddr), c_size_t(length), c_bool(fence))
