@@ -108,6 +108,7 @@ enum {
     DEBUG_MSG           = 0x00002000,
     DEBUG_INTR          = 0x00004000,
     DEBUG_MSGV          = 0x00008000,
+    DEBUG_QUEUE         = (DEBUG_XQUEUE | DEBUG_RQUEUE),
 };
 
 /* ZHPE_MAGIC == 'ZHPE' */

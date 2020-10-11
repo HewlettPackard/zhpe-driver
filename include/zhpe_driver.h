@@ -522,9 +522,8 @@ struct file_data {
     union zpages        *local_shared_zpage;
     struct zmap         *local_shared_zmap;
     struct zmap         *global_shared_zmap;
-    struct mutex        xdm_queue_mutex;
+    struct mutex        queue_mutex;
     DECLARE_BITMAP(xdm_queues, MAX_XDM_QUEUES_PER_SLICE*SLICES);
-    spinlock_t          rdm_queue_lock;
     DECLARE_BITMAP(rdm_queues, MAX_RDM_QUEUES_PER_SLICE*SLICES);
     pid_t               pid;        /* pid that allocated this file_data */
     struct zhpe_umem    *big_rsp_umem;

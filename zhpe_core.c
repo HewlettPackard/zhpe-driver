@@ -68,6 +68,9 @@ MODULE_PARM_DESC(debug, "debug output bitmask");
 module_param_named(kmsg_timeout, zhpe_kmsg_timeout, uint, 0444);
 MODULE_PARM_DESC(kmsg_timeout,
                  "kernel-to-kernel message timeout in seconds (default: 10)");
+module_param_named(queue_timeout, zhpe_queue_timeout, uint, 0444);
+MODULE_PARM_DESC(queue_timeout,
+                 "queue shutdown timeout in seconds (default: 60)");
 
 /*
  * Write pusher default settings:
@@ -1284,8 +1287,7 @@ static int zhpe_release(struct inode *inode, struct file *file)
     fdata->state &= ~STATE_INIT;
     fdata->state |= STATE_CLOSED;
     spin_unlock(&fdata->io_lock);
-    zhpe_release_owned_xdm_queues(fdata);
-    zhpe_release_owned_rdm_queues(fdata);
+    zhpe_release_owned_queues(fdata);
     free_zmap_list(fdata);
     free_io_lists(fdata);
     zhpe_rmr_free_all(fdata);
@@ -1838,11 +1840,10 @@ static int zhpe_open(struct inode *inode, struct file *file)
     fdata->fd_rmr_tree = RB_ROOT;
     INIT_LIST_HEAD(&fdata->zmap_list);
     spin_lock_init(&fdata->zmap_lock);
-    mutex_init(&fdata->xdm_queue_mutex);
+    mutex_init(&fdata->queue_mutex);
     /* xdm_queues tracks what queues are owned by this file_data */
     /* Revisit Perf: what is the tradeoff of size of bitmap vs. rbtree? */
     bitmap_zero(fdata->xdm_queues, zhpe_xdm_queues_per_slice*SLICES);
-    spin_lock_init(&fdata->rdm_queue_lock);
     bitmap_zero(fdata->rdm_queues, zhpe_rdm_queues_per_slice*SLICES);
     /* we only allow one open per pid */
     if (pid_to_fdata(fdata->bridge, fdata->pid)) {
@@ -2562,13 +2563,7 @@ static int zhpe_probe(struct pci_dev *pdev,
 
     zhpe_zmmu_clear_slice(sl);
 
-    zhpe_xqueue_init(sl);
-    ret = zhpe_clear_xdm_qcm(br, sl);
-    if (ret < 0)
-        goto err_pci_iounmap;
-
-    zhpe_rqueue_init(sl);
-    ret = zhpe_clear_rdm_qcm(br, sl);
+    ret = zhpe_slice_queue_init(sl);
     if (ret < 0)
         goto err_pci_iounmap;
 

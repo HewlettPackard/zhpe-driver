@@ -128,6 +128,8 @@ static inline uint64_t rdm_qcm_read(struct rdm_qcm *hw_qcm_addr,
     return ioread64(qcm_ptr(hw_qcm_addr, offset));
 }
 
+extern uint zhpe_queue_timeout;
+
 /* Function Prototypes */
 int zhpe_user_req_XQFREE(struct io_entry *entry);
 int zhpe_user_req_XQALLOC(struct io_entry *entry);
@@ -146,17 +148,13 @@ int zhpe_kernel_XQALLOC(struct xdm_info *xdmi);
 int zhpe_kernel_RQALLOC(struct rdm_info *rdmi);
 int zhpe_kernel_XQFREE(struct xdm_info *xdmi);
 int zhpe_kernel_RQFREE(struct rdm_info *rdmi);
-void zhpe_xqueue_init(struct slice *sl);
-void zhpe_rqueue_init(struct slice *sl);
+int zhpe_slice_queue_init(struct slice *sl);
 int free_xqueue(
 	struct io_entry *entry,
 	struct zhpe_req_XQFREE * free_req,
 	struct zhpe_rsp_XQFREE * free_rsp);
-int zhpe_clear_xdm_qcm(struct bridge *bridge, struct slice *sl);
-int zhpe_clear_rdm_qcm(struct bridge *bridge, struct slice *sl);
-void zhpe_stop_owned_xdm_queues(struct file_data *fdata);
-void zhpe_release_owned_xdm_queues(struct file_data *fdata);
-void zhpe_release_owned_rdm_queues(struct file_data *fdata);
+void zhpe_stop_owned_queues(struct file_data *fdata);
+int zhpe_release_owned_queues(struct file_data *fdata);
 int zhpe_rdm_queue_to_irq(int queue, struct slice *sl);
 int zhpe_rdm_queue_to_vector(int queue, struct slice *sl);
 void zhpe_debug_xdm_qcm(const char *func, uint line, const void *cqcm);
