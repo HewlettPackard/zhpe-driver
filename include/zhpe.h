@@ -87,6 +87,7 @@ enum {
     ZHPE_OP_RQALLOC_SPECIFIC,
     ZHPE_OP_FEATURE,
     ZHPE_OP_MR_REG_EXT,
+    ZHPE_OP_DUMP_VMA = 0x70,
     ZHPE_OP_RESPONSE = 0x80,
     ZHPE_OP_VERSION = 1,
 };
@@ -109,6 +110,7 @@ enum {
     DEBUG_INTR          = 0x00004000,
     DEBUG_MSGV          = 0x00008000,
     DEBUG_QUEUE         = (DEBUG_XQUEUE | DEBUG_RQUEUE),
+    DEBUG_VMA           = 0x80000000,
 };
 
 /* ZHPE_MAGIC == 'ZHPE' */
@@ -304,6 +306,14 @@ struct zhpe_rsp_FEATURE {
     uint64_t               features;
 };
 
+struct zhpe_req_DUMP_VMA {
+    struct zhpe_common_hdr hdr;
+};
+
+struct zhpe_rsp_DUMP_VMA {
+    struct zhpe_common_hdr hdr;
+};
+
 union zhpe_req {
     struct zhpe_common_hdr hdr;
     struct zhpe_req_INIT        init;
@@ -321,6 +331,7 @@ union zhpe_req {
     struct zhpe_req_RQFREE      rqfree;
     struct zhpe_req_RQALLOC_SPECIFIC rqalloc_specific;
     struct zhpe_req_FEATURE     feature;
+    struct zhpe_req_DUMP_VMA    dump_vma;
 };
 
 union zhpe_rsp {
@@ -339,6 +350,7 @@ union zhpe_rsp {
     struct zhpe_rsp_RQALLOC     rqalloc;
     struct zhpe_rsp_RQFREE      rqfree;
     struct zhpe_rsp_FEATURE     feature;
+    struct zhpe_req_DUMP_VMA    dump_vma;
 };
 
 union zhpe_op {

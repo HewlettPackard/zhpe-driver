@@ -54,6 +54,8 @@
 #include <linux/amd-iommu.h>
 #include <linux/cdev.h>
 #include <linux/delay.h>
+#include <linux/mempolicy.h>
+#include <linux/userfaultfd_k.h>
 
 #if LINUX_VERSION_CODE >=  KERNEL_VERSION(4, 11, 0)
 #include <linux/sched/signal.h>
@@ -1198,6 +1200,75 @@ static int zhpe_user_req_FEATURE(struct io_entry *entry)
     return queue_io_rsp(entry, sizeof(rsp->feature), status);
 }
 
+static void dump_vma(struct mm_struct *mm)
+{
+    int                 nxt_print = 0;
+    struct vm_area_struct *cur;
+    struct vm_area_struct *nxt;
+    int                 mis_flags;
+    int                 mis_close;
+    int                 mis_file;
+    int                 mis_ufault;
+    int                 mis_policy;
+    int                 mis_anon;
+
+    if (!mm)
+        return;
+
+    down_write(&mm->mmap_sem);
+    /* Search for any unmerged vmas and try figure out why. */
+    for (cur = find_vma(mm, 0); cur; cur = nxt) {
+        nxt = cur->vm_next;
+        if (unlikely(!nxt) || cur->vm_end != nxt->vm_start) {
+            if (nxt_print) {
+                nxt_print = 0;
+                debug(DEBUG_VMA,
+                      "0x%016lx-0x%016lx off 0x%016lx flags 0x%016lx"
+                      " f/u/p/a %d/%d/%d/%d\n",
+                      cur->vm_start, cur->vm_end, cur->vm_pgoff, cur->vm_flags,
+                      !!cur->vm_file, !!cur->vm_userfaultfd_ctx.ctx,
+                      !!vma_policy(cur), !!cur->anon_vma);
+            }
+            if (unlikely(!nxt))
+                break;
+            continue;
+        }
+
+        nxt_print = 1;
+        mis_flags = 0;
+        if ((cur->vm_flags & VM_SPECIAL) ||
+            ((cur->vm_flags ^ nxt->vm_flags) & ~VM_SOFTDIRTY))
+            mis_flags = 1;
+        mis_close = (cur->vm_ops && cur->vm_ops->close);
+        mis_file = (cur->vm_file != nxt->vm_file);
+        mis_ufault = !is_mergeable_vm_userfaultfd_ctx(cur,
+                                                      nxt->vm_userfaultfd_ctx);
+        mis_policy = (vma_policy(cur) != vma_policy(nxt));
+        mis_anon  = (cur->anon_vma != nxt->anon_vma);
+
+        debug(DEBUG_VMA,
+              "0x%016lx-0x%016lx off 0x%016lx flags 0x%016lx"
+              " f/u/p/a %d/%d/%d/%d F/c/f/u/p/a %d/%d/%d/%d/%d/%d\n",
+              cur->vm_start, cur->vm_end, cur->vm_pgoff, cur->vm_flags,
+              !!cur->vm_file, !!cur->vm_userfaultfd_ctx.ctx,
+              !!vma_policy(cur), !!cur->anon_vma,
+              mis_flags, mis_close, mis_file, mis_ufault, mis_policy, mis_anon);
+    }
+    up_write(&mm->mmap_sem);
+}
+
+static int zhpe_user_req_DUMP_VMA(struct io_entry *entry)
+{
+    union zhpe_rsp      *rsp = &entry->op.rsp;
+    struct file_data    *fdata = entry->fdata;
+
+    dump_vma(fdata->mm);
+
+    return queue_io_rsp(entry, sizeof(rsp->dump_vma), 0);
+}
+
+
+
 /* This function called by IOMMU driver on PPR failure */
 static int iommu_invalid_ppr_cb(struct pci_dev *pdev, int pasid,
                                 unsigned long address, u16 flags)
@@ -1428,6 +1499,7 @@ static ssize_t zhpe_write(struct file *file, const char __user *buf,
     USER_REQ_HANDLER(RQFREE);
     USER_REQ_HANDLER(RQALLOC_SPECIFIC);
     USER_REQ_HANDLER(FEATURE);
+    USER_REQ_HANDLER(DUMP_VMA);
 
     default:
         zprintk(KERN_ERR, "Unexpected opcode 0x%02x\n", op_hdr->opcode);
