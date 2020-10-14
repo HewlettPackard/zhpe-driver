@@ -110,7 +110,7 @@ enum {
     DEBUG_INTR          = 0x00004000,
     DEBUG_MSGV          = 0x00008000,
     DEBUG_QUEUE         = (DEBUG_XQUEUE | DEBUG_RQUEUE),
-    DEBUG_VMA           = 0x80000000,
+    DEBUG_DEBUG         = 0x80000000,
 };
 
 /* ZHPE_MAGIC == 'ZHPE' */

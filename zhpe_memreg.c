@@ -1082,6 +1082,7 @@ int zhpe_user_req_RMR_IMPORT(struct io_entry *entry)
     char                    uustr[UUID_STRING_LEN+1];
     char                    gcstr[GCID_STRING_LEN+1];
 
+    fdata_stamp_reset(entry->fdata);
     CHECK_INIT_STATE(entry, status, out);
     rsp_zaddr = req->rmr_import.rsp_zaddr;
     len = req->rmr_import.len;
@@ -1108,13 +1109,17 @@ int zhpe_user_req_RMR_IMPORT(struct io_entry *entry)
      * too much physical address space (RLIMIT_PAS?), similar to "max
      * locked memory" (RLIMIT_MEMLOCK) or "max address space" (RLIMIT_AS)?
      */
+    fdata_stamp(entry->fdata);
     rmr = do_kmalloc(sizeof(struct zhpe_rmr), GFP_KERNEL, true);
+    fdata_stamp(entry->fdata);
     if (!rmr) {
         status = -ENOMEM;
         goto out;
     }
     debug(DEBUG_MEMREG, "rmr = %px\n", rmr);
+    fdata_stamp(entry->fdata);
     unode = zhpe_remote_uuid_get(entry->fdata, uuid);
+    fdata_stamp(entry->fdata);
     if (!unode) {
         do_kfree(rmr);
         status = -EINVAL;  /* UUID must have been imported */
@@ -1155,7 +1160,9 @@ int zhpe_user_req_RMR_IMPORT(struct io_entry *entry)
           info, info->addr, zhpe_gcid_str(rmr->dgcid, gcstr, sizeof(gcstr)),
           rmr->rkey, rmr->uu, rmr->fdata);
 
+    fdata_stamp(entry->fdata);
     found = rmr_insert(rmr);
+    fdata_stamp(entry->fdata);
     if (found != rmr) {
         zhpe_uuid_remove(uu);  /* release uu reference */
         do_kfree(rmr->pte_info);
@@ -1165,7 +1172,9 @@ int zhpe_user_req_RMR_IMPORT(struct io_entry *entry)
         goto addr;
     }
     /* create requester ZMMU entries, if necessary */
+    fdata_stamp(entry->fdata);
     status = zhpe_zmmu_req_pte_alloc(rmr, &req_addr, &pg_ps);
+    fdata_stamp(entry->fdata);
     if (status < 0) {
         rmr_remove(rmr, true);
         goto out;
@@ -1190,6 +1199,7 @@ int zhpe_user_req_RMR_IMPORT(struct io_entry *entry)
  out:
     debug(DEBUG_MEMREG, "ret=%d, req_addr=0x%016llx, offset=0x%lx, pg_ps=%u\n",
           status, req_addr, offset, pg_ps);
+    fdata_stamp_dump(entry->fdata);
     return queue_io_rsp(entry, sizeof(rsp->rmr_import), status);
 }
 

@@ -901,7 +901,9 @@ int zhpe_zmmu_req_pte_alloc(struct zhpe_rmr *rmr, uint64_t *req_addr,
     struct zhpe_pte_info *this;
 
     spin_lock(&br->zmmu_lock);
+    fdata_stamp(rmr->fdata);
     sw_pg = zmmu_pg_page_size(info, pgi);
+    fdata_stamp(rmr->fdata);
     if (IS_ERR(sw_pg)) {
         ret = PTR_ERR(sw_pg);
         goto unlock;
@@ -921,7 +923,9 @@ int zhpe_zmmu_req_pte_alloc(struct zhpe_rmr *rmr, uint64_t *req_addr,
         }
     }
 
+    fdata_stamp(rmr->fdata);
     ret = zmmu_find_pte_range(info, sw_pg);
+    fdata_stamp(rmr->fdata);
     if (ret < 0)
         goto unlock;
 
@@ -933,12 +937,16 @@ int zhpe_zmmu_req_pte_alloc(struct zhpe_rmr *rmr, uint64_t *req_addr,
     debug(DEBUG_ZMMU, "pte_index=%u, zmmu_pages=%u, pg_ps=%u\n",
           info->pte_index, info->zmmu_pages, *pg_ps);
 
+    fdata_stamp(rmr->fdata);
     if (!zhpe_no_avx)
         kernel_fpu_begin();
+    fdata_stamp(rmr->fdata);
     for (sl = 0; sl < SLICES; sl++)
         _zmmu_req_pte_write_slice(&br->slice[sl], rmr, VALID, SYNC);
+    fdata_stamp(rmr->fdata);
     if (!zhpe_no_avx)
         kernel_fpu_end();
+    fdata_stamp(rmr->fdata);
     return 0;
 
  unlock:
@@ -946,6 +954,7 @@ int zhpe_zmmu_req_pte_alloc(struct zhpe_rmr *rmr, uint64_t *req_addr,
 
     debug(DEBUG_ZMMU, "ret=%d, addr=0x%llx\n", ret, info->addr);
     do_kfree(info); /* was allocated in RMR_IMPORT */
+    fdata_stamp(rmr->fdata);
 
     return ret;
 }

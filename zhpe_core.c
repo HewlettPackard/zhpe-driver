@@ -881,7 +881,7 @@ static inline struct io_entry *_io_alloc(
         goto done;
 
     ret->free = free;
-    atomic_set(&ret->count, 1);
+    ret->count = (atomic_t)ATOMIC_INIT(1);
     ret->nonblock = nonblock;
     ret->fdata = get_file_data(fdata);
     INIT_LIST_HEAD(&ret->list);
@@ -1222,7 +1222,7 @@ static void dump_vma(struct mm_struct *mm)
         if (unlikely(!nxt) || cur->vm_end != nxt->vm_start) {
             if (nxt_print) {
                 nxt_print = 0;
-                debug(DEBUG_VMA,
+                debug(DEBUG_DEBUG,
                       "0x%016lx-0x%016lx off 0x%016lx flags 0x%016lx"
                       " f/u/p/a %d/%d/%d/%d\n",
                       cur->vm_start, cur->vm_end, cur->vm_pgoff, cur->vm_flags,
@@ -1246,7 +1246,7 @@ static void dump_vma(struct mm_struct *mm)
         mis_policy = (vma_policy(cur) != vma_policy(nxt));
         mis_anon  = (cur->anon_vma != nxt->anon_vma);
 
-        debug(DEBUG_VMA,
+        debug(DEBUG_DEBUG,
               "0x%016lx-0x%016lx off 0x%016lx flags 0x%016lx"
               " f/u/p/a %d/%d/%d/%d F/c/f/u/p/a %d/%d/%d/%d/%d/%d\n",
               cur->vm_start, cur->vm_end, cur->vm_pgoff, cur->vm_flags,
@@ -1898,7 +1898,7 @@ static int zhpe_open(struct inode *inode, struct file *file)
 
     fdata->pid = task_tgid_nr(current); /* Associate this fdata with pid */
     fdata->free = file_data_free;
-    atomic_set(&fdata->count, 1);
+    fdata->count = (atomic_t)ATOMIC_INIT(1);
     spin_lock_init(&fdata->io_lock);
     init_waitqueue_head(&fdata->io_wqh);
     INIT_LIST_HEAD(&fdata->rd_list);
@@ -1913,6 +1913,7 @@ static int zhpe_open(struct inode *inode, struct file *file)
     INIT_LIST_HEAD(&fdata->zmap_list);
     spin_lock_init(&fdata->zmap_lock);
     mutex_init(&fdata->queue_mutex);
+    fdata->sidx = (atomic_t)ATOMIC_INIT(0);
     /* xdm_queues tracks what queues are owned by this file_data */
     /* Revisit Perf: what is the tradeoff of size of bitmap vs. rbtree? */
     bitmap_zero(fdata->xdm_queues, zhpe_xdm_queues_per_slice*SLICES);

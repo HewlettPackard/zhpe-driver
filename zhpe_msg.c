@@ -42,7 +42,7 @@ uint zhpe_kmsg_timeout;
 /* msg_state & msgid's are global */
 static struct rb_root msg_rbtree = RB_ROOT;
 DEFINE_SPINLOCK(zhpe_msg_rbtree_lock);
-static atomic_t msgid = ATOMIC_INIT(0);
+static atomic_t msgid = (atomic_t)ATOMIC_INIT(0);
 
 static bool msg_xdm_get_cmpl_locked(struct xdm_info *xdmi);
 static void print_cmd(const char *func, uint line,

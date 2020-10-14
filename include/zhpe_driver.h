@@ -496,7 +496,14 @@ struct zmap {
 
 /* struct bridge *BRIDGE_FROM_SLICE(struct slice *s) */
 #define BRIDGE_FROM_SLICE(s) ((struct bridge *)(((void *)((s) - (s)->id)) - \
-                                                offsetof(struct bridge, slice)))
+                               offsetof(struct bridge, slice)))
+
+struct stamp {
+    ktime_t             ktime;
+    const char          *func;
+    uint                line;
+};
+
 struct file_data {
     void                (*free)(const char *callf, uint line, void *ptr);
     atomic_t            count;
@@ -529,7 +536,47 @@ struct file_data {
     struct zhpe_umem    *big_rsp_umem;
     struct mm_struct    *mm;
     struct mmu_notifier mmun;
+    struct stamp        stamps[32];
+    ktime_t             ktime0;
+    atomic_t            sidx;
 };
+
+#define fdata_stamp(_fdata)                                     \
+do {                                                            \
+    struct file_data    *__fdata = (_fdata);                    \
+    const int           __msk = ARRAY_SIZE(__fdata->stamps) - 1;\
+    int                 __i;                                    \
+    __i = atomic_fetch_add(1, &__fdata->sidx) & __msk;          \
+    __fdata->stamps[__i].func = __func__;                       \
+    __fdata->stamps[__i].line = __LINE__;                       \
+    __fdata->stamps[__i].ktime = ktime_get();                   \
+} while (0)
+
+#define fdata_stamp_reset(_fdata)                               \
+do {                                                            \
+    struct file_data    *__fdata = (_fdata);                    \
+    atomic_set(&__fdata->sidx, 0);                              \
+    __fdata->ktime0 = ktime_get();                              \
+} while(0)
+
+#define fdata_stamp_dump(_fdata)                                \
+do {                                                            \
+    struct file_data    *__fdata = (_fdata);                    \
+    const int           __msk = ARRAY_SIZE(__fdata->stamps) - 1;\
+    int                 __e = atomic_read(&__fdata->sidx);      \
+    int                 __i = 0;                                \
+    struct stamp        *__sp;                                  \
+    ktime_t             __off;                                  \
+    if (unlikely(__e > __msk))                                  \
+        __i = __e - (__msk + 1);                                \
+    for (; __i < __e; __i++) {                                  \
+        __sp = &__fdata->stamps[__i & __msk];                   \
+        __off = ktime_sub(__sp->ktime, __fdata->ktime0);        \
+        debug(DEBUG_DEBUG, "STAMP %3d %s,%u: %llu %llu\n",      \
+              __i, __sp->func, __sp->line, ktime_to_ns(__off),  \
+              ktime_to_ns(__sp->ktime));                        \
+    }                                                           \
+} while (0)
 
 int zhpe_mmun_init(struct file_data *fdata);
 void zhpe_mmun_exit(struct file_data *fdata);

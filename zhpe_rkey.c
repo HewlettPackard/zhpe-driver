@@ -71,7 +71,7 @@ static struct rkey_info rki;
 
 void zhpe_rkey_init(void)
 {
-    atomic_set(&rki.allocated, 0);
+    rki.allocated = (atomic_t)ATOMIC_INIT(0);
     rki.rbtree = RB_ROOT;
     spin_lock_init(&rki.rk_lock);
     /* Revisit: debug */
